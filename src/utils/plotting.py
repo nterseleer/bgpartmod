@@ -43,7 +43,7 @@ phyvars = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si']
 flocsvar = ["Microflocs_nconc", "Macroflocs_nconc",
             "Micro_in_Macro_nconc", 'Floc_diam']
 flocsvar2 = ["Microflocs_nconc", "Macroflocs_nconc", "Micro_in_Macro_nconc",
-             "Macroflocs_diam",
+             "Macroflocs_diam", 'Floc_diam',
              "Macroflocs_settling_vel", "Microflocs_TOT",
              "Microflocs_massconcentration", "Micro_in_Macro_massconcentration",
              'SPMC']
@@ -388,7 +388,7 @@ def plot_results(
             fname = f"{filename}_{timestamp}.png" if fnametimestamp else filename
         else:
             fname = f"{timestamp}_model_results.png"
-        plt.savefig(f'Figs/{fname}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'../Figs/{fname}.png', dpi=300, bbox_inches='tight')
 
     return fig, axes
 
@@ -717,7 +717,7 @@ def plot_optimization_evolution(df: pd.DataFrame,
     ax.set_ylabel('Cost function (score)')
 
     if savefig and name:
-        plt.savefig(f'Figs/{name}_opt_evol{rawcost * "_raw"}.png')
+        plt.savefig(f'../Figs/{name}_opt_evol{rawcost * "_raw"}.png')
 
     return ax
 
@@ -819,7 +819,7 @@ def plot_optimization_summary(df: pd.DataFrame,
 
     if savefig:
         datestr = datetime.now().strftime('%Y%m%d_') if dateinname else ''
-        plt.savefig(f'Figs/{datestr}{name}_pars_optim{rawcost * "_raw"}.png')
+        plt.savefig(f'../Figs/{datestr}{name}_pars_optim{rawcost * "_raw"}.png')
 
     return fig
 
@@ -885,7 +885,7 @@ def create_parameter_table(df: pd.DataFrame,
 
 def save_figure(fig: plt.Figure,
                 savetime: bool = False,
-                figsdir: str = 'Figs/',
+                figsdir: str = '../Figs/',
                 figname: str = '',
                 figsdpi: int = 200) -> None:
     """Save figure with optional timestamp."""
