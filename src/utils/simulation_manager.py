@@ -461,7 +461,7 @@ def run_or_load_simulation(config_dict: Dict,
         save: Whether to save the simulation
         **model_kwargs: Additional arguments for Model constructor
     """
-    from ..core import model
+    from src.core import model
 
     if name and simulation_exists(name):
         return load_simulation(name)

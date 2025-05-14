@@ -68,7 +68,7 @@ class Flocs(BaseStateVar):
         self.source_aggregation = None
         self.numconc = None
         self.massconcentration = None
-        self.concentration = None
+        self.volconcentration = None
         self.diagnostics = None
         self.classname = 'Floc'
         self.name = name
@@ -99,6 +99,37 @@ class Flocs(BaseStateVar):
         self.time_conversion_factor = time_conversion_factor
 
         self.setup = None
+
+    def _calculate_macrofloc_diameter(self):
+        """
+        Calculate macrofloc diameter using Lee et al. (2011) fractal theory.
+        DF = NC^(1/nf) * DP where NC is microflocs per macrofloc
+
+        Returns:
+            float: Calculated macrofloc diameter
+        """
+        if self.name != 'Macroflocs':
+            return self.diam
+
+        # Calculate NC (microflocs per macrofloc)
+        if hasattr(self, 'coupled_Nt') and hasattr(self, 'coupled_Nf') and \
+                self.coupled_Nt is not None and self.coupled_Nf is not None:
+
+            # Guard against division by zero
+            if self.coupled_Nf.numconc > 0:
+                nc = self.coupled_Nt.numconc / self.coupled_Nf.numconc
+            else:
+                nc = 1.0  # Default to 1 if no macroflocs present
+
+            # Calculate diameter based on fractal theory
+            macrofloc_diam = nc ** (1 / self.nf_fractal_dim) * self.coupled_Np.diam
+
+            # Ensure minimum size is at least double the microfloc diameter
+            min_diam = 2 * self.coupled_Np.diam
+            return max(macrofloc_diam, min_diam)
+
+        # If couplings aren't established yet, return the default diameter
+        return self.diam
 
     def set_ICs(self,
                 nconc
@@ -151,13 +182,20 @@ class Flocs(BaseStateVar):
         if self.name == 'Micro_in_Macro':
             self.sinking_leak = self.coupled_Nf.sinking_leak
 
+        # Initialize macrofloc diameter if couplings are now established
+        if self.name == 'Macroflocs':
+            self.diam = self._calculate_macrofloc_diameter()
+
 
     def update_val(self, nconc,
                    debugverbose=False):
         self.numconc = nconc
+
+        # For macroflocs, recalculate diameter based on fractal theory
         if self.name == 'Macroflocs':
-            self.diam = nconc ** (1 / self.nf_fractal_dim) * self.coupled_Np.diam  # From Lee et al 2011
-        self.concentration = nconc * np.pi / 6. * self.diam * self.diam * self.diam
+            self.diam = self._calculate_macrofloc_diameter()
+
+        self.volconcentration = nconc * np.pi / 6. * self.diam * self.diam * self.diam
         
         if self.name == "Microflocs" or self.name == "Micro_in_Macro":
             self.massconcentration = nconc * np.pi / 6. * self.diam*self.diam*self.diam * self.density
@@ -253,12 +291,8 @@ class Flocs(BaseStateVar):
 
             elif self.name == 'Macroflocs':
 
-                self.diam = (self.coupled_Nt.numconc / self.coupled_Nf.numconc) ** (
-                            1 / self.nf_fractal_dim) * self.coupled_Np.diam  # From Lee et al 2011
-
                 self.settling_vel = 2000 / 9 * (1200 - 1000) * 9.81 * (self.diam * self.diam / 4) / 1e-3 * 1e-3 * 3600 * 24
 
-                # print(t, self.diam, self.settling_vel, self.flocdiam, diam)
                 self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
 
 
