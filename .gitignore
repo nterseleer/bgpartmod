@@ -10,6 +10,8 @@ src/config/varinfos.py
 src/utils/observations.py
 src/utils/optimization_old20241106.py
 src/_*main*
+venv
+venv/
 
 .idea/
 
