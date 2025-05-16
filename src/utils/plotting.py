@@ -246,12 +246,21 @@ def plot_variable(
         full_obs_data: Optional[pd.DataFrame] = None,
         model_styles: Optional[List[Dict]] = None,
         obs_kwargs: Optional[Dict] = None,
-        show_full_obs: bool = False
+        show_full_obs: bool = False,
+        add_labels: bool = True
 ) -> None:
     """Plot a single variable with model results and optional observations."""
     # Default styles
     if model_styles is None:
-        model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
+        # model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        linestyles = ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]
+        model_styles = []
+        for i in range(len(model_data_list)):
+            model_styles.append({
+                'color': colors[i % len(colors)],
+                'linestyle': linestyles[i % len(linestyles)]
+            })
 
     default_obs_kwargs = {
         'marker': 'o',
@@ -265,7 +274,7 @@ def plot_variable(
     for model_data, name, style in zip(model_data_list, model_names, model_styles):
         if var_name in model_data.columns:
             ax.plot(model_data.index, model_data[var_name],
-                    label=name, **style)
+                    label=name if add_labels else "_" + name, **style)
 
     # Plot observations if available
     if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
@@ -273,7 +282,7 @@ def plot_variable(
             full_obs_data.index,
             full_obs_data[var_name],
             color='orange',
-            label='All observations',
+            label='All observations' if add_labels else "_All observations",
             **obs_kwargs
         )
 
@@ -282,7 +291,7 @@ def plot_variable(
             merged_data.index,
             merged_data[f'{var_name}_OBS'],
             color='red',
-            label='Used observations',
+            label='Used observations' if add_labels else "_Used observations",
             **{**obs_kwargs, 's': 6}
         )
 
@@ -365,6 +374,7 @@ def plot_results(
                 full_obs_data,
                 model_styles,
                 show_full_obs=show_full_obs,
+                add_labels=(i == 0),  # Only add labels on the first subplot
                 **plot_kwargs
             )
 

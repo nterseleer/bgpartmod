@@ -29,8 +29,12 @@ class Flocs(BaseStateVar):
                  K_glue = None,
                  deltaFymax=1e-9,
 
-                 eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
-                 # value from
+                 # eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
+                 # # value from
+                 # eps_kd=2e-5,  # [m2 mg-1] Diffuse attenuation cross section of SPM with kd = ... + eps_kd * sqrt(SPM)
+                 # # value from Tian et al., 2009
+                 eps_kd = 0.066* 1e3, # m-1 (mg l-1)-1 Light attenuation due to SPM
+                 # model is in kg m-3
 
                  sinking_leak=0,
 
