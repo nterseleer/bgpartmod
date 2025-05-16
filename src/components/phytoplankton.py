@@ -308,7 +308,10 @@ class Phyto(BaseOrg):
             elif self.formulation == "Onur22":
                 self.kd = self.eps_kd * self.C + np.sum([x.eps_kd * x.C for x in self.coupled_light_attenuators])
                 if self.coupled_SPM:
+                    # print(["{} with eps {}".format(x.name, x.eps_kd) for x in self.coupled_SPM])
+                    # print(self.kd)
                     self.kd += np.sum([x.eps_kd * x.massconcentration for x in self.coupled_SPM])
+                    # print(self.kd)
 
             else:
                 self.kd = (self.setup.kb +

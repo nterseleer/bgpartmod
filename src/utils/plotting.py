@@ -17,9 +17,9 @@ from src.config import varinfos
 # Pre-defined variable groups for common plotting scenarios
 phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
             'DIP_concentration', 'DSi_concentration']
-phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_nconc",
-                      'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_nconc",
-                      'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_nconc",
+phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_numconc",
+                      'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_numconc",
+                      'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_numconc",
                       'SPMC']
 phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', ]
 phy_C_SMS = ['Phy_source_PP.C',
@@ -40,14 +40,14 @@ QNvars = ['QN', 'BacA_QN', 'BacF_QN', 'HF_QN', 'Cil_QN']
 stoichioPhy = ['Phy_QN', 'Phy_QP', 'Phy_QSi', 'CN', 'CP', 'CSi',
                'thetaC', 'CChl', 'thetaN']
 phyvars = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si']
-flocsvar = ["Microflocs_nconc", "Macroflocs_nconc",
-            "Micro_in_Macro_nconc", 'Floc_diam']
-flocsvar2 = ["Microflocs_nconc", "Macroflocs_nconc", "Micro_in_Macro_nconc",
+flocsvar = ["Microflocs_numconc", "Macroflocs_numconc",
+            "Micro_in_Macro_numconc", 'Floc_diam']
+flocsvar2 = ["Microflocs_numconc", "Macroflocs_numconc", "Micro_in_Macro_numconc",
              "Macroflocs_diam", 'Floc_diam',
              "Macroflocs_settling_vel", "Microflocs_TOT",
              "Microflocs_massconcentration", "Micro_in_Macro_massconcentration",
              'SPMC']
-flocsvar3 = ["Microflocs_nconc", "Macroflocs_nconc", "Micro_in_Macro_nconc",
+flocsvar3 = ["Microflocs_numconc", "Macroflocs_numconc", "Micro_in_Macro_numconc",
              # 'Floc_diam',
              "Macroflocs_diam", "Micro_in_Macro_concentration",
              "Macroflocs_concentration", "Microflocs_concentration",
@@ -56,10 +56,22 @@ flocsvar3 = ["Microflocs_nconc", "Macroflocs_nconc", "Micro_in_Macro_nconc",
              'Macroflocs_breaksource', 'Macroflocs_settling_loss',
              "Macroflocs_massconcentration", "Microflocs_massconcentration",
              'SPMC']
+
+flocs_tep_comprehensive = [
+    "TEPC_C", "Macroflocs_diam", "Macroflocs_settling_vel", "Macroflocs_fyflocstrength",
+    "Macroflocs_alpha_FF", "Microflocs_numconc", "Microflocs_massconcentration", "SPMC",
+    "Macroflocs_alpha_PF", "Macroflocs_numconc", "Macroflocs_massconcentration", "SPMC", #, "Microflocs_TOT",
+    "Macroflocs_alpha_PP", "Micro_in_Macro_numconc", "Micro_in_Macro_massconcentration", "Macroflocs_Ncnum"
+
+    # "Macroflocs_volconcentration",
+
+
+]
+
 flocsrelatedvars = ["Phy_C", "TEPC_C",
-                    "Microflocs_nconc", "Macroflocs_nconc",
-                    "Micro_in_Macro_nconc", 'Floc_diam']
-phyTEPflocs = ['Phy_C', 'TEPC_C', 'Macroflocs_nconc', 'Floc_diam']
+                    "Microflocs_numconc", "Macroflocs_numconc",
+                    "Micro_in_Macro_numconc", 'Floc_diam']
+phyTEPflocs = ['Phy_C', 'TEPC_C', 'Macroflocs_numconc', 'Floc_diam']
 
 phy_C_budget = {
     'sources': ['Phy_source_PP.C'],
@@ -234,12 +246,21 @@ def plot_variable(
         full_obs_data: Optional[pd.DataFrame] = None,
         model_styles: Optional[List[Dict]] = None,
         obs_kwargs: Optional[Dict] = None,
-        show_full_obs: bool = False
+        show_full_obs: bool = False,
+        add_labels: bool = True
 ) -> None:
     """Plot a single variable with model results and optional observations."""
     # Default styles
     if model_styles is None:
-        model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
+        # model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        linestyles = ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]
+        model_styles = []
+        for i in range(len(model_data_list)):
+            model_styles.append({
+                'color': colors[i % len(colors)],
+                'linestyle': linestyles[i % len(linestyles)]
+            })
 
     default_obs_kwargs = {
         'marker': 'o',
@@ -251,10 +272,9 @@ def plot_variable(
 
     # Plot each model
     for model_data, name, style in zip(model_data_list, model_names, model_styles):
-
         if var_name in model_data.columns:
             ax.plot(model_data.index, model_data[var_name],
-                    label=name, **style)
+                    label=name if add_labels else "_" + name, **style)
 
     # Plot observations if available
     if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
@@ -262,7 +282,7 @@ def plot_variable(
             full_obs_data.index,
             full_obs_data[var_name],
             color='orange',
-            label='All observations',
+            label='All observations' if add_labels else "_All observations",
             **obs_kwargs
         )
 
@@ -271,7 +291,7 @@ def plot_variable(
             merged_data.index,
             merged_data[f'{var_name}_OBS'],
             color='red',
-            label='Used observations',
+            label='Used observations' if add_labels else "_Used observations",
             **{**obs_kwargs, 's': 6}
         )
 
@@ -354,6 +374,7 @@ def plot_results(
                 full_obs_data,
                 model_styles,
                 show_full_obs=show_full_obs,
+                add_labels=(i == 0),  # Only add labels on the first subplot
                 **plot_kwargs
             )
 
@@ -379,7 +400,7 @@ def plot_results(
             fontsize=plot_kwargs.get('legend_fontsize', 8)
         )
 
-    plt.tight_layout()
+    # plt.tight_layout()
 
     # print(save, filename, os.getcwd())
     if save:

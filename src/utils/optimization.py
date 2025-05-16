@@ -440,7 +440,8 @@ class Optimization:
         model_kwargs = {
             **self.config['modkwargs'],
             'verbose': True,
-            'do_diagnostics': True
+            'do_diagnostics': True,
+            'full_diagnostics': False
         }
 
         best_model = model.Model(best_config, **model_kwargs)
