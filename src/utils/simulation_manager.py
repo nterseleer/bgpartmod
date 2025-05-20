@@ -70,8 +70,9 @@ LOG_COLUMNS = [
                   'variables',  # Model variables
                   'runtime_info',  # Additional runtime information
                   'full_name',  # Complete name with timestamp
-                  'additional_notes' # additional notes about results, simulations or other
+                  'additional_notes'  # additional notes about results, simulations or other
               ]
+
 
 def create_log_file_if_not_exist() -> bool:
     if not os.path.exists(LOG_FILE):
@@ -79,15 +80,63 @@ def create_log_file_if_not_exist() -> bool:
         df.to_csv(LOG_FILE, index=False)
 
 
-
-
 def _load_log() -> pd.DataFrame:
     """Load or create simulation log with organized columns"""
     create_log_file_if_not_exist()
     df = pd.read_csv(LOG_FILE, )
-        # Force column order and drop any extra columns
+    # Force column order and drop any extra columns
     return df.reindex(columns=LOG_COLUMNS)
 
+
+def interactive_log_additional_note_modification(simulation_name):
+
+    log_df = _load_log()
+    target_simulation_index = _get_taget_additional_note_simulation_index(log_df, simulation_name)
+
+    # avoid : FutureWarning: Setting an item of incompatible dtype is deprecated and will raise in a future error of pandas.
+    if log_df["additional_notes"].count() == 0:
+        log_df["additional_notes"] = None
+
+    additional_notes = input(
+        f'Please complete the “additional notes”  section of the simulation log for the simulation "{simulation_name}" :\n')
+
+    if pd.isna(log_df.at[target_simulation_index[0], "additional_notes"]) or not _get_interactive_yes_no_answer("Do you want to append to the previous note (yes/no), no = overwrite : "):
+        log_df.at[target_simulation_index[0], "additional_notes"] = additional_notes
+        print("\033[92mAdditional notes for '{}' successfully set !\033[0m".format(simulation_name))
+
+    else :
+        previous_notes = log_df.at[target_simulation_index[0], "additional_notes"]
+        log_df.at[target_simulation_index[0], "additional_notes"] = f'{previous_notes}\n{additional_notes}'
+        print("\033[92mAdditional notes for '{}' successfully appended !\033[0m".format(simulation_name))
+
+    log_df.to_csv(LOG_FILE, index=False)
+
+
+
+def _get_taget_additional_note_simulation_index(log_df : pd.DataFrame, simulation_name):
+
+    target_simulation_index = log_df.query(f"full_name == '{simulation_name}'").index
+    if len(target_simulation_index) > 1:
+        raise ValueError(
+            f"Multiple simulations found with full_name '{simulation_name}'. Expected a unique simulation.")
+    if len(target_simulation_index) == 0:
+        raise ValueError(
+            f"No simulations found with full_name '{simulation_name}' found in the log file.")
+
+    return target_simulation_index
+
+
+
+# yes = True, No = False
+def _get_interactive_yes_no_answer(question : str)-> bool:
+    while True:
+        user_input = input(question)
+        if user_input.lower() in ["yes", "y"]:
+            return True
+        elif user_input.lower() in ["no", "n"]:
+            return False
+        else:
+            print("Invalid input. Please enter yes/no.")
 
 
 def _generate_name(base_name: str = None) -> str:
@@ -461,7 +510,7 @@ def save_simulation(
 
     # log_df = pd.concat([log_df, new_row], ignore_index=True)
 
-    new_row.to_csv(LOG_FILE, na_rep= 'NA', mode = 'a', index=False, header=False)
+    new_row.to_csv(LOG_FILE, na_rep='NA', mode='a', index=False, header=False)
 
     return full_name
 
@@ -509,7 +558,7 @@ def run_or_load_simulation(config_dict: Dict,
             save_type == SimulationTypes.REFERENCES_SIMULATION and loaded_simulation_type != SimulationTypes.REFERENCES_SIMULATION):
         save_simulation(
             model=simulation,
-            base_name=  name if loaded_simulation_type == SimulationTypes.UNDEFINED else f're_run_of_{name}',
+            base_name=name if loaded_simulation_type == SimulationTypes.UNDEFINED else f're_run_of_{name}',
             sim_type=save_type,
             parent_simulation=parent_simulation,
             user_notes=user_notes
@@ -552,7 +601,6 @@ def load_simulation(name: str, simulation_type: SimulationTypes = SimulationType
         'name': name
     })
     return sim_data
-
 
 
 def get_saved_simulation_type(name: str) -> SimulationTypes:
@@ -730,7 +778,7 @@ def run_sensitivity(base_simulation: 'Model',
                 param_descriptions.append(f"{param_key.replace('+', '_')}={value:.3g}")
             run_name = f"sensitivity_{'_'.join(param_descriptions)}"
 
-        model_instance =  run_or_load_simulation(
+        model_instance = run_or_load_simulation(
             config_dict=new_config,
             setup=modified_setup,
             name=run_name,
