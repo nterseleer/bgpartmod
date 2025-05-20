@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-from config import config
+from Config_model import config
 from utils import plotting as plotres
 from utils import phys
 from utils import simulation_manager as sim_manager

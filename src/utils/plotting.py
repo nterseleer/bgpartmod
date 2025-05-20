@@ -12,7 +12,9 @@ import pandas as pd
 from typing import Union, List, Dict, Optional, Tuple, Any
 
 from . import functions as fns
-from src.config import varinfos
+from src.Config_model import varinfos
+
+FIGURE_PATH = os.path.join(os.getcwd(), 'Figs')
 
 # Pre-defined variable groups for common plotting scenarios
 phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
@@ -21,6 +23,13 @@ phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_nconc",
                       'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_nconc",
                       'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_nconc",
                       'SPMC']
+
+phy_TEP_lim_sink = ['Phy_C', 'Phy_Chl', 'TEPC_C', 'Phy_mmDSi',
+                    'Phy_mmNH4', 'Phy_mmNO3', 'Phy_mmDIP', "Phy_limNUT",
+                    "Phy_lim_I", 'Phy_sink_lysis.C', 'Phy_sink_mortality.C', 'Phy_sink_exudation.C',
+                    'Phy_sink_respiration.C','Phy_sink_aggregation.C', "TEP_to_PhyC_ratio", "Phy_source_PP.C"]
+
+
 phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', ]
 phy_C_SMS = ['Phy_source_PP.C',
              'Phy_sink_respiration.C', 'Phy_sink_exudation.C', 'Phy_sink_aggregation.C',
@@ -119,10 +128,10 @@ def create_comparison_plots(
         figsize: Tuple[int, int] = (10, 6)
 ) -> None:
     """
-    Create comparison plots between model results and observations.
+    Create comparison plots between model results and Observations.
 
     Args:
-        mod_obs_data: DataFrame with model results and corresponding observations
+        mod_obs_data: DataFrame with model results and corresponding Observations
         variables: List of variables to plot
         observation_data: DataFrame with observation data
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
@@ -141,7 +150,7 @@ def create_comparison_plots(
 
         is_calibrated = calibrated_vars is not None and var in calibrated_vars
 
-        # Plot all observations
+        # Plot all Observations
         plt.scatter(
             observation_data.index,
             observation_data[var],
@@ -150,12 +159,12 @@ def create_comparison_plots(
             s=6
         )
 
-        # Plot used observations
+        # Plot used Observations
         plt.scatter(
             mod_obs_data.index,
             mod_obs_data[f'{var}_OBS'],
             color='orange',
-            label='Used observations',
+            label='Used Observations',
             s=3
         )
 
@@ -236,7 +245,7 @@ def plot_variable(
         obs_kwargs: Optional[Dict] = None,
         show_full_obs: bool = False
 ) -> None:
-    """Plot a single variable with model results and optional observations."""
+    """Plot a single variable with model results and optional Observations."""
     # Default styles
     if model_styles is None:
         model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
@@ -256,13 +265,13 @@ def plot_variable(
             ax.plot(model_data.index, model_data[var_name],
                     label=name, **style)
 
-    # Plot observations if available
+    # Plot Observations if available
     if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
         ax.scatter(
             full_obs_data.index,
             full_obs_data[var_name],
             color='orange',
-            label='All observations',
+            label='All Observations',
             **obs_kwargs
         )
 
@@ -271,7 +280,7 @@ def plot_variable(
             merged_data.index,
             merged_data[f'{var_name}_OBS'],
             color='red',
-            label='Used observations',
+            label='Used Observations',
             **{**obs_kwargs, 's': 6}
         )
 
@@ -303,7 +312,7 @@ def plot_results(
         **plot_kwargs
 ) -> Tuple[plt.Figure, np.ndarray]:
     """
-    Create comprehensive plots of model results with optional observations.
+    Create comprehensive plots of model results with optional Observations.
 
     Args:
         models: Single model or list of models
@@ -388,8 +397,7 @@ def plot_results(
             fname = f"{filename}_{timestamp}.png" if fnametimestamp else filename
         else:
             fname = f"{timestamp}_model_results.png"
-        plt.savefig(f'Figs/{fname}.png', dpi=300, bbox_inches='tight')
-
+        plt.savefig(os.path.join(FIGURE_PATH, fname), dpi=300, bbox_inches='tight')
     return fig, axes
 
 

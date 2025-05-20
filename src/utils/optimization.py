@@ -18,7 +18,7 @@ from . import desolver
 from src.core import model
 
 # Constants
-BASE_DIR = '../simulations'
+BASE_DIR = '../Simulations'
 OPTIMIZATIONS_DIR = os.path.join(BASE_DIR, 'Optimizations')
 LOG_FILE = os.path.join(BASE_DIR, 'Optimizations_log.xlsx')
 
@@ -122,14 +122,14 @@ class Optimization:
             raise FileNotFoundError(f"Optimization {name} not found in {OPTIMIZATIONS_DIR}")
 
         # Load configuration
-        if not os.path.exists(instance.files['config']):
-            raise FileNotFoundError(f"Configuration file not found: {instance.files['config']}")
+        if not os.path.exists(instance.files['Config_model']):
+            raise FileNotFoundError(f"Configuration file not found: {instance.files['Config_model']}")
 
-        with open(instance.files['config'], 'rb') as f:
+        with open(instance.files['Config_model'], 'rb') as f:
             instance.config = pickle.load(f)
             instance.calibrated_vars = instance.config['calibrated_vars']
 
-        # Load observations
+        # Load Observations
         obs_path = os.path.join(instance.optdir,
                                 f"{instance.name}_observations",
                                 f"{instance.name}_observations.pkl")
@@ -161,7 +161,7 @@ class Optimization:
         # Define all file paths with correct extensions
         self.files = {
             'results': os.path.join(self.optdir, f"{self.name}_optimization_results.txt"),  # Changed from .csv
-            'config': os.path.join(self.optdir, f"{self.name}_config.pkl"),
+            'Config_model': os.path.join(self.optdir, f"{self.name}_config.pkl"),
             'best_model': os.path.join(self.optdir, f"{self.name}_best_model_dill.pkl"),
             # Added _dill to match original
             'winning_config': os.path.join(self.optdir, f"{self.name}_WINNING_CONFIG.pkl"),
@@ -204,7 +204,7 @@ class Optimization:
 
     def _save_observations(self):
         """Save observation data and metadata."""
-        # Create observations directory with optimization name prefix
+        # Create Observations directory with optimization name prefix
         obs_dir = os.path.join(self.optdir, f"{self.name}_observations")
         os.makedirs(obs_dir, exist_ok=True)
 

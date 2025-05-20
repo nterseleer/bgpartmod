@@ -7,7 +7,7 @@ from typing import Dict
 from src.utils import functions as fns
 
 # Get the project root directory (where the Observations symlink is)
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = os.path.join(PROJECT_ROOT, 'Observations/')
 
 class Obs:

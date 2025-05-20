@@ -2,7 +2,7 @@ import numpy as np
 
 from ..core.base import BaseOrg, Elms
 from ..utils import functions as fns
-from src.config import varinfos
+from src.Config_model import varinfos
 
 
 class Detritus(BaseOrg):

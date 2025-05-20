@@ -1,6 +1,6 @@
 
 """
-Physical setup configuration for BGC model simulations.
+Physical setup configuration for BGC model Simulations.
 Defines the physical and computational environment for model runs.
 """
 
@@ -20,6 +20,25 @@ DEFAULT_SETUPS = {
         'T': 10.,
         'I': 0.5,  # 115*3600.*24
         'light_prop': 14./24.,
+
+    },
+    'youri_high': {
+        'T': 18.,
+        'PARfromfile' : False,
+        'I' : 38.394 * 86400,
+        'light_prop': 12./24.,
+    },
+    'youri_medium': {
+        'T': 4.,
+        'PARfromfile': False,
+        'I': 12.798 * 86400,
+        'light_prop': 12. / 24.,
+    },
+    'youri_low': {
+        'T': 12.,
+        'PARfromfile': False,
+        'I': 4.266 * 86400,
+        'light_prop': 12. / 24.,
     }
 }
 
@@ -34,7 +53,7 @@ class PhysicalConstants:
 
 class Setup:
     """
-    Physical and computational setup for BGC model simulations.
+    Physical and computational setup for BGC model Simulations.
 
     Attributes are organized into categories:
     - Time settings: control simulation timespan and steps
