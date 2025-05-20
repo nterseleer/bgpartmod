@@ -685,7 +685,7 @@ def run_sensitivity(base_simulation: 'Model',
         updates = parse_parameter_changes(parameter_changes)
         new_config = fns.deep_update(base_simulation.config.copy(), updates)
 
-        # Generate a default name if none provided
+        # Generate a descriptive name if none provided
         run_name = name
         if run_name is None:
             # Create a descriptive name based on the parameters and their values
@@ -694,7 +694,7 @@ def run_sensitivity(base_simulation: 'Model',
                 param_descriptions.append(f"{param_key.replace('+', '_')}={value:.3g}")
             run_name = f"sensitivity_{'_'.join(param_descriptions)}"
 
-        return run_or_load_simulation(
+        model_instance =  run_or_load_simulation(
             config_dict=new_config,
             setup=modified_setup,
             name=run_name,
@@ -703,6 +703,10 @@ def run_sensitivity(base_simulation: 'Model',
             save=save,
             **kwargs
         )
+
+        model_instance.name = run_name
+
+        return model_instance
 
     # Batch sensitivity run
     # Find the parameter with multiple values
