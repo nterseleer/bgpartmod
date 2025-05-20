@@ -24,7 +24,7 @@ BGPART_ROOT = os.getcwd()
 SIMULATION_DIR = os.path.join(BGPART_ROOT, 'Simulations')
 MODEL_RUNS_DIR = os.path.join(SIMULATION_DIR, 'Model_runs')
 REFERENCES_SIMULATION_DIR = os.path.join(SIMULATION_DIR, 'References_simulations')
-LOG_FILE = os.path.join(SIMULATION_DIR, 'Simulations_log.xlsx')
+LOG_FILE = os.path.join(SIMULATION_DIR, 'Simulations_log.csv')
 
 
 class SimulationTypes(Enum):
@@ -69,18 +69,25 @@ LOG_COLUMNS = [
                   'config_components',  # Detailed component list as JSON
                   'variables',  # Model variables
                   'runtime_info',  # Additional runtime information
-                  'full_name'  # Complete name with timestamp
+                  'full_name',  # Complete name with timestamp
+                  'additional_notes' # additional notes about results, simulations or other
               ]
+
+def create_log_file_if_not_exist() -> bool:
+    if not os.path.exists(LOG_FILE):
+        df = pd.DataFrame(columns=LOG_COLUMNS)
+        df.to_csv(LOG_FILE, index=False)
+
+
 
 
 def _load_log() -> pd.DataFrame:
     """Load or create simulation log with organized columns"""
-    if os.path.exists(LOG_FILE):
-        df = pd.read_excel(LOG_FILE)
+    create_log_file_if_not_exist()
+    df = pd.read_csv(LOG_FILE, )
         # Force column order and drop any extra columns
-        return df.reindex(columns=LOG_COLUMNS)
+    return df.reindex(columns=LOG_COLUMNS)
 
-    return pd.DataFrame(columns=LOG_COLUMNS)
 
 
 def _generate_name(base_name: str = None) -> str:
@@ -449,10 +456,12 @@ def save_simulation(
             dill.dump(model, f)
 
     # Update log with strict column order
-    log_df = _load_log()
+    create_log_file_if_not_exist()
     new_row = pd.DataFrame([{col: log_entry.get(col, '') for col in LOG_COLUMNS}])
-    log_df = pd.concat([log_df, new_row], ignore_index=True)
-    log_df.to_excel(LOG_FILE, index=False)
+
+    # log_df = pd.concat([log_df, new_row], ignore_index=True)
+
+    new_row.to_csv(LOG_FILE, na_rep= 'NA', mode = 'a', index=False, header=False)
 
     return full_name
 
