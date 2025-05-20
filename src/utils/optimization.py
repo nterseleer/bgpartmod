@@ -122,10 +122,10 @@ class Optimization:
             raise FileNotFoundError(f"Optimization {name} not found in {OPTIMIZATIONS_DIR}")
 
         # Load configuration
-        if not os.path.exists(instance.files['Config_model']):
-            raise FileNotFoundError(f"Configuration file not found: {instance.files['Config_model']}")
+        if not os.path.exists(instance.files['config']):
+            raise FileNotFoundError(f"Configuration file not found: {instance.files['config']}")
 
-        with open(instance.files['Config_model'], 'rb') as f:
+        with open(instance.files['config'], 'rb') as f:
             instance.config = pickle.load(f)
             instance.calibrated_vars = instance.config['calibrated_vars']
 
@@ -161,7 +161,7 @@ class Optimization:
         # Define all file paths with correct extensions
         self.files = {
             'results': os.path.join(self.optdir, f"{self.name}_optimization_results.txt"),  # Changed from .csv
-            'Config_model': os.path.join(self.optdir, f"{self.name}_config.pkl"),
+            'config': os.path.join(self.optdir, f"{self.name}_config.pkl"),
             'best_model': os.path.join(self.optdir, f"{self.name}_best_model_dill.pkl"),
             # Added _dill to match original
             'winning_config': os.path.join(self.optdir, f"{self.name}_WINNING_CONFIG.pkl"),

@@ -55,7 +55,7 @@ LOG_COLUMNS = [
                   'short_name',  # Name without timestamp
                   'user_notes',  # User provided notes
                   'parent_simulation',  # Parent simulation name if any
-                  'configuration_diff',  # Differences from parent Config_model
+                  'configuration_diff',  # Differences from parent config
                   'setup_diff',  # Differences from parent setup
                   'status',  # Simulation status
                   'setup_start_date',  # Simulation start date
@@ -165,7 +165,7 @@ def _get_setup_diff(setup1, setup2) -> str:
 
 
 def _summarize_config(config: Dict) -> Dict:
-    """Create detailed Config_model summary for logging"""
+    """Create detailed config summary for logging"""
     components = {}
     for comp_name, cfg in config.items():
         if comp_name == 'formulation':
@@ -268,7 +268,7 @@ def _get_config_diff(config1: Dict, config2: Dict) -> str:
 
 
 def _sanitize_config(config):
-    """Remove problematic keys from the Config_model"""
+    """Remove problematic keys from the config"""
     result = {}
     for k, v in config.items():
         if k == 'formulation':
@@ -321,7 +321,7 @@ def _add_change(diff_dict, component, change):
 
 
 def _get_value_from_path(config, path):
-    """Get a value from a Config_model using a DeepDiff path"""
+    """Get a value from a config using a DeepDiff path"""
     # Convert path like "root['component']['parameters']['param']" to value
     parts = re.findall(r"\['([^']+)'\]", path)
     if not parts or parts[0] != 'root':
@@ -402,7 +402,7 @@ def save_simulation(
     if parent_simulation:
         try:
             parent_data = load_simulation(parent_simulation)
-            parent_config = getattr(parent_data, 'Config_model', None)
+            parent_config = getattr(parent_data, 'config', None)
             parent_setup = getattr(parent_data, 'setup', None)
         except Exception as e:
             print(f"Warning: Could not load parent simulation: {e}")
@@ -434,9 +434,9 @@ def save_simulation(
     # Save remaining files
     fns.save_human_readable_config(
         model.config,
-        os.path.join(sim_dir, 'Config_model.json')
+        os.path.join(sim_dir, 'config.json')
     )
-    with open(os.path.join(sim_dir, 'Config_model.pkl'), 'wb') as f:
+    with open(os.path.join(sim_dir, 'config.pkl'), 'wb') as f:
         pickle.dump(model.config, f)
 
     if save_full or sim_type == SimulationTypes.REFERENCES_SIMULATION:
@@ -487,7 +487,7 @@ def run_or_load_simulation(config_dict: Dict,
         case SimulationTypes.UNDEFINED:
             simulation = model.Model(config_dict, setup, name=name, **model_kwargs)
         case SimulationTypes.MODEL_RUN:
-            simulation = model.Model(loaded_simulation.Config_model, loaded_simulation.setup,
+            simulation = model.Model(loaded_simulation.config, loaded_simulation.setup,
                                      name=name)  # TODO: introduce model_kwarg
         case SimulationTypes.REFERENCES_SIMULATION:
             simulation = loaded_simulation
@@ -500,7 +500,7 @@ def run_or_load_simulation(config_dict: Dict,
             save_type == SimulationTypes.REFERENCES_SIMULATION and loaded_simulation_type != SimulationTypes.REFERENCES_SIMULATION):
         save_simulation(
             model=simulation,
-            base_name=f're_run_of_{name}',
+            base_name=  name if loaded_simulation_type == SimulationTypes.UNDEFINED else f're_run_of_{name}',
             sim_type=save_type,
             parent_simulation=parent_simulation,
             user_notes=user_notes
@@ -534,11 +534,11 @@ def load_simulation(name: str, simulation_type: SimulationTypes = SimulationType
     with open(os.path.join(sim_dir, 'setup.pkl'), 'rb') as f:
         setup = pickle.load(f)
 
-    with open(os.path.join(sim_dir, 'Config_model.pkl'), 'rb') as f:
+    with open(os.path.join(sim_dir, 'config.pkl'), 'rb') as f:
         config = pickle.load(f)
 
     sim_data = type('SimulationData', (), {
-        'Config_model': config,
+        'config': config,
         'setup': setup,
         'name': name
     })
