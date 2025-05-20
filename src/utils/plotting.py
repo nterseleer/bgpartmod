@@ -201,17 +201,28 @@ def prepare_model_obs_data(
     # Extract DataFrames and names
     model_data_list = []
     model_names = []
-    for model in models:
+    name_counts = {}
+
+    for i, model in enumerate(models):
         if isinstance(model, pd.DataFrame):
             model_data = model.copy()
-            name = 'Model'
+            name = f'Model {i+1}'
         else:
             model_data = model.df.copy()
-            name = getattr(model, 'name', 'Model')
+            name = getattr(model, 'name', f'Model {i+1}')
+
+            # Handle duplicate names by adding a counter
+            if name in name_counts:
+                name_counts[name] += 1
+                name = f"{name} ({name_counts[name]})"
+            else:
+                name_counts[name] = 1
+
 
         if climatology and model_data.index.name != 'julian_day':
             model_data['julian_day'] = model_data.index.dayofyear
             model_data = model_data.groupby('julian_day').mean()
+
         model_data_list.append(model_data)
         model_names.append(f"{name} {len(model_names) + 1}" if name == 'Model' else name)
 
@@ -391,7 +402,16 @@ def plot_results(
 
     # Add global legend if needed
     if plot_kwargs.get('add_legend', True):
-        handles, labels = axes[0].get_legend_handles_labels()
+        handles, labels = [], []
+        # Collect unique handles and labels from all subplots
+        for ax in axes:
+            h, l = ax.get_legend_handles_labels()
+            for handle, label in zip(h, l):
+                if label not in labels:  # Only add unique labels
+                    handles.append(handle)
+                    labels.append(label)
+
+        # Create a single legend for the figure
         fig.legend(
             handles,
             labels,
@@ -399,6 +419,15 @@ def plot_results(
             bbox_to_anchor=(0.98, 0.5),
             fontsize=plot_kwargs.get('legend_fontsize', 8)
         )
+    # if plot_kwargs.get('add_legend', True):
+    #     handles, labels = axes[0].get_legend_handles_labels()
+    #     fig.legend(
+    #         handles,
+    #         labels,
+    #         loc='center right',
+    #         bbox_to_anchor=(0.98, 0.5),
+    #         fontsize=plot_kwargs.get('legend_fontsize', 8)
+    #     )
 
     # plt.tight_layout()
 
