@@ -477,7 +477,7 @@ def run_or_load_simulation(config_dict: Dict,
         MODEL_RUN save as a model_run simulation. If the save_type from the current simulation is different
         **model_kwargs: Additional arguments for Model constructor
     """
-    from ..core import model
+    from src.core import model
 
     loaded_simulation_type = get_saved_simulation_type(name)
     loaded_simulation = None if loaded_simulation_type == SimulationTypes.UNDEFINED else \
@@ -712,15 +712,28 @@ def run_sensitivity(base_simulation: 'Model',
         updates = parse_parameter_changes(parameter_changes)
         new_config = fns.deep_update(base_simulation.config.copy(), updates)
 
-        return run_or_load_simulation(
+        # Generate a descriptive name if none provided
+        run_name = name
+        if run_name is None:
+            # Create a descriptive name based on the parameters and their values
+            param_descriptions = []
+            for param_key, value in parameter_changes.items():
+                param_descriptions.append(f"{param_key.replace('+', '_')}={value:.3g}")
+            run_name = f"sensitivity_{'_'.join(param_descriptions)}"
+
+        model_instance =  run_or_load_simulation(
             config_dict=new_config,
             setup=modified_setup,
-            name=name,
+            name=run_name,
             parent_simulation=base_simulation.name if hasattr(base_simulation, 'name') else None,
             user_notes=user_notes,
             save=save,
             **kwargs
         )
+
+        model_instance.name = run_name
+
+        return model_instance
 
     # Batch sensitivity run
     # Find the parameter with multiple values

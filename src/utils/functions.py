@@ -231,6 +231,33 @@ def update_config(dconf, parnames, parameters):
         newdict[keymod]['parameters'][par] = parval
     return deep_update(dconf, newdict)
 
+
+def update_config_from_optimization(base_config: Dict, best_parameters: Dict) -> Dict:
+    """
+    Update configuration with optimized parameters from an optimization result.
+
+    Args:
+        base_config: Base configuration dictionary
+        best_parameters: Dictionary of optimized parameters (from optimization.summary['best_parameters'])
+
+    Returns:
+        Updated configuration dictionary
+    """
+    # Transform flat parameter dictionary into nested structure for deep_update
+    updates = {}
+    for param_key, value in best_parameters.items():
+        if '+' not in param_key:
+            continue  # Skip non-standard parameter keys
+
+        component, param = param_key.split('+')
+        if component not in updates:
+            updates[component] = {'parameters': {}}
+        updates[component]['parameters'][param] = value
+
+    # Apply the updates to the base configuration
+    return deep_update(base_config.copy(), updates)
+
+
 # From https://github.com/samuelcolvin/pydantic/blob/fd2991fe6a73819b48c906e3c3274e8e47d0f761/pydantic/utils.py#L200
 # (initially from https://stackoverflow.com/questions/3232943/update-value-of-a-nested-dictionary-of-varying-depth)
 from typing import (Any, Dict, TypeVar)

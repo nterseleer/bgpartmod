@@ -19,9 +19,9 @@ FIGURE_PATH = os.path.join(os.getcwd(), 'Figs')
 # Pre-defined variable groups for common plotting scenarios
 phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
             'DIP_concentration', 'DSi_concentration']
-phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_nconc",
-                      'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_nconc",
-                      'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_nconc",
+phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_numconc",
+                      'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_numconc",
+                      'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_numconc",
                       'SPMC']
 
 phy_TEP_lim_sink = ['Phy_C', 'Phy_Chl', 'TEPC_C', 'Phy_mmDSi',
@@ -49,14 +49,14 @@ QNvars = ['QN', 'BacA_QN', 'BacF_QN', 'HF_QN', 'Cil_QN']
 stoichioPhy = ['Phy_QN', 'Phy_QP', 'Phy_QSi', 'CN', 'CP', 'CSi',
                'thetaC', 'CChl', 'thetaN']
 phyvars = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si']
-flocsvar = ["Microflocs_nconc", "Macroflocs_nconc",
-            "Micro_in_Macro_nconc", 'Floc_diam']
-flocsvar2 = ["Microflocs_nconc", "Macroflocs_nconc", "Micro_in_Macro_nconc",
-             "Macroflocs_diam",
+flocsvar = ["Microflocs_numconc", "Macroflocs_numconc",
+            "Micro_in_Macro_numconc", 'Floc_diam']
+flocsvar2 = ["Microflocs_numconc", "Macroflocs_numconc", "Micro_in_Macro_numconc",
+             "Macroflocs_diam", 'Floc_diam',
              "Macroflocs_settling_vel", "Microflocs_TOT",
              "Microflocs_massconcentration", "Micro_in_Macro_massconcentration",
              'SPMC']
-flocsvar3 = ["Microflocs_nconc", "Macroflocs_nconc", "Micro_in_Macro_nconc",
+flocsvar3 = ["Microflocs_numconc", "Macroflocs_numconc", "Micro_in_Macro_numconc",
              # 'Floc_diam',
              "Macroflocs_diam", "Micro_in_Macro_concentration",
              "Macroflocs_concentration", "Microflocs_concentration",
@@ -65,10 +65,22 @@ flocsvar3 = ["Microflocs_nconc", "Macroflocs_nconc", "Micro_in_Macro_nconc",
              'Macroflocs_breaksource', 'Macroflocs_settling_loss',
              "Macroflocs_massconcentration", "Microflocs_massconcentration",
              'SPMC']
+
+flocs_tep_comprehensive = [
+    "TEPC_C", "Macroflocs_diam", "Macroflocs_settling_vel", "Macroflocs_fyflocstrength",
+    "Macroflocs_alpha_FF", "Microflocs_numconc", "Microflocs_massconcentration", "SPMC",
+    "Macroflocs_alpha_PF", "Macroflocs_numconc", "Macroflocs_massconcentration", "SPMC", #, "Microflocs_TOT",
+    "Macroflocs_alpha_PP", "Micro_in_Macro_numconc", "Micro_in_Macro_massconcentration", "Macroflocs_Ncnum"
+
+    # "Macroflocs_volconcentration",
+
+
+]
+
 flocsrelatedvars = ["Phy_C", "TEPC_C",
-                    "Microflocs_nconc", "Macroflocs_nconc",
-                    "Micro_in_Macro_nconc", 'Floc_diam']
-phyTEPflocs = ['Phy_C', 'TEPC_C', 'Macroflocs_nconc', 'Floc_diam']
+                    "Microflocs_numconc", "Macroflocs_numconc",
+                    "Micro_in_Macro_numconc", 'Floc_diam']
+phyTEPflocs = ['Phy_C', 'TEPC_C', 'Macroflocs_numconc', 'Floc_diam']
 
 phy_C_budget = {
     'sources': ['Phy_source_PP.C'],
@@ -128,10 +140,10 @@ def create_comparison_plots(
         figsize: Tuple[int, int] = (10, 6)
 ) -> None:
     """
-    Create comparison plots between model results and Observations.
+    Create comparison plots between model results and observations.
 
     Args:
-        mod_obs_data: DataFrame with model results and corresponding Observations
+        mod_obs_data: DataFrame with model results and corresponding observations
         variables: List of variables to plot
         observation_data: DataFrame with observation data
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
@@ -150,7 +162,7 @@ def create_comparison_plots(
 
         is_calibrated = calibrated_vars is not None and var in calibrated_vars
 
-        # Plot all Observations
+        # Plot all observations
         plt.scatter(
             observation_data.index,
             observation_data[var],
@@ -159,12 +171,12 @@ def create_comparison_plots(
             s=6
         )
 
-        # Plot used Observations
+        # Plot used observations
         plt.scatter(
             mod_obs_data.index,
             mod_obs_data[f'{var}_OBS'],
             color='orange',
-            label='Used Observations',
+            label='Used observations',
             s=3
         )
 
@@ -198,17 +210,28 @@ def prepare_model_obs_data(
     # Extract DataFrames and names
     model_data_list = []
     model_names = []
-    for model in models:
+    name_counts = {}
+
+    for i, model in enumerate(models):
         if isinstance(model, pd.DataFrame):
             model_data = model.copy()
-            name = 'Model'
+            name = f'Model {i+1}'
         else:
             model_data = model.df.copy()
-            name = getattr(model, 'name', 'Model')
+            name = getattr(model, 'name', f'Model {i+1}')
+
+            # Handle duplicate names by adding a counter
+            if name in name_counts:
+                name_counts[name] += 1
+                name = f"{name} ({name_counts[name]})"
+            else:
+                name_counts[name] = 1
+
 
         if climatology and model_data.index.name != 'julian_day':
             model_data['julian_day'] = model_data.index.dayofyear
             model_data = model_data.groupby('julian_day').mean()
+
         model_data_list.append(model_data)
         model_names.append(f"{name} {len(model_names) + 1}" if name == 'Model' else name)
 
@@ -243,12 +266,21 @@ def plot_variable(
         full_obs_data: Optional[pd.DataFrame] = None,
         model_styles: Optional[List[Dict]] = None,
         obs_kwargs: Optional[Dict] = None,
-        show_full_obs: bool = False
+        show_full_obs: bool = False,
+        add_labels: bool = True
 ) -> None:
-    """Plot a single variable with model results and optional Observations."""
+    """Plot a single variable with model results and optional observations."""
     # Default styles
     if model_styles is None:
-        model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
+        # model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        linestyles = ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]
+        model_styles = []
+        for i in range(len(model_data_list)):
+            model_styles.append({
+                'color': colors[i % len(colors)],
+                'linestyle': linestyles[i % len(linestyles)]
+            })
 
     default_obs_kwargs = {
         'marker': 'o',
@@ -260,18 +292,17 @@ def plot_variable(
 
     # Plot each model
     for model_data, name, style in zip(model_data_list, model_names, model_styles):
-
         if var_name in model_data.columns:
             ax.plot(model_data.index, model_data[var_name],
-                    label=name, **style)
+                    label=name if add_labels else "_" + name, **style)
 
-    # Plot Observations if available
+    # Plot observations if available
     if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
         ax.scatter(
             full_obs_data.index,
             full_obs_data[var_name],
             color='orange',
-            label='All Observations',
+            label='All observations' if add_labels else "_All observations",
             **obs_kwargs
         )
 
@@ -280,7 +311,7 @@ def plot_variable(
             merged_data.index,
             merged_data[f'{var_name}_OBS'],
             color='red',
-            label='Used Observations',
+            label='Used observations' if add_labels else "_Used observations",
             **{**obs_kwargs, 's': 6}
         )
 
@@ -312,7 +343,7 @@ def plot_results(
         **plot_kwargs
 ) -> Tuple[plt.Figure, np.ndarray]:
     """
-    Create comprehensive plots of model results with optional Observations.
+    Create comprehensive plots of model results with optional observations.
 
     Args:
         models: Single model or list of models
@@ -363,6 +394,7 @@ def plot_results(
                 full_obs_data,
                 model_styles,
                 show_full_obs=show_full_obs,
+                add_labels=(i == 0),  # Only add labels on the first subplot
                 **plot_kwargs
             )
 
@@ -379,7 +411,16 @@ def plot_results(
 
     # Add global legend if needed
     if plot_kwargs.get('add_legend', True):
-        handles, labels = axes[0].get_legend_handles_labels()
+        handles, labels = [], []
+        # Collect unique handles and labels from all subplots
+        for ax in axes:
+            h, l = ax.get_legend_handles_labels()
+            for handle, label in zip(h, l):
+                if label not in labels:  # Only add unique labels
+                    handles.append(handle)
+                    labels.append(label)
+
+        # Create a single legend for the figure
         fig.legend(
             handles,
             labels,
@@ -387,8 +428,17 @@ def plot_results(
             bbox_to_anchor=(0.98, 0.5),
             fontsize=plot_kwargs.get('legend_fontsize', 8)
         )
+    # if plot_kwargs.get('add_legend', True):
+    #     handles, labels = axes[0].get_legend_handles_labels()
+    #     fig.legend(
+    #         handles,
+    #         labels,
+    #         loc='center right',
+    #         bbox_to_anchor=(0.98, 0.5),
+    #         fontsize=plot_kwargs.get('legend_fontsize', 8)
+    #     )
 
-    plt.tight_layout()
+    # plt.tight_layout()
 
     # print(save, filename, os.getcwd())
     if save:
@@ -398,6 +448,7 @@ def plot_results(
         else:
             fname = f"{timestamp}_model_results.png"
         plt.savefig(os.path.join(FIGURE_PATH, fname), dpi=300, bbox_inches='tight')
+
     return fig, axes
 
 
@@ -725,7 +776,8 @@ def plot_optimization_evolution(df: pd.DataFrame,
     ax.set_ylabel('Cost function (score)')
 
     if savefig and name:
-        plt.savefig(f'Figs/{name}_opt_evol{rawcost * "_raw"}.png')
+        fig_base_path = os.path.join(FIGURE_PATH, name)
+        plt.savefig(f'{fig_base_path}_opt_evol{rawcost * "_raw"}.png')
 
     return ax
 
@@ -827,7 +879,8 @@ def plot_optimization_summary(df: pd.DataFrame,
 
     if savefig:
         datestr = datetime.now().strftime('%Y%m%d_') if dateinname else ''
-        plt.savefig(f'Figs/{datestr}{name}_pars_optim{rawcost * "_raw"}.png')
+        fig_base_path = os.path.join(FIGURE_PATH, f'{datestr}{name}')
+        plt.savefig(f'{fig_base_path}_pars_optim{rawcost * "_raw"}.png')
 
     return fig
 
@@ -890,10 +943,10 @@ def create_parameter_table(df: pd.DataFrame,
     return fig
 
 
-
+#TODO Refactor (or delete ?) this function with os.join
 def save_figure(fig: plt.Figure,
                 savetime: bool = False,
-                figsdir: str = 'Figs/',
+                figsdir: str = os.path.join(FIGURE_PATH, ''),
                 figname: str = '',
                 figsdpi: int = 200) -> None:
     """Save figure with optional timestamp."""
