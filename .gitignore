@@ -4,6 +4,7 @@ Observations
 Simulations/
 tests/
 src/bgc/
+src/Config_model/_*config*.py
 src/Config_model/config.py
 src/Config_model/obsinfos.py
 src/Config_model/varinfos.py
@@ -11,6 +12,9 @@ src/utils/observations.py
 src/utils/obsinfos.py
 src/utils/optimization_old20241106.py
 src/_*main*
+_requirements.txt
+_*requirements.txt
+
 .venv
 .venv/
 

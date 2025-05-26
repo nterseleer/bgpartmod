@@ -3,12 +3,14 @@
 Physical setup configuration for BGC model Simulations.
 Defines the physical and computational environment for model runs.
 """
+import os.path
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Set, Union
+from src.Config_system import path_config as path_cfg
 
 DEFAULT_SETUPS = {
     'schartau07': {
@@ -223,7 +225,7 @@ class Setup:
 
     def _load_PAR_from_file(self, plotPAR: bool) -> pd.DataFrame:
         """Load PAR data from file."""
-        solrad_clim = pd.read_csv('../data/solrad_clim.dat', sep='\s+',
+        solrad_clim = pd.read_csv(os.path.join(path_cfg.DATA_DIR ,'solrad_clim.dat'), sep='\s+',
                                   header=None,
                                   names=['DOY', 'Hour', 'PAR1', 'PAR2', 'PAR3'])
 

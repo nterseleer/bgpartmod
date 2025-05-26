@@ -16,15 +16,10 @@ from deepdiff import DeepDiff
 from typing import Optional, List, Dict, Any, Union
 
 from src.utils import functions as fns
+from src.Config_system import path_config as path_cfg
 
 # Constants
 
-
-BGPART_ROOT = os.getcwd()
-SIMULATION_DIR = os.path.join(BGPART_ROOT, 'Simulations')
-MODEL_RUNS_DIR = os.path.join(SIMULATION_DIR, 'Model_runs')
-REFERENCES_SIMULATION_DIR = os.path.join(SIMULATION_DIR, 'References_simulations')
-LOG_FILE = os.path.join(SIMULATION_DIR, 'Simulations_log.csv')
 
 
 class SimulationTypes(Enum):
@@ -34,7 +29,7 @@ class SimulationTypes(Enum):
 
 
 # Create necessary directories
-for directory in [SIMULATION_DIR, MODEL_RUNS_DIR, REFERENCES_SIMULATION_DIR]:
+for directory in [path_cfg.SIMULATION_DIR, path_cfg.MODEL_RUNS_DIR, path_cfg.REFERENCES_SIMULATION_DIR]:
     if not os.path.exists(directory):
         os.makedirs(directory)
 # Setup parameters to track in logs
@@ -75,15 +70,15 @@ LOG_COLUMNS = [
 
 
 def create_log_file_if_not_exist() -> bool:
-    if not os.path.exists(LOG_FILE):
+    if not os.path.exists(path_cfg.LOG_FILE):
         df = pd.DataFrame(columns=LOG_COLUMNS)
-        df.to_csv(LOG_FILE, index=False)
+        df.to_csv(path_cfg.LOG_FILE, index=False)
 
 
 def _load_log() -> pd.DataFrame:
     """Load or create simulation log with organized columns"""
     create_log_file_if_not_exist()
-    df = pd.read_csv(LOG_FILE, )
+    df = pd.read_csv(path_cfg.LOG_FILE, )
     # Force column order and drop any extra columns
     return df.reindex(columns=LOG_COLUMNS)
 
@@ -109,7 +104,7 @@ def interactive_log_additional_note_modification(simulation_name):
         log_df.at[target_simulation_index[0], "additional_notes"] = f'{previous_notes}\n{additional_notes}'
         print("\033[92mAdditional notes for '{}' successfully appended !\033[0m".format(simulation_name))
 
-    log_df.to_csv(LOG_FILE, index=False)
+    log_df.to_csv(path_cfg.LOG_FILE, index=False)
 
 
 
@@ -447,7 +442,7 @@ def save_simulation(
         '%Y%m%d_%H%M%S')
 
     sim_dir = os.path.join(
-        REFERENCES_SIMULATION_DIR if sim_type == SimulationTypes.REFERENCES_SIMULATION else MODEL_RUNS_DIR,
+        path_cfg.REFERENCES_SIMULATION_DIR if sim_type == SimulationTypes.REFERENCES_SIMULATION else path_cfg.MODEL_RUNS_DIR,
         full_name
     )
     os.makedirs(sim_dir, exist_ok=True)
@@ -510,7 +505,7 @@ def save_simulation(
 
     # log_df = pd.concat([log_df, new_row], ignore_index=True)
 
-    new_row.to_csv(LOG_FILE, na_rep='NA', mode='a', index=False, header=False)
+    new_row.to_csv(path_cfg.LOG_FILE, na_rep='NA', mode='a', index=False, header=False)
 
     return full_name
 
@@ -577,7 +572,7 @@ def load_simulation(name: str, simulation_type: SimulationTypes = SimulationType
     """
 
     if simulation_type == SimulationTypes.REFERENCES_SIMULATION:
-        ref_dir = os.path.join(REFERENCES_SIMULATION_DIR, name)
+        ref_dir = os.path.join(path_cfg.REFERENCES_SIMULATION_DIR, name)
         if os.path.exists(ref_dir):
             model_path = os.path.join(ref_dir, 'model.pkl')
             if not os.path.exists(model_path):
@@ -585,7 +580,7 @@ def load_simulation(name: str, simulation_type: SimulationTypes = SimulationType
             with open(model_path, 'rb') as f:
                 return dill.load(f)
 
-    sim_dir = os.path.join(MODEL_RUNS_DIR, name)
+    sim_dir = os.path.join(path_cfg.MODEL_RUNS_DIR, name)
     if not os.path.exists(sim_dir):
         raise FileNotFoundError(f"Simulation '{name}' not found")
 
@@ -615,8 +610,8 @@ def get_saved_simulation_type(name: str) -> SimulationTypes:
                         or UNDEFINED if not found
     """
     simulation_dirs = {
-        SimulationTypes.REFERENCES_SIMULATION: REFERENCES_SIMULATION_DIR,
-        SimulationTypes.MODEL_RUN: MODEL_RUNS_DIR
+        SimulationTypes.REFERENCES_SIMULATION: path_cfg.REFERENCES_SIMULATION_DIR,
+        SimulationTypes.MODEL_RUN: path_cfg.MODEL_RUNS_DIR
     }
 
     for sim_type, sim_directory in simulation_dirs.items():
@@ -654,8 +649,8 @@ def cleanup_old_simulations(days_threshold: int = 30):
     """Clean up old regular Simulations (not references) beyond threshold"""
     current_time = datetime.now()
 
-    for sim in os.listdir(MODEL_RUNS_DIR):
-        sim_path = os.path.join(MODEL_RUNS_DIR, sim)
+    for sim in os.listdir(path_cfg.MODEL_RUNS_DIR):
+        sim_path = os.path.join(path_cfg.MODEL_RUNS_DIR, sim)
         if not os.path.isdir(sim_path):
             continue
 
