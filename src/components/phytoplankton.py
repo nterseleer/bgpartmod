@@ -132,6 +132,10 @@ class Phyto(BaseOrg):
         self.limNUT = None
         self.limT = None
         self.fnut = None
+        self.mmNH4 = None
+        self.mmNO3 = None
+        self.mmDIP = None
+        self.mmDSi = None
         self.limI = None
 
 
@@ -362,15 +366,15 @@ class Phyto(BaseOrg):
             elif self.formulation == 'Onur22':
                 wNH4 = self.coupled_NH4.concentration / self.KNH4
                 wNO3 = self.coupled_NO3.concentration / self.KNO3
-                mmNH4 = wNH4 / (1 + wNH4 + wNO3)
-                mmNO3 = wNO3 / (1 + wNH4 + wNO3)
-                mmDIP = self.coupled_DIP.concentration / (self.coupled_DIP.concentration + self.KDIP)
-                mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi)
-                self.source_uptake.NH4 = self.v_max_N * self.limQUOTA.N * mmNH4 * self.limT * self.C
-                self.source_uptake.NO3 = self.v_max_N * self.limQUOTA.N * mmNO3 * self.limT * self.C
+                self.mmNH4 = wNH4 / (1 + wNH4 + wNO3)
+                self.mmNO3 = wNO3 / (1 + wNH4 + wNO3)
+                self.mmDIP = self.coupled_DIP.concentration / (self.coupled_DIP.concentration + self.KDIP)
+                self.mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi)
+                self.source_uptake.NH4 = self.v_max_N * self.limQUOTA.N * self.mmNH4 * self.limT * self.C
+                self.source_uptake.NO3 = self.v_max_N * self.limQUOTA.N * self.mmNO3 * self.limT * self.C
                 self.source_uptake.N = self.source_uptake.NH4 + self.source_uptake.NO3
-                self.source_uptake.P = self.v_max_P * self.limQUOTA.P * mmDIP * self.limT * self.C
-                self.source_uptake.Si = self.v_max_Si * self.limQUOTA.Si * mmDSi * self.limT * self.C
+                self.source_uptake.P = self.v_max_P * self.limQUOTA.P * self.mmDIP * self.limT * self.C
+                self.source_uptake.Si = self.v_max_Si * self.limQUOTA.Si * self.mmDSi * self.limT * self.C
         else:
             self.source_uptake.N = self.source_PP.C * self.QN
 
