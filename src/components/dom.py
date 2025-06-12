@@ -2,7 +2,7 @@ import numpy as np
 
 from ..core.base import BaseOrg, Elms
 from ..utils import functions as fns
-from src.Config_model import varinfos
+from src.config_model import varinfos
 
 class DOM(BaseOrg):
     def __init__(self,

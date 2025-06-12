@@ -10,7 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Set, Union
-from src.Config_system import path_config as path_cfg
+from src.config_system import path_config as path_cfg
 
 DEFAULT_SETUPS = {
     'schartau07': {
