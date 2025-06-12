@@ -2,7 +2,7 @@ import numpy as np
 
 from ..core.base import BaseOrg, Elms
 from ..utils import functions as fns
-from src.config import varinfos
+from src.Config_model import varinfos
 
 class DOM(BaseOrg):
     def __init__(self,
@@ -95,7 +95,7 @@ class DOM(BaseOrg):
         """
         Get those sinks and sources that do not depend on sinks/sources from couples state variables.
         --> they can be computed first and then be available elsewhere for coupling.
-        This is a first step to solve the issue of the order in which state variables are given in config.
+        This is a first step to solve the issue of the order in which state variables are given in Config_model.
         :return:
         """
         # SOURCES

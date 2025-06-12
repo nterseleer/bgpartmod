@@ -35,7 +35,7 @@ def prepare_likelihood_data(
     else:
         model_data = model_results
 
-    # Use cached observations if available
+    # Use cached Observations if available
     if _cached_obs is not None:
         obs_data = _cached_obs
     else:
@@ -126,7 +126,7 @@ def calculate_rmse(
         climatology: bool = True
 ) -> Dict[str, float]:
     """
-    Calculate Root Mean Square Error between model and observations.
+    Calculate Root Mean Square Error between model and Observations.
 
     Args:
         model_results: DataFrame containing model results

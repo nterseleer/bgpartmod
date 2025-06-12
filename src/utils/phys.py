@@ -1,14 +1,16 @@
 
 """
-Physical setup configuration for BGC model simulations.
+Physical setup configuration for BGC model Simulations.
 Defines the physical and computational environment for model runs.
 """
+import os.path
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Set, Union
+from src.Config_system import path_config as path_cfg
 
 DEFAULT_SETUPS = {
     'schartau07': {
@@ -20,6 +22,33 @@ DEFAULT_SETUPS = {
         'T': 10.,
         'I': 0.5,  # 115*3600.*24
         'light_prop': 14./24.,
+
+    },
+    'youri_high': {
+        'T': 18.,
+        'PARfromfile' : False,
+        'I' : 38.394 * 86400,
+        'light_prop': 12./24.,
+    },
+    'youri_medium': {
+        'T': 12.,
+        'PARfromfile': False,
+        'I': 12.798 * 86400,
+        'light_prop': 12. / 24.,
+    },
+
+    'youri_medium_mean_strain': {
+        'T': 13.,
+        'PARfromfile': False,
+        'I': 12.798 * 86400,
+        'light_prop': 12. / 24.,
+    },
+
+    'youri_low': {
+        'T': 4.,
+        'PARfromfile': False,
+        'I': 4.266 * 86400,
+        'light_prop': 12. / 24.,
     }
 }
 
@@ -34,7 +63,7 @@ class PhysicalConstants:
 
 class Setup:
     """
-    Physical and computational setup for BGC model simulations.
+    Physical and computational setup for BGC model Simulations.
 
     Attributes are organized into categories:
     - Time settings: control simulation timespan and steps
@@ -204,7 +233,7 @@ class Setup:
 
     def _load_PAR_from_file(self, plotPAR: bool) -> pd.DataFrame:
         """Load PAR data from file."""
-        solrad_clim = pd.read_csv('../data/solrad_clim.dat', sep='\s+',
+        solrad_clim = pd.read_csv(os.path.join(path_cfg.DATA_DIR ,'solrad_clim.dat'), sep='\s+',
                                   header=None,
                                   names=['DOY', 'Hour', 'PAR1', 'PAR2', 'PAR3'])
 

@@ -5,10 +5,8 @@ import os
 from typing import Dict
 
 from src.utils import functions as fns
+from src.Config_system import path_config as path_cfg
 
-# Get the project root directory (where the Observations symlink is)
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-DATA_DIR = os.path.join(PROJECT_ROOT, 'Observations/')
 
 class Obs:
     def __init__(self,
@@ -28,7 +26,7 @@ class Obs:
         """
         self.name = name
         self.station = station
-        self.datadir = datadir if datadir is not None else DATA_DIR
+        self.datadir = datadir if datadir is not None else path_cfg.OBSERVATION_DIR
 
         # Ensure the data directory exists
         if not os.path.exists(self.datadir):
