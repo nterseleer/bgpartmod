@@ -58,7 +58,7 @@ The model is organized into components, with each component representing a speci
 
 3. Create necessary directories:
    ```bash
-   mkdir -p Figs Observations simulations/Simulations simulations/References simulations/Optimizations
+   mkdir -p Figs Observations Simulations/Model_runs Simulations/References_simulations Simulations/Optimizations
    ```
 
 ## Getting Started
@@ -126,7 +126,7 @@ params_to_optimize = [
 opt = optimization.Optimization.run_new(
     dconf=config.MOW1,
     modkwargs={'setup': setup},
-    obs=observations.Obs(),  # Load observations
+    obs=observations.Obs(),  # Load Observations
     optimized_parameters=[p[0] for p in params_to_optimize],
     bounds=([p[1] for p in params_to_optimize], 
             [p[2] for p in params_to_optimize]),

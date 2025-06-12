@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 
 from utils import optimization as optim
-from config import config
+from Config_model import config
 from utils import phys
 from utils import evaluation
 from utils import functions as fns
@@ -60,7 +60,7 @@ def process_optimization(opt_name, savefig=False):
                          ncols=4,
                          save=savefig, filename=opt.name)
     # Compare scores
-    # opt.compare_model_vs_optim(obs = observations.Obs(station='MOW1-St330-TEP-D50'))
+    # opt.compare_model_vs_optim(obs = Observations.Obs(station='MOW1-St330-TEP-D50'))
 
     plotres.plot_optimization_evolution(opt.df, name=opt.name, savefig=savefig)
 
@@ -76,7 +76,7 @@ def process_optimization(opt_name, savefig=False):
     # fig = plotres.create_parameter_table(
     #     opt.df,
     #     parameters=[(p, min[i], max[i])
-    #                 for i, p in enumerate(opt.config['optimized_parameters'])]
+    #                 for i, p in enumerate(opt.Config_model['optimized_parameters'])]
     # )
 
     return opt

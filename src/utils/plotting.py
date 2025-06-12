@@ -12,7 +12,9 @@ import pandas as pd
 from typing import Union, List, Dict, Optional, Tuple, Any
 
 from . import functions as fns
-from src.config import varinfos
+from src.Config_model import varinfos
+
+FIGURE_PATH = os.path.join(os.getcwd(), 'Figs')
 
 # Pre-defined variable groups for common plotting scenarios
 phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
@@ -21,6 +23,13 @@ phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_numconc",
                       'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_numconc",
                       'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_numconc",
                       'SPMC']
+
+phy_TEP_lim_sink = ['Phy_C', 'Phy_Chl', 'TEPC_C', 'Phy_mmDSi',
+                    'Phy_mmNH4', 'Phy_mmNO3', 'Phy_mmDIP', "Phy_limNUT",
+                    "Phy_lim_I", 'Phy_sink_lysis.C', 'Phy_sink_mortality.C', 'Phy_sink_exudation.C',
+                    'Phy_sink_respiration.C','Phy_sink_aggregation.C', "TEP_to_PhyC_ratio", "Phy_source_PP.C"]
+
+
 phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', ]
 phy_C_SMS = ['Phy_source_PP.C',
              'Phy_sink_respiration.C', 'Phy_sink_exudation.C', 'Phy_sink_aggregation.C',
@@ -438,7 +447,7 @@ def plot_results(
             fname = f"{filename}_{timestamp}.png" if fnametimestamp else filename
         else:
             fname = f"{timestamp}_model_results.png"
-        plt.savefig(f'../Figs/{fname}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(FIGURE_PATH, fname), dpi=300, bbox_inches='tight')
 
     return fig, axes
 
@@ -767,7 +776,8 @@ def plot_optimization_evolution(df: pd.DataFrame,
     ax.set_ylabel('Cost function (score)')
 
     if savefig and name:
-        plt.savefig(f'../Figs/{name}_opt_evol{rawcost * "_raw"}.png')
+        fig_base_path = os.path.join(FIGURE_PATH, name)
+        plt.savefig(f'{fig_base_path}_opt_evol{rawcost * "_raw"}.png')
 
     return ax
 
@@ -869,7 +879,8 @@ def plot_optimization_summary(df: pd.DataFrame,
 
     if savefig:
         datestr = datetime.now().strftime('%Y%m%d_') if dateinname else ''
-        plt.savefig(f'../Figs/{datestr}{name}_pars_optim{rawcost * "_raw"}.png')
+        fig_base_path = os.path.join(FIGURE_PATH, f'{datestr}{name}')
+        plt.savefig(f'{fig_base_path}_pars_optim{rawcost * "_raw"}.png')
 
     return fig
 
@@ -932,10 +943,10 @@ def create_parameter_table(df: pd.DataFrame,
     return fig
 
 
-
+#TODO Refactor (or delete ?) this function with os.join
 def save_figure(fig: plt.Figure,
                 savetime: bool = False,
-                figsdir: str = '../Figs/',
+                figsdir: str = os.path.join(FIGURE_PATH, ''),
                 figname: str = '',
                 figsdpi: int = 200) -> None:
     """Save figure with optional timestamp."""

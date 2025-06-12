@@ -12,18 +12,18 @@ from deepdiff import DeepDiff
 from typing import Any, Dict, List, Optional, Union
 
 from . import phys
-from src.config import varinfos
+from src.Config_model import varinfos
 
 
 def flatten_simulation_list(sims: Union[List, Any]) -> Union[List, Dict[str, Any]]:
     """
-    Flatten potentially nested lists of simulations while preserving dictionary structure if needed.
+    Flatten potentially nested lists of Simulations while preserving dictionary structure if needed.
 
     Args:
-        sims: Single simulation, list of simulations, nested lists, or dictionary
+        sims: Single simulation, list of Simulations, nested lists, or dictionary
 
     Returns:
-        Flattened list of simulations or dictionary mapping names to simulations
+        Flattened list of Simulations or dictionary mapping names to Simulations
     """
     # Handle dictionary input
     if isinstance(sims, dict):

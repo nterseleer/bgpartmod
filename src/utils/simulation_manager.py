@@ -1,27 +1,35 @@
 """
 Simulation management utilities for BGC model.
-Handles saving, loading, and tracking of simulations.
+Handles saving, loading, and tracking of Simulations.
 """
-import os
-import dill
-import pickle
 import json
-import pandas as pd
-import numpy as np
+import os
+import pickle
 import re
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Union
+from enum import Enum
+
+import dill
+import numpy as np
+import pandas as pd
 from deepdiff import DeepDiff
+from typing import Optional, List, Dict, Any, Union
 
 from src.utils import functions as fns
+from src.Config_system import path_config as path_cfg
+
 # Constants
-BASE_DIR = '../simulations'
-SIMULATIONS_DIR = os.path.join(BASE_DIR, 'Simulations')
-REFERENCES_DIR = os.path.join(BASE_DIR, 'References')
-LOG_FILE = os.path.join(BASE_DIR, 'Simulations_log.xlsx')
+
+
+
+class SimulationTypes(Enum):
+    MODEL_RUN = 1
+    REFERENCES_SIMULATION = 2
+    UNDEFINED = 3
+
 
 # Create necessary directories
-for directory in [BASE_DIR, SIMULATIONS_DIR, REFERENCES_DIR]:
+for directory in [path_cfg.SIMULATION_DIR, path_cfg.MODEL_RUNS_DIR, path_cfg.REFERENCES_SIMULATION_DIR]:
     if not os.path.exists(directory):
         os.makedirs(directory)
 # Setup parameters to track in logs
@@ -38,35 +46,92 @@ SETUP_TRACKED_FIELDS = [
 
 # Log columns in desired order
 LOG_COLUMNS = [
-    'date',              # YYYY-MM-DD
-    'short_name',        # Name without timestamp
-    'user_notes',        # User provided notes
-    'parent_simulation', # Parent simulation name if any
-    'configuration_diff',# Differences from parent config
-    'setup_diff',        # Differences from parent setup
-    'status',           # Simulation status
-    'setup_start_date', # Simulation start date
-    'setup_end_date',   # Simulation end date
-] + [
-    # Setup fields - add all tracked fields
-    f'setup_{field}' for field in SETUP_TRACKED_FIELDS
-] + [
-    # Configuration and runtime fields
-    'config_formulation',
-    'config_components',  # Detailed component list as JSON
-    'variables',         # Model variables
-    'runtime_info',      # Additional runtime information
-    'full_name'         # Complete name with timestamp
-]
+                  'date',  # YYYY-MM-DD
+                  'short_name',  # Name without timestamp
+                  'user_notes',  # User provided notes
+                  'parent_simulation',  # Parent simulation name if any
+                  'configuration_diff',  # Differences from parent config
+                  'setup_diff',  # Differences from parent setup
+                  'status',  # Simulation status
+                  'setup_start_date',  # Simulation start date
+                  'setup_end_date',  # Simulation end date
+              ] + [
+                  # Setup fields - add all tracked fields
+                  f'setup_{field}' for field in SETUP_TRACKED_FIELDS
+              ] + [
+                  # Configuration and runtime fields
+                  'config_formulation',
+                  'config_components',  # Detailed component list as JSON
+                  'variables',  # Model variables
+                  'runtime_info',  # Additional runtime information
+                  'full_name',  # Complete name with timestamp
+                  'additional_notes'  # additional notes about results, simulations or other
+              ]
+
+
+def create_log_file_if_not_exist() -> bool:
+    if not os.path.exists(path_cfg.LOG_FILE):
+        df = pd.DataFrame(columns=LOG_COLUMNS)
+        df.to_csv(path_cfg.LOG_FILE, index=False)
+
 
 def _load_log() -> pd.DataFrame:
     """Load or create simulation log with organized columns"""
-    if os.path.exists(LOG_FILE):
-        df = pd.read_excel(LOG_FILE)
-        # Force column order and drop any extra columns
-        return df.reindex(columns=LOG_COLUMNS)
+    create_log_file_if_not_exist()
+    df = pd.read_csv(path_cfg.LOG_FILE, )
+    # Force column order and drop any extra columns
+    return df.reindex(columns=LOG_COLUMNS)
 
-    return pd.DataFrame(columns=LOG_COLUMNS)
+
+def interactive_log_additional_note_modification(simulation_name):
+
+    log_df = _load_log()
+    target_simulation_index = _get_taget_additional_note_simulation_index(log_df, simulation_name)
+
+    # avoid : FutureWarning: Setting an item of incompatible dtype is deprecated and will raise in a future error of pandas.
+    if log_df["additional_notes"].count() == 0:
+        log_df["additional_notes"] = None
+
+    additional_notes = input(
+        f'Please complete the “additional notes”  section of the simulation log for the simulation "{simulation_name}" :\n')
+
+    if pd.isna(log_df.at[target_simulation_index[0], "additional_notes"]) or not _get_interactive_yes_no_answer("Do you want to append to the previous note (yes/no), no = overwrite : "):
+        log_df.at[target_simulation_index[0], "additional_notes"] = additional_notes
+        print("\033[92mAdditional notes for '{}' successfully set !\033[0m".format(simulation_name))
+
+    else :
+        previous_notes = log_df.at[target_simulation_index[0], "additional_notes"]
+        log_df.at[target_simulation_index[0], "additional_notes"] = f'{previous_notes}\n{additional_notes}'
+        print("\033[92mAdditional notes for '{}' successfully appended !\033[0m".format(simulation_name))
+
+    log_df.to_csv(path_cfg.LOG_FILE, index=False)
+
+
+
+def _get_taget_additional_note_simulation_index(log_df : pd.DataFrame, simulation_name):
+
+    target_simulation_index = log_df.query(f"full_name == '{simulation_name}'").index
+    if len(target_simulation_index) > 1:
+        raise ValueError(
+            f"Multiple simulations found with full_name '{simulation_name}'. Expected a unique simulation.")
+    if len(target_simulation_index) == 0:
+        raise ValueError(
+            f"No simulations found with full_name '{simulation_name}' found in the log file.")
+
+    return target_simulation_index
+
+
+
+# yes = True, No = False
+def _get_interactive_yes_no_answer(question : str)-> bool:
+    while True:
+        user_input = input(question)
+        if user_input.lower() in ["yes", "y"]:
+            return True
+        elif user_input.lower() in ["no", "n"]:
+            return False
+        else:
+            print("Invalid input. Please enter yes/no.")
 
 
 def _generate_name(base_name: str = None) -> str:
@@ -362,7 +427,7 @@ def _manual_param_comparison(config1, config2):
 def save_simulation(
         model,
         base_name: Optional[str] = None,
-        sim_type: str = 'simulation',
+        sim_type: SimulationTypes = SimulationTypes.MODEL_RUN,
         parent_simulation: Optional[str] = None,
         user_notes: Optional[str] = None,
         save_full: bool = False) -> str:
@@ -377,7 +442,7 @@ def save_simulation(
         '%Y%m%d_%H%M%S')
 
     sim_dir = os.path.join(
-        REFERENCES_DIR if sim_type == 'reference' else SIMULATIONS_DIR,
+        path_cfg.REFERENCES_SIMULATION_DIR if sim_type == SimulationTypes.REFERENCES_SIMULATION else path_cfg.MODEL_RUNS_DIR,
         full_name
     )
     os.makedirs(sim_dir, exist_ok=True)
@@ -408,7 +473,7 @@ def save_simulation(
         'config_formulation': config_info['config_formulation'],
         'config_components': config_info['config_components'],
         'variables': ','.join(sorted(model.df.columns)),
-        'runtime_info': f"Type: {sim_type}",
+        'runtime_info': f"Type: {sim_type.name}",
         'full_name': full_name,
         **setup_info,  # Add setup info after known fields
     }
@@ -425,7 +490,7 @@ def save_simulation(
     with open(os.path.join(sim_dir, 'config.pkl'), 'wb') as f:
         pickle.dump(model.config, f)
 
-    if save_full or sim_type == 'reference':
+    if save_full or sim_type == SimulationTypes.REFERENCES_SIMULATION:
         key_results = {
             'timestamps': model.df.index.values,
             'variables': {col: model.df[col].values for col in model.df.columns}
@@ -435,20 +500,23 @@ def save_simulation(
             dill.dump(model, f)
 
     # Update log with strict column order
-    log_df = _load_log()
+    create_log_file_if_not_exist()
     new_row = pd.DataFrame([{col: log_entry.get(col, '') for col in LOG_COLUMNS}])
-    log_df = pd.concat([log_df, new_row], ignore_index=True)
-    log_df.to_excel(LOG_FILE, index=False)
+
+    # log_df = pd.concat([log_df, new_row], ignore_index=True)
+
+    new_row.to_csv(path_cfg.LOG_FILE, na_rep='NA', mode='a', index=False, header=False)
 
     return full_name
 
+
 def run_or_load_simulation(config_dict: Dict,
-                   setup: Any,
-                   name: Optional[str] = None,
-                   parent_simulation: Optional[str] = None,
-                   user_notes: Optional[str] = None,
-                   save: bool = True,
-                   **model_kwargs) -> 'Model':
+                           setup: Any,
+                           name: Optional[str] = None,
+                           parent_simulation: Optional[str] = None,
+                           user_notes: Optional[str] = None,
+                           save_type: SimulationTypes = SimulationTypes.MODEL_RUN,
+                           **model_kwargs) -> 'Model':
     """
     Get a simulation by either loading it or creating it.
 
@@ -458,20 +526,35 @@ def run_or_load_simulation(config_dict: Dict,
         name: Optional name for the simulation
         parent_simulation: Optional parent simulation name
         user_notes: Optional notes about the simulation
-        save: Whether to save the simulation
+        save_type: UNDEFINED simulation is not saved, REFERENCES_SIMULATION save as a reference simulation (full save),
+        MODEL_RUN save as a model_run simulation. If the save_type from the current simulation is different
         **model_kwargs: Additional arguments for Model constructor
     """
     from src.core import model
 
-    if name and simulation_exists(name):
-        return load_simulation(name)
+    loaded_simulation_type = get_saved_simulation_type(name)
+    loaded_simulation = None if loaded_simulation_type == SimulationTypes.UNDEFINED else \
+        load_simulation(name, loaded_simulation_type)
 
-    simulation = model.Model(config_dict, setup, name=name, **model_kwargs)
+    match loaded_simulation_type:
+        case SimulationTypes.UNDEFINED:
+            simulation = model.Model(config_dict, setup, name=name, **model_kwargs)
+        case SimulationTypes.MODEL_RUN:
+            simulation = model.Model(loaded_simulation.config, loaded_simulation.setup,
+                                     name=name)  # TODO: introduce model_kwarg
+        case SimulationTypes.REFERENCES_SIMULATION:
+            simulation = loaded_simulation
+        case _:
+            raise ValueError(
+                "Loading save simulation type : Simulation type should be MODEL_RUN, REFERENCES_SIMULATION or UNDEFINED")
 
-    if save:
+    #
+    if save_type == SimulationTypes.MODEL_RUN or (
+            save_type == SimulationTypes.REFERENCES_SIMULATION and loaded_simulation_type != SimulationTypes.REFERENCES_SIMULATION):
         save_simulation(
             model=simulation,
-            base_name=name,
+            base_name=name if loaded_simulation_type == SimulationTypes.UNDEFINED else f're_run_of_{name}',
+            sim_type=save_type,
             parent_simulation=parent_simulation,
             user_notes=user_notes
         )
@@ -479,72 +562,67 @@ def run_or_load_simulation(config_dict: Dict,
     return simulation
 
 
-def load_simulation(name: str, load_full: bool = False) -> Any:
+def load_simulation(name: str, simulation_type: SimulationTypes = SimulationTypes.MODEL_RUN) -> Any:
     """
     Load a saved simulation
 
     Args:
         name: Name of the simulation
-        load_full: Whether to load full pickle files
+        simulation_type : Type of simulation loaded. If REFERENCES_SIMULATION, load the full simulation, if MODEL_RUN, load name, setud and config
     """
-    # First check if it's a reference simulation
-    ref_dir = os.path.join(REFERENCES_DIR, name)
-    if os.path.exists(ref_dir):
-        model_path = os.path.join(ref_dir, 'model.pkl')
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Reference model file not found: {model_path}")
-        with open(model_path, 'rb') as f:
-            return dill.load(f)
 
-    # Regular simulation loading logic
-    sim_dir = os.path.join(SIMULATIONS_DIR, name)
+    if simulation_type == SimulationTypes.REFERENCES_SIMULATION:
+        ref_dir = os.path.join(path_cfg.REFERENCES_SIMULATION_DIR, name)
+        if os.path.exists(ref_dir):
+            model_path = os.path.join(ref_dir, 'model.pkl')
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Reference model file not found: {model_path}")
+            with open(model_path, 'rb') as f:
+                return dill.load(f)
+
+    sim_dir = os.path.join(path_cfg.MODEL_RUNS_DIR, name)
     if not os.path.exists(sim_dir):
         raise FileNotFoundError(f"Simulation '{name}' not found")
 
-    if load_full and os.path.exists(os.path.join(sim_dir, 'model.pkl')):
-        with open(os.path.join(sim_dir, 'model.pkl'), 'rb') as f:
-            return dill.load(f)
+    with open(os.path.join(sim_dir, 'setup.pkl'), 'rb') as f:
+        setup = pickle.load(f)
 
-    # Load minimum required components
-    setup = None
-    setup_path = os.path.join(sim_dir, 'setup.pkl')
-    if os.path.exists(setup_path):
-        try:
-            with open(setup_path, 'rb') as f:
-                setup = dill.load(f)
-        except Exception as e:
-            print(f"Warning: Could not load setup from {setup_path}: {e}")
-
-    results = np.load(os.path.join(sim_dir, 'results.npy'), allow_pickle=True).item()
     with open(os.path.join(sim_dir, 'config.pkl'), 'rb') as f:
         config = pickle.load(f)
 
-    # Create DataFrame from results
-    df = pd.DataFrame(
-        {col: results['variables'][col] for col in results['variables']},
-        index=results['timestamps']
-    )
-
-    # Return object with minimum required attributes
     sim_data = type('SimulationData', (), {
         'config': config,
         'setup': setup,
-        'df': df,
         'name': name
     })
     return sim_data
 
 
-def simulation_exists(name: str) -> bool:
-    """Check if a simulation exists"""
-    for sim_type in ['simulation', 'reference']:
-        if os.path.exists(os.path.join(SIMULATIONS_DIR if sim_type == 'simulation' else REFERENCES_DIR, name)):
-            return True
-    return False
+def get_saved_simulation_type(name: str) -> SimulationTypes:
+    """
+    Determine the type of a saved simulation by checking which directory it exists in.
+
+    Args:
+        name: The name of the simulation to check
+
+    Returns:
+        SimulationTypes: The type of the simulation (REFERENCES_SIMULATION, MODEL_RUN)
+                        or UNDEFINED if not found
+    """
+    simulation_dirs = {
+        SimulationTypes.REFERENCES_SIMULATION: path_cfg.REFERENCES_SIMULATION_DIR,
+        SimulationTypes.MODEL_RUN: path_cfg.MODEL_RUNS_DIR
+    }
+
+    for sim_type, sim_directory in simulation_dirs.items():
+        if os.path.exists(os.path.join(sim_directory, name)):
+            return sim_type
+
+    return SimulationTypes.UNDEFINED
 
 
 def list_simulations(sim_type: Optional[str] = None) -> pd.DataFrame:
-    """List all saved simulations with their metadata"""
+    """List all saved Simulations with their metadata"""
     log_df = _load_log()
     if sim_type:
         return log_df[log_df['runtime_info'].str.contains(sim_type)]
@@ -568,11 +646,11 @@ def get_simulation_lineage(name: str) -> List[str]:
 
 
 def cleanup_old_simulations(days_threshold: int = 30):
-    """Clean up old regular simulations (not references) beyond threshold"""
+    """Clean up old regular Simulations (not references) beyond threshold"""
     current_time = datetime.now()
 
-    for sim in os.listdir(SIMULATIONS_DIR):
-        sim_path = os.path.join(SIMULATIONS_DIR, sim)
+    for sim in os.listdir(path_cfg.MODEL_RUNS_DIR):
+        sim_path = os.path.join(path_cfg.MODEL_RUNS_DIR, sim)
         if not os.path.isdir(sim_path):
             continue
 
@@ -619,13 +697,14 @@ def parse_parameter_changes(changes: Dict[str, Union[float, List[float], np.ndar
 
     return updates
 
+
 def run_sensitivity(base_simulation: 'Model',
-                   parameter_changes: Dict[str, Union[float, List[float], np.ndarray, Any]],
-                   name: Optional[str] = None,
-                   user_notes: Optional[str] = None,
-                   save: bool = True,
+                    parameter_changes: Dict[str, Union[float, List[float], np.ndarray, Any]],
+                    name: Optional[str] = None,
+                    user_notes: Optional[str] = None,
+                    save: bool = True,
                     setup_changes: Optional[Dict] = None,
-                   **kwargs) -> Union['Model', List['Model']]:
+                    **kwargs) -> Union['Model', List['Model']]:
     """
     Run sensitivity analysis based on an existing simulation.
     Handles both single parameter changes and batch sensitivity analysis.
@@ -667,9 +746,9 @@ def run_sensitivity(base_simulation: 'Model',
             'k_att': base_simulation.setup.k_att,
             'z': base_simulation.setup.z,
             'pCO2': base_simulation.setup.pCO2,
-            'g_shear_rate': base_simulation.setup.g_shear_rate.iloc[0,0] / (1 + base_simulation.setup.gshearfact) if
-                hasattr(base_simulation.setup, 'gshearfact') else
-                base_simulation.setup.g_shear_rate.iloc[0,0],
+            'g_shear_rate': base_simulation.setup.g_shear_rate.iloc[0, 0] / (1 + base_simulation.setup.gshearfact) if
+            hasattr(base_simulation.setup, 'gshearfact') else
+            base_simulation.setup.g_shear_rate.iloc[0, 0],
             'vary_g_shear': base_simulation.setup.vary_g_shear,
             'gshearfact': base_simulation.setup.gshearfact,
             'gshearper': base_simulation.setup.gshearper,
@@ -694,7 +773,7 @@ def run_sensitivity(base_simulation: 'Model',
                 param_descriptions.append(f"{param_key.replace('+', '_')}={value:.3g}")
             run_name = f"sensitivity_{'_'.join(param_descriptions)}"
 
-        model_instance =  run_or_load_simulation(
+        model_instance = run_or_load_simulation(
             config_dict=new_config,
             setup=modified_setup,
             name=run_name,
@@ -723,7 +802,7 @@ def run_sensitivity(base_simulation: 'Model',
     if name is None:
         name = f"sensitivity_{multi_param.replace('+', '_')}"
 
-    # Run simulations for each value
+    # Run Simulations for each value
     results = []
     for i, value in enumerate(multi_values):
         # Create parameter set for this run
@@ -746,10 +825,11 @@ def run_sensitivity(base_simulation: 'Model',
 
     return results
 
+
 def compare_simulations(models: Union[List, Dict[str, Any]],
                         variables: Optional[List[str]] = None,
                         plot: bool = True) -> Dict[str, Dict[str, float]]:
-    """Compare multiple simulations"""
+    """Compare multiple Simulations"""
 
     if not isinstance(models, dict):
         # Flatten list and create dictionary
