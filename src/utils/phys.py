@@ -31,13 +31,21 @@ DEFAULT_SETUPS = {
         'light_prop': 12./24.,
     },
     'youri_medium': {
-        'T': 4.,
+        'T': 12.,
         'PARfromfile': False,
         'I': 12.798 * 86400,
         'light_prop': 12. / 24.,
     },
+
+    'youri_medium_mean_strain': {
+        'T': 13.,
+        'PARfromfile': False,
+        'I': 12.798 * 86400,
+        'light_prop': 12. / 24.,
+    },
+
     'youri_low': {
-        'T': 12.,
+        'T': 4.,
         'PARfromfile': False,
         'I': 4.266 * 86400,
         'light_prop': 12. / 24.,
