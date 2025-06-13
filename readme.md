@@ -11,6 +11,11 @@ This is a **Python implementation framework** that enables users to:
 - Optimize model parameters against observational data using advanced algorithms
 - Analyze and visualize results with comprehensive plotting utilities
 
+## Note about the license
+This software is currently **under embargo** until scientific publication (submission planned for summer 2025). 
+After publication, it will be released under the European Union Public Licence (EUPL). 
+For any inquiry, please contact @nterseleer.
+
 ## What It Was Developed For
 
 The framework was specifically developed to implement a **pioneering coupled biogeochemical-mineral flocculation model**. This coupling addresses the traditionally separate treatment of biological processes and physical particle dynamics, which are fundamentally interconnected in marine systems. The coupled approach enables simulation of:
@@ -213,9 +218,6 @@ This model builds upon several key works:
 - **FABM framework**: Bruggeman, J., & Bolding, K. (2014). A general framework for aquatic biogeochemical models. Environmental modelling & software, 61, 249-265.
 - **Differential evolution**: Storn, R., & Price, K. (1997). Differential evolution–a simple and efficient heuristic for global optimization over continuous spaces. Journal of global optimization, 11, 341-359.
 
-## License
-
-This software will be released under the European Union Public Licence (EUPL) v1.2 following publication of the associated scientific manuscript (submission planned for summer 2025). Until publication, the software is under embargo. For any inquiry, please contact @nterseleer.
 
 ## Citation
 
