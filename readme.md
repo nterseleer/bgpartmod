@@ -215,7 +215,10 @@ This model builds upon several key works:
 
 ## License
 
-This software will be released under the European Union Public Licence (EUPL) v1.2 following publication of the associated scientific manuscript (submission planned for summer 2025). Until publication, the software is under embargo. For any inquiry, please contact @nterseleer.
+This software is currently **under embargo** until scientific publication (submission planned for summer 2025). 
+After publication, it will be released under the European Union Public Licence (EUPL). 
+For any inquiry, please contact @nterseleer.
+
 
 ## Citation
 
