@@ -779,7 +779,7 @@ def run_sensitivity(base_simulation: 'Model',
             name=run_name,
             parent_simulation=base_simulation.name if hasattr(base_simulation, 'name') else None,
             user_notes=user_notes,
-            # save=save,
+            save_type=SimulationTypes.UNDEFINED if not save else SimulationTypes.MODEL_RUN,
             **kwargs
         )
 
@@ -819,6 +819,7 @@ def run_sensitivity(base_simulation: 'Model',
             current_changes,
             name=sim_name,
             user_notes=sim_notes,
+            setup_changes=setup_changes,
             # save=save,
             **kwargs
         ))
