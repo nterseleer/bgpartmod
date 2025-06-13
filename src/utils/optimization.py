@@ -16,11 +16,12 @@ import numpy as np
 from . import functions as fns
 from . import desolver
 from src.core import model
+from src.config_system import path_config as path_cfg
 
 # Constants
 BASE_DIR = '../Simulations'
-OPTIMIZATIONS_DIR = os.path.join(BASE_DIR, 'Optimizations')
-LOG_FILE = os.path.join(BASE_DIR, 'Optimizations_log.xlsx')
+OPTIMIZATIONS_DIR = path_cfg.OPTIM_DIR
+LOG_FILE = path_cfg.OPT_LOG_FILE
 
 
 

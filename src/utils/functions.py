@@ -12,7 +12,7 @@ from deepdiff import DeepDiff
 from typing import Any, Dict, List, Optional, Union
 
 from . import phys
-from src.Config_model import varinfos
+from src.config_model import varinfos
 
 
 def flatten_simulation_list(sims: Union[List, Any]) -> Union[List, Dict[str, Any]]:

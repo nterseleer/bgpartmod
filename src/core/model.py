@@ -11,7 +11,7 @@ from src.utils import functions as fns
 from src.utils import phys
 from src.utils import evaluation
 from src.components import phytoplankton as phyto
-from src.Config_model import varinfos
+from src.config_model import varinfos
 
 
 @staticmethod

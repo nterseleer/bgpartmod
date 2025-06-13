@@ -12,9 +12,10 @@ import pandas as pd
 from typing import Union, List, Dict, Optional, Tuple, Any
 
 from . import functions as fns
-from src.Config_model import varinfos
+from src.config_model import varinfos
+from src.config_system import path_config as path_cfg
 
-FIGURE_PATH = os.path.join(os.getcwd(), 'Figs')
+FIGURE_PATH = path_cfg.FIGURE_PATH
 
 # Pre-defined variable groups for common plotting scenarios
 phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
