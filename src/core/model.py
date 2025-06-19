@@ -40,7 +40,7 @@ class Model:
             debug_budgets: bool = False,
             aggregate_vars: Optional[List[str]] = None,
             do_diagnostics: bool = True,
-            full_diagnostics: bool = True,
+            full_diagnostics: bool = False,
     ):
         # Basic attributes
         self.setup = setup

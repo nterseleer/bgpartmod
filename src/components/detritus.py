@@ -65,13 +65,15 @@ class Detritus(BaseOrg):
         self.coupled_larger_Det = None
         self.coupled_smaller_Det = None
         self.coupled_consumers = None
+        self.coupled_aggregate = None
 
     def set_coupling(self,
                      coupled_aggreg_sources=None,
                      coupled_mortality_sources=None,
                      coupled_sloppy_feeding_sources=None,
                      coupled_Phy=None, coupled_TEPC=None, coupled_larger_Det=None, coupled_smaller_Det=None,
-                     coupled_consumers=None
+                     coupled_consumers=None,
+                     coupled_aggregate=None
                      ):
         # Coupling links
         self.coupled_aggreg_sources = coupled_aggreg_sources
@@ -82,6 +84,8 @@ class Detritus(BaseOrg):
         self.coupled_larger_Det = coupled_larger_Det
         self.coupled_smaller_Det = coupled_smaller_Det
         self.coupled_consumers = coupled_consumers
+        self.coupled_aggregate = coupled_aggregate
+
 
     def get_sources(self, t=None):
         # SOURCES
@@ -108,6 +112,7 @@ class Detritus(BaseOrg):
         return np.array(
             [sources for sources in (self.C_sources, self.N_sources, self.P_sources, self.Si_sources) if
              sources is not None])
+
 
     def get_sinks(self, t=None):
         # SINKS
@@ -243,6 +248,8 @@ class Detritus(BaseOrg):
     def get_sink_leakage_out(self):
         if self.formulation == "Onur22":
             if self.name == 'DetL':
+                if self.coupled_aggregate:
+                    self.kleak = self.coupled_aggregate.sinking_leak * self.coupled_aggregate.settling_vel
                 self.sink_leakage_out.C = self.kleak * self.C
                 self.sink_leakage_out.N = self.kleak * self.N
                 self.sink_leakage_out.P = self.kleak * self.P
