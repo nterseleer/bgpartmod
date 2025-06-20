@@ -198,8 +198,7 @@ Onur = {
     'Phy': {'class': phyto.Phyto,
             'parameters':
                 {'mu_max': 5.2,  # [d-1] !OK
-                 # 'alpha': 7. / varinfos.molmass_C,  # [mmolC mgChl-1 m2 W-1 d-1] from [mgC mgChl-1 E-1 m2]
-                 'alpha': 7.,  # [gC gChl-1 m2 W-1 d-1] from [mgC mgChl-1 E-1 m2]
+                 'alpha': 7.,  # [mgC mgChl-1 E-1 m2]
                  # 'thetaN_max': 0.07 / 0.15 * varinfos.molmass_C,  # [mgChl mmolN-1] from theta_max/QNmax
                  'theta_max': 0.07,  #* varinfos.molmass_C,  # DOIT RESTER EN gChl/gC !!!
                  'QN_max': 0.15,  # [molN:molC] !OK
@@ -254,7 +253,7 @@ Onur = {
             'diagnostics': ['lim_N', 'lim_P', 'lim_Si', 'QN', 'QP', 'QSi',
                             'limNUT', 'limQUOTA.N', 'limQUOTA.P', 'limQUOTA.Si',
                             'limQUOTAmin.N', 'limQUOTAmin.P', 'limQUOTAmin.Si',
-                            'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl',
+                            'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl', 'limI', 'limT',
                             'source_uptake.NH4', 'source_uptake.NO3', 'source_uptake.N',
                             'source_uptake.P', 'source_uptake.Si',
                             'source_Chlprod.Chl',

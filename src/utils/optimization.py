@@ -13,8 +13,8 @@ from typing import Dict, List, Optional, Tuple, Any
 import pandas as pd
 import numpy as np
 
-from . import functions as fns
-from . import desolver
+from src.utils import functions as fns
+from src.utils import desolver
 from src.core import model
 from src.config_system import path_config as path_cfg
 
