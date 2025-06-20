@@ -258,10 +258,10 @@ def update_config_from_optimization(base_config: Dict, best_parameters: Dict) ->
     return deep_update(base_config.copy(), updates)
 
 
-
+# From https://github.com/samuelcolvin/pydantic/blob/fd2991fe6a73819b48c906e3c3274e8e47d0f761/pydantic/utils.py#L200
+# (initially from https://stackoverflow.com/questions/3232943/update-value-of-a-nested-dictionary-of-varying-depth)
 from typing import (Any, Dict, TypeVar)
 KeyType = TypeVar('KeyType')
-
 def deep_update(mapping: Dict[KeyType, Any], *updating_mappings: Dict[KeyType, Any],
                 overwrite_keys: list = None) -> Dict[KeyType, Any]:
     """

@@ -30,8 +30,55 @@ phy_TEP_lim_sink = ['Phy_C', 'Phy_Chl', 'TEPC_C', 'Phy_mmDSi',
                     "Phy_lim_I", 'Phy_sink_lysis.C', 'Phy_sink_mortality.C', 'Phy_sink_exudation.C',
                     'Phy_sink_respiration.C','Phy_sink_aggregation.C', "TEP_to_PhyC_ratio", "Phy_source_PP.C"]
 
+phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', 'Phy_kd']
 
-phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', ]
+# Limitation functions affecting Phytoplankton C and Chl
+phy_limitation_vars = [
+    # Overall limitation factors
+    'Phy_limNUT',  # Overall nutrient limitation (min of N, P, Si limitations)
+    'Phy_limT',  # Temperature limitation
+    'Phy_limI',  # Light limitation (also called lim_I)
+
+    # Individual nutrient limitations (Onur22 formulation)
+    'Phy_lim_N',  # Nitrogen limitation (1 - QN_min/QN)
+    'Phy_lim_P',  # Phosphorus limitation (1 - QP_min/QP)
+    'Phy_lim_Si',  # Silicon limitation (1 - QSi_min/QSi)
+
+    # Quota-based limitations
+    'Phy_limQUOTA.N',  # N quota limitation (1 - limQUOTAmin.N)
+    'Phy_limQUOTA.P',  # P quota limitation (1 - limQUOTAmin.P)
+    'Phy_limQUOTA.Si',  # Si quota limitation (1 - limQUOTAmin.Si)
+    'Phy_limQUOTAmin.N',  # Minimum N quota factor
+    'Phy_limQUOTAmin.P',  # Minimum P quota factor
+    'Phy_limQUOTAmin.Si',  # Minimum Si quota factor
+
+    # Michaelis-Menten terms for nutrient uptake
+    'Phy_mmNH4',  # NH4 uptake limitation
+    'Phy_mmNO3',  # NO3 uptake limitation
+    'Phy_mmDIP',  # DIP (phosphate) uptake limitation
+    'Phy_mmDSi',  # DSi (silicate) uptake limitation
+
+    # Primary production components
+    'Phy_PC_max',  # Maximum photosynthetic rate
+    'Phy_PC',  # Actual photosynthetic rate
+]
+
+phy_limitation_context = [
+    # Stoichiometric ratios
+    'Phy_QN',  # N:C ratio
+    'Phy_QP',  # P:C ratio
+    'Phy_QSi',  # Si:C ratio
+    'Phy_thetaC',  # Chl:C ratio
+
+    # Light attenuation
+    'Phy_kd',  # Light attenuation coefficient (if kdvar=True)
+
+    # Source terms for growth
+    'Phy_source_PP.C',  # Primary production source for C
+    'Phy_source_Chlprod.Chl',  # Chlorophyll production
+    'Phy_rho_Chl',  # Chlorophyll synthesis rate
+]
+
 phy_C_SMS = ['Phy_source_PP.C',
              'Phy_sink_respiration.C', 'Phy_sink_exudation.C', 'Phy_sink_aggregation.C',
              'Phy_sink_ingestion.C', 'Phy_sink_lysis.C', 'Phy_sink_mortality.C' ]
