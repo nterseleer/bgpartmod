@@ -200,7 +200,7 @@ Onur = {
                 {'mu_max': 5.2,  # [d-1] !OK
                  'alpha': 7.,  # [mgC mgChl-1 E-1 m2]
                  # 'thetaN_max': 0.07 / 0.15 * varinfos.molmass_C,  # [mgChl mmolN-1] from theta_max/QNmax
-                 'theta_max': 0.07,  #* varinfos.molmass_C,  # DOIT RESTER EN gChl/gC !!!
+                 'theta_max': 0.07,  #* varinfos.molmass_C,  # MUST STAY IN gChl/gC !!!
                  'QN_max': 0.15,  # [molN:molC] !OK
                  'QP_max': 0.012,  # [molP:molC] !OK
                  'QSi_max': 0.18,  # [molSi:molC] !OK
@@ -250,9 +250,10 @@ Onur = {
                  'POP': 'P',
                  'Chl_tot': 'Chl',
                  'Cphy_tot': 'C'},
-            'diagnostics': ['lim_N', 'lim_P', 'lim_Si', 'QN', 'QP', 'QSi',
+            'diagnostics': ['lim_N', 'lim_P', 'lim_Si', 'QN', 'QP', 'QSi', 'thetaC',
                             'limNUT', 'limQUOTA.N', 'limQUOTA.P', 'limQUOTA.Si',
                             'limQUOTAmin.N', 'limQUOTAmin.P', 'limQUOTAmin.Si',
+                            'mmNH4', 'mmNO3', 'mmDIP', 'mmDSi',
                             'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl', 'limI', 'limT',
                             'source_uptake.NH4', 'source_uptake.NO3', 'source_uptake.N',
                             'source_uptake.P', 'source_uptake.Si',

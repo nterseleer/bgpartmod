@@ -20,6 +20,8 @@ FIGURE_PATH = path_cfg.FIGURE_PATH
 # Pre-defined variable groups for common plotting scenarios
 phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
             'DIP_concentration', 'DSi_concentration']
+phy_nuts_and_pools = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
+            'DIP_concentration', 'DSi_concentration']
 phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_numconc",
                       'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_numconc",
                       'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_numconc",
@@ -61,6 +63,23 @@ phy_limitation_vars = [
     # Primary production components
     'Phy_PC_max',  # Maximum photosynthetic rate
     'Phy_PC',  # Actual photosynthetic rate
+]
+
+phy_limNUT = [
+    # Overall limitation factors
+    'Phy_limNUT',  # Overall nutrient limitation (min of N, P, Si limitations)
+    'Phy_limT',  # Temperature limitation
+    'Phy_limI',  # Light limitation (also called lim_I)
+
+    # Individual nutrient limitations (Onur22 formulation)
+    'Phy_lim_N',  # Nitrogen limitation (1 - QN_min/QN)
+    'Phy_lim_P',  # Phosphorus limitation (1 - QP_min/QP)
+    'Phy_lim_Si',  # Silicon limitation (1 - QSi_min/QSi)
+
+    # Stoichiometric ratios
+    'Phy_QN',  # N:C ratio
+    'Phy_QP',  # P:C ratio
+    'Phy_QSi',  # Si:C ratio
 ]
 
 phy_limitation_context = [
