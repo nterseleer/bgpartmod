@@ -288,6 +288,7 @@ class Phyto(BaseOrg):
             self.limQUOTAmin.Si = (self.QSi - self.QSi_min) / (self.QSi_max - self.QSi_min)
             self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
 
+
         else:
             self.lim_N = self.coupled_NH4.concentration / (self.coupled_NH4.concentration + self.KNH4)
             if self.boundQN:
