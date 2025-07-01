@@ -1,34 +1,33 @@
-
 """
 Physical setup configuration for BGC model Simulations.
 Defines the physical and computational environment for model runs.
 """
 import os.path
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Set, Union
+from typing import Dict, Any, Optional, Set
+
 from src.Config_system import path_config as path_cfg
 
 DEFAULT_SETUPS = {
     'schartau07': {
         'T': 12.5,
         'I': 26.,  # 115*3600.*24
-        'light_prop': 14./24.,
+        'light_prop': 14. / 24.,
     },
     'onur22': {
         'T': 10.,
         'I': 0.5,  # 115*3600.*24
-        'light_prop': 14./24.,
+        'light_prop': 14. / 24.,
 
     },
     'youri_high': {
         'T': 18.,
-        'PARfromfile' : False,
-        'I' : 38.394 * 86400,
-        'light_prop': 12./24.,
+        'PARfromfile': False,
+        'I': 38.394 * 86400,
+        'light_prop': 12. / 24.,
     },
     'youri_medium': {
         'T': 12.,
@@ -38,9 +37,15 @@ DEFAULT_SETUPS = {
     },
 
     'youri_medium_mean_strain': {
-        'T': 13.,
+        'T': 15.,
         'PARfromfile': False,
         'I': 12.798 * 86400,
+        'light_prop': 12. / 24.,
+    },
+    'odontella_medium': {
+        'T': 19.,
+        'PARfromfile': False,
+        'I': 4.266 * 86400,
         'light_prop': 12. / 24.,
     },
 
@@ -52,12 +57,13 @@ DEFAULT_SETUPS = {
     }
 }
 
+
 @dataclass
 class PhysicalConstants:
     """Physical constants used in the model"""
-    degCtoK: float = 273.15          # Conversion from Celsius to Kelvin
-    molmass_C: float = 12.0107       # Molar mass of carbon [g/mol]
-    day_to_seconds: float = 86400    # Seconds in a day
+    degCtoK: float = 273.15  # Conversion from Celsius to Kelvin
+    molmass_C: float = 12.0107  # Molar mass of carbon [g/mol]
+    day_to_seconds: float = 86400  # Seconds in a day
     PAR_conversion: float = 0.5 / 0.0079 / 54  # PAR/Wm-2 conversion factor
 
 
@@ -233,7 +239,7 @@ class Setup:
 
     def _load_PAR_from_file(self, plotPAR: bool) -> pd.DataFrame:
         """Load PAR data from file."""
-        solrad_clim = pd.read_csv(os.path.join(path_cfg.DATA_DIR ,'solrad_clim.dat'), sep='\s+',
+        solrad_clim = pd.read_csv(os.path.join(path_cfg.DATA_DIR, 'solrad_clim.dat'), sep='\s+',
                                   header=None,
                                   names=['DOY', 'Hour', 'PAR1', 'PAR2', 'PAR3'])
 

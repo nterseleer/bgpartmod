@@ -541,7 +541,7 @@ def run_or_load_simulation(config_dict: Dict,
             simulation = model.Model(config_dict, setup, name=name, **model_kwargs)
         case SimulationTypes.MODEL_RUN:
             simulation = model.Model(loaded_simulation.config, loaded_simulation.setup,
-                                     name=name)  # TODO: introduce model_kwarg
+                                     name=name, **model_kwargs)  # TODO: introduce model_kwarg
         case SimulationTypes.REFERENCES_SIMULATION:
             simulation = loaded_simulation
         case _:
@@ -702,7 +702,7 @@ def run_sensitivity(base_simulation: 'Model',
                     parameter_changes: Dict[str, Union[float, List[float], np.ndarray, Any]],
                     name: Optional[str] = None,
                     user_notes: Optional[str] = None,
-                    save: bool = True,
+                    save_type: SimulationTypes = SimulationTypes.MODEL_RUN,
                     setup_changes: Optional[Dict] = None,
                     **kwargs) -> Union['Model', List['Model']]:
     """
@@ -716,7 +716,7 @@ def run_sensitivity(base_simulation: 'Model',
                          - list of values: {'Component+parameter': [value1, value2, ...]}
         name: Base name for the simulation(s)
         user_notes: Notes about the sensitivity run(s)
-        save: Whether to save the simulation(s)
+        save_type: UNDEFINED simulation is not saved, REFERENCES_SIMULATION save as a reference simulation (full save),
         setup_changes: Optional dict of setup parameters to modify
         **kwargs: Additional arguments for Model constructor
 
@@ -779,7 +779,7 @@ def run_sensitivity(base_simulation: 'Model',
             name=run_name,
             parent_simulation=base_simulation.name if hasattr(base_simulation, 'name') else None,
             user_notes=user_notes,
-            save=save,
+            save_type = save_type,
             **kwargs
         )
 
@@ -819,7 +819,7 @@ def run_sensitivity(base_simulation: 'Model',
             current_changes,
             name=sim_name,
             user_notes=sim_notes,
-            save=save,
+            save_type = save_type,
             **kwargs
         ))
 

@@ -23,17 +23,19 @@ phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_numconc",
                       'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_numconc",
                       'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_numconc",
                       'SPMC']
+auria_metric = ['TEPC_C', 'BacF_C', 'BacA_C', 'Phy_Chl', "DOCS_C", "DOCL_C", "C_part_tot", "Phy_C"]
 
-phy_TEP_lim_sink = ['Phy_C', 'Phy_Chl', 'TEPC_C', 'Phy_mmDSi',
-                    'Phy_mmNH4', 'Phy_mmNO3', 'Phy_mmDIP', "Phy_limNUT",
-                    "Phy_lim_I", 'Phy_sink_lysis.C', 'Phy_sink_mortality.C', 'Phy_sink_exudation.C',
-                    'Phy_sink_respiration.C','Phy_sink_aggregation.C', "TEP_to_PhyC_ratio", "Phy_source_PP.C"]
+phy_TEP_lim_sink = [ 'Phy_mmDSi','Phy_mmNH4', 'Phy_mmNO3', 'Phy_mmDIP', "Phy_lim_I",   "TEP_to_PhyC_ratio"]
 
 
 phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', ]
 phy_C_SMS = ['Phy_source_PP.C',
              'Phy_sink_respiration.C', 'Phy_sink_exudation.C', 'Phy_sink_aggregation.C',
              'Phy_sink_ingestion.C', 'Phy_sink_lysis.C', 'Phy_sink_mortality.C' ]
+
+nut_tot = ["Si_tot", "P_tot", "N_tot", "C_tot"]
+Si_metric = ["Si_tot", "DSi_concentration", "Phy_Si", "Phy_QSi", "DSi_sinks", "Phy_mmDSi", "Phy_limQUOTA.Si"]
+
 phyDOM = ['Phy_C', 'DOCS_C', 'TEPC_C', 'DOCL_C']
 nutvars = ['NO3_concentration', 'NH4_concentration',
            'DIP_concentration', 'DSi_concentration']
@@ -943,7 +945,6 @@ def create_parameter_table(df: pd.DataFrame,
     return fig
 
 
-#TODO Refactor (or delete ?) this function with os.join
 def save_figure(fig: plt.Figure,
                 savetime: bool = False,
                 figsdir: str = os.path.join(FIGURE_PATH, ''),
