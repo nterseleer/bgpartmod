@@ -541,7 +541,7 @@ def run_or_load_simulation(config_dict: Dict,
             simulation = model.Model(config_dict, setup, name=name, **model_kwargs)
         case SimulationTypes.MODEL_RUN:
             simulation = model.Model(loaded_simulation.config, loaded_simulation.setup,
-                                     name=name, **model_kwargs)  # TODO: introduce model_kwarg
+                                     name=name, **model_kwargs)
         case SimulationTypes.REFERENCES_SIMULATION:
             simulation = loaded_simulation
         case _:
