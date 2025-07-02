@@ -20,19 +20,28 @@ FIGURE_PATH = path_cfg.FIGURE_PATH
 # Pre-defined variable groups for common plotting scenarios
 phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
             'DIP_concentration', 'DSi_concentration']
-phy_nuts_and_pools = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
-            'DIP_concentration', 'DSi_concentration']
+phy_nuts_and_pools = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si', 'NO3_concentration', 'NH4_concentration',
+                      'DIN_concentration',
+                      'DIP_concentration', 'DSi_concentration']
 phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_numconc",
-                      'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_numconc",
+                      'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam',
+                      "Macroflocs_numconc",
                       'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_numconc",
                       'SPMC']
 
 phy_TEP_lim_sink = ['Phy_C', 'Phy_Chl', 'TEPC_C', 'Phy_mmDSi',
                     'Phy_mmNH4', 'Phy_mmNO3', 'Phy_mmDIP', "Phy_limNUT",
                     "Phy_lim_I", 'Phy_sink_lysis.C', 'Phy_sink_mortality.C', 'Phy_sink_exudation.C',
-                    'Phy_sink_respiration.C','Phy_sink_aggregation.C', "TEP_to_PhyC_ratio", "Phy_source_PP.C"]
+                    'Phy_sink_respiration.C', 'Phy_sink_aggregation.C', "TEP_to_PhyC_ratio", "Phy_source_PP.C"]
 
 phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', 'Phy_kd']
+
+phy_nuts_lim_stoichio = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si',
+                         'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'DIP_concentration',
+                         'DSi_concentration',
+                         'Phy_limNUT', 'Phy_lim_N', 'Phy_lim_P', 'Phy_lim_Si', 'Phy_limI',
+                         'Phy_QN', 'Phy_QP', 'Phy_QSi', 'Phy_thetaC', 'Phy_source_PP.C'
+                         ]
 
 # Limitation functions affecting Phytoplankton C and Chl
 phy_limitation_vars = [
@@ -40,6 +49,7 @@ phy_limitation_vars = [
     'Phy_limNUT',  # Overall nutrient limitation (min of N, P, Si limitations)
     'Phy_limT',  # Temperature limitation
     'Phy_limI',  # Light limitation (also called lim_I)
+    'Phy_kd',    # Light attenuation coefficient
 
     # Individual nutrient limitations (Onur22 formulation)
     'Phy_lim_N',  # Nitrogen limitation (1 - QN_min/QN)
@@ -100,7 +110,7 @@ phy_limitation_context = [
 
 phy_C_SMS = ['Phy_source_PP.C',
              'Phy_sink_respiration.C', 'Phy_sink_exudation.C', 'Phy_sink_aggregation.C',
-             'Phy_sink_ingestion.C', 'Phy_sink_lysis.C', 'Phy_sink_mortality.C' ]
+             'Phy_sink_ingestion.C', 'Phy_sink_lysis.C', 'Phy_sink_mortality.C']
 phyDOM = ['Phy_C', 'DOCS_C', 'TEPC_C', 'DOCL_C']
 nutvars = ['NO3_concentration', 'NH4_concentration',
            'DIP_concentration', 'DSi_concentration']
@@ -136,11 +146,10 @@ flocsvar3 = ["Microflocs_numconc", "Macroflocs_numconc", "Micro_in_Macro_numconc
 flocs_tep_comprehensive = [
     "TEPC_C", "Macroflocs_diam", "Macroflocs_settling_vel", "Macroflocs_fyflocstrength",
     "Macroflocs_alpha_FF", "Microflocs_numconc", "Microflocs_massconcentration", "SPMC",
-    "Macroflocs_alpha_PF", "Macroflocs_numconc", "Macroflocs_massconcentration", "SPMC", #, "Microflocs_TOT",
+    "Macroflocs_alpha_PF", "Macroflocs_numconc", "Macroflocs_massconcentration", "SPMC",  #, "Microflocs_TOT",
     "Macroflocs_alpha_PP", "Micro_in_Macro_numconc", "Micro_in_Macro_massconcentration", "Macroflocs_Ncnum"
 
     # "Macroflocs_volconcentration",
-
 
 ]
 
@@ -168,8 +177,6 @@ dom_C_budget = {
               'DOCS_sink_breakdown.C', 'DOCS_sink_aggregation.C']
 }
 
-
-
 # General plotting setup
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["mathtext.fontset"] = "stix"
@@ -179,7 +186,6 @@ plt.rcParams['axes.prop_cycle'] = (
     " '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])"
 )
 plt.rcParams.update({'font.size': 8})
-
 
 # Define observation styling
 OBS_STYLES = {
@@ -254,12 +260,12 @@ def create_comparison_plots(
             plt.savefig(f'Figs/{var}_comparison.png')
         plt.close()
 
+
 def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
         observations: Optional[Any] = None,
         climatology: bool = True
 ) -> Tuple[List[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], List[str]]:
-
     """
     Prepare model and observation data for plotting.
 
@@ -282,10 +288,10 @@ def prepare_model_obs_data(
     for i, model in enumerate(models):
         if isinstance(model, pd.DataFrame):
             model_data = model.copy()
-            name = f'Model {i+1}'
+            name = f'Model {i + 1}'
         else:
             model_data = model.df.copy()
-            name = getattr(model, 'name', f'Model {i+1}')
+            name = getattr(model, 'name', f'Model {i + 1}')
 
             # Handle duplicate names by adding a counter
             if name in name_counts:
@@ -293,7 +299,6 @@ def prepare_model_obs_data(
                 name = f"{name} ({name_counts[name]})"
             else:
                 name_counts[name] = 1
-
 
         if climatology and model_data.index.name != 'julian_day':
             model_data['julian_day'] = model_data.index.dayofyear
@@ -534,6 +539,7 @@ def plot_biomass(model, observations=None, **kwargs):
     """Plot biomass variables."""
     return plot_results(model, phyvars, observations, **kwargs)
 
+
 def plot_sinks_sources(
         models: Union[Any, List[Any]],
         sources: List[str],
@@ -668,7 +674,6 @@ def plot_sinks_sources(
         netbalance = cumulative_sources.iloc[:, -1] - cumulative_sinks.iloc[:, -1]
         df_high_res['netbalance'] = netbalance
 
-
         # Plot sources (stacked positive values)
         for j, source in enumerate(valid_sources):
             # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
@@ -745,7 +750,6 @@ def plot_sinks_sources(
         if subplot_labels:
             add_subplot_label(ax, i, position=label_position)
 
-
             continue
     plt.tight_layout()
 
@@ -784,9 +788,9 @@ def plot_budget(
 
 
 def add_subplot_label(ax: plt.Axes,
-                     index: int,
-                     position: str = 'top_left',
-                     fontsize: int = 10) -> None:
+                      index: int,
+                      position: str = 'top_left',
+                      fontsize: int = 10) -> None:
     """Add letter labels (a, b, c, etc.) to subplots."""
     positions = {
         'top_left': {'x': 0.02, 'y': 0.98, 'ha': 'left', 'va': 'top'},
@@ -1019,5 +1023,3 @@ def save_figure(fig: plt.Figure,
     """Save figure with optional timestamp."""
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S_' if savetime else '%Y%m%d_')
     fig.savefig(f"{figsdir}{timestamp}{figname}", dpi=figsdpi)
-
-

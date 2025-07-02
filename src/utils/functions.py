@@ -413,6 +413,11 @@ def neweval(node, subdf, fulldf, setup):
         print(node.value.id, node.attr)
         raise TypeError(node)
 
+def getmodkwargs(newtmax=80, full_dia=False):
+    setup = phys.Setup(**phys.DEFAULT_SETUPS['onur22'], PARfromfile=True, tmax=newtmax, dt=1e-2, dt2=1e-3)
+    modkwargs = {'setup': setup, 'verbose': True, 'do_diagnostics': True, 'full_diagnostics': full_dia}
+    return modkwargs
+
 
 if __name__ == "__main__":
     setup = phys.Setup()

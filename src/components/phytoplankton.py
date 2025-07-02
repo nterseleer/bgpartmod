@@ -33,6 +33,9 @@ class Phyto(BaseOrg):
                  A_E=0.32,  # [-] Activation energy for T° scaling (Onur22)
                  r_ref=0.025,  # [d-1]
 
+                 QratioIC = None, # Ratio to correct for the ICs internal pools vs Q_max (in BaseOrg.set_ICs)
+                 checkQmax = True, # Boolean: whether to check that IC are OK wrt Q_max
+
                  sigmaN_C=1000 * varinfos.molmass_N ** 2 / varinfos.molmass_C ** 2,
                  # [mmolN2 mmolC-2] Slope parameter for DIN-uptake regulation (Sch07)
                  gamma_C=0.,  # 0.250,  # [d-1] Phytoplankton linear C loss rate (Sch07)
@@ -64,7 +67,6 @@ class Phyto(BaseOrg):
 
                  dt2=False,
                  name='DefaultPhyto',
-                 # formulation='Sch07'
                  ):
 
         super().__init__()
@@ -101,6 +103,8 @@ class Phyto(BaseOrg):
         self.T_ref = T_ref
         self.A_E = A_E
         self.r_ref = r_ref
+        self.QratioIC = QratioIC
+        self.checkQmax = checkQmax
         self.sigmaN_C = sigmaN_C
         self.gamma_C = gamma_C
         self.gamma_N = gamma_N

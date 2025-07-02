@@ -444,7 +444,7 @@ class Optimization:
             'full_diagnostics': False
         }
 
-        best_model = model.Model(best_config, **model_kwargs)
+        best_model = model.Model(best_config, name=self.name, **model_kwargs)
 
         # Save model
         with open(model_file, 'wb') as f:
