@@ -190,9 +190,9 @@ class Phyto(BaseOrg):
         # Limitation functions
         self.get_limNUT()
         if self.formulation == 'Onur22':
-            self.limT = fns.getlimT(self.setup.T, A_E=self.A_E, T_ref=self.T_ref, boltz=True)
+            self.limT = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref, boltz=True)
         else:
-            self.limT = fns.getlimT(self.setup.T)
+            self.limT = fns.getlimT(self.setup.T.loc[t]['T'])
         if self.P is not None and self.Si is not None:
             self.fnut = min(self.QN, self.QP, self.QSi)
 

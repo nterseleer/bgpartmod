@@ -83,7 +83,8 @@ class Setup:
             'used_dt',  # Actually used timestep
         ],
         'physical_params': [
-            'T',  # Temperature in Kelvin
+            'base_T',  # Temperature in Kelvin
+            'varyingTEMP', # Whether T should be time-varying or not
             'z',  # Depth in meters
             'k_att',  # Light attenuation coefficient
             'kb',  # Background turbidity
@@ -121,6 +122,7 @@ class Setup:
                  light_prop: float = 0.5,
                  lightfirst: bool = True,
                  T: float = 18.,
+                 varyingTEMP: bool = False,
                  k_att: float = 16.,
                  z: float = 0.25,
                  pCO2: float = 370,
@@ -130,6 +132,7 @@ class Setup:
                  gshearper: float = 0.5,
                  kb: float = 0.13,
                  plotPAR: bool = False,
+                 plotTEMP: bool = False,
                  verbose: bool = False):
         """Initialize physical setup for simulation."""
         # Store initialization parameters
@@ -172,7 +175,8 @@ class Setup:
             self.dates1_set = None
 
         # Store physical parameters
-        self.T = T + self.constants.degCtoK  # Convert to Kelvin
+        self.base_T = T  # Store base temperature value
+        # self.T = T + self.constants.degCtoK  # Convert to Kelvin
         self.k_att = k_att
         self.z = z
         self.pCO2 = pCO2
@@ -184,6 +188,10 @@ class Setup:
         self.light_prop = light_prop
         self.lightfirst = lightfirst
         self.PAR = self._initialize_PAR(plotPAR)
+
+        # Temperature settings
+        self.varyingTEMP = varyingTEMP
+        self.T = self._initialize_TEMP(plotTEMP)
 
         # Shear settings
         self.vary_g_shear = vary_g_shear
@@ -274,6 +282,87 @@ class Setup:
         plt.ylabel('PAR')
         plt.title('PAR Values Over Time')
         plt.legend()
+
+    def _initialize_TEMP(self, plotTEMP: bool) -> pd.DataFrame:
+        """Initialize temperature data as DataFrame."""
+        if not self.varyingTEMP:
+            # Constant temperature - create DataFrame with constant values
+            temp_values = np.full(len(self.t_eval), self.base_T + self.constants.degCtoK)
+            return pd.DataFrame(temp_values, index=self.dates, columns=['T'])
+        else:
+            # Time-varying temperature using cosine function
+            return self._create_cosine_temperature(plotTEMP)
+
+    def _create_cosine_temperature(self, plotTEMP: bool) -> pd.DataFrame:
+        """Create time-varying temperature using cosine function fitted to observations."""
+        # Convert dates to julian days
+        julian_days = self.dates.dayofyear
+
+        # Cosine function parameters fitted to observations
+        # T_min = 5.5°C at day 37.5, T_max = 21.5°C at day 220 (MOW1 observations)
+        T_mean = (5.5 + 21.5) / 2.0  # 13.5°C
+        T_amplitude = (21.5 - 5.5) / 2.0  # 8.0°C
+        phase_offset = 210  # Day of maximum temperature
+
+        # Generate cosine temperature (in Celsius)
+        temp_celsius = T_mean + T_amplitude * np.cos(2 * np.pi * (julian_days - phase_offset) / 365.25)
+
+        # Convert to Kelvin
+        temp_kelvin = temp_celsius + self.constants.degCtoK
+
+        # Create DataFrame
+        temp_df = pd.DataFrame(temp_kelvin, index=self.dates, columns=['T'])
+
+        if plotTEMP:
+            self._plot_temperature(temp_df, temp_celsius, julian_days)
+
+        return temp_df
+
+    def _plot_temperature(self, temp_df: pd.DataFrame, temp_celsius: np.ndarray, julian_days: np.ndarray):
+        """Plot temperature data for verification against observations."""
+        import matplotlib.pyplot as plt
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+        # Plot 1: Temperature vs Julian Day
+        ax1.plot(julian_days, temp_celsius, 'b-', label='Model temperature', linewidth=2)
+        ax1.set_xlabel('Julian Day')
+        ax1.set_ylabel('Temperature (°C)')
+        ax1.set_title('Model Temperature vs Julian Day')
+        ax1.grid(True, alpha=0.3)
+        ax1.legend()
+
+        # Plot 2: With observations (if available)
+        ax2.plot(julian_days, temp_celsius, 'b-', label='Model temperature', linewidth=2)
+
+        # Try to load and plot observations for comparison
+        try:
+            from src.utils.observations import Obs
+            import src.config_model.obsinfos as obsinfos
+
+            mow1 = Obs(read_df=False)
+            mow1readdict = {'sep': '\s+', 'skiprows': [0, 1, 2, 4], 'engine': 'python'}
+            mow1.df = mow1.read_obs(obsinfos.mow1fname, readdic=mow1readdict)
+            temp_obs = mow1.df[mow1.df['T@pH'] > 1]['T@pH']
+
+            if len(temp_obs) > 0:
+                mow1.df = mow1.compute_climatology(mow1.df[['T@pH']])
+                ax2.scatter(mow1.df.index, mow1.df['T@pH'],
+                            color='red', s=30, alpha=0.7, label='Observations', zorder=5)
+                ax2.plot(mow1.df.index, mow1.df['T@pH'],
+                         color='red', alpha=0.5, linewidth=1)
+        except Exception as e:
+            print(f"Could not load temperature observations for plotting: {e}")
+
+        ax2.set_xlabel('Julian Day')
+        ax2.set_ylabel('Temperature (°C)')
+        ax2.set_title('Model vs Observed Temperature')
+        ax2.grid(True, alpha=0.3)
+        ax2.legend()
+
+        plt.tight_layout()
+        plt.show()
+
 
     def _calculate_shear_rates(self, base_rate: float) -> np.ndarray:
         """Calculate shear rates for the simulation period."""

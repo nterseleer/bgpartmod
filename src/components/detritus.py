@@ -229,8 +229,8 @@ class Detritus(BaseOrg):
             self.sink_breakdown.P = 0.
             self.sink_breakdown.Si = 0.
         else:
-            self.sink_breakdown.C = self.omega_C * fns.getlimT(self.setup.T) * self.C
-            self.sink_breakdown.N = self.omega_N * fns.getlimT(self.setup.T) * self.N
+            self.sink_breakdown.C = self.omega_C * fns.getlimT(self.setup.T.loc[t]['T']) * self.C
+            self.sink_breakdown.N = self.omega_N * fns.getlimT(self.setup.T.loc[t]['T']) * self.N
 
     def get_sink_aggregation(self):
         if self.formulation == "Onur22":

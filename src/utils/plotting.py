@@ -14,6 +14,7 @@ from typing import Union, List, Dict, Optional, Tuple, Any
 from . import functions as fns
 from src.config_model import varinfos
 from src.config_system import path_config as path_cfg
+from src.utils import observations
 
 FIGURE_PATH = path_cfg.FIGURE_PATH
 
@@ -154,8 +155,10 @@ flocs_tep_comprehensive = [
 ]
 
 flocsrelatedvars = ["Phy_C", "TEPC_C",
+                    "Macroflocs_diam", "Macroflocs_settling_vel",
                     "Microflocs_numconc", "Macroflocs_numconc",
-                    "Micro_in_Macro_numconc", 'Floc_diam']
+                    "Micro_in_Macro_numconc", 'Floc_diam',
+                    "Macroflocs_alpha_FF", "SPMC"]
 phyTEPflocs = ['Phy_C', 'TEPC_C', 'Macroflocs_numconc', 'Floc_diam']
 
 phy_C_budget = {
@@ -249,7 +252,7 @@ def create_comparison_plots(
             mod_obs_data.index,
             mod_obs_data[f'{var}_OBS'],
             color='orange',
-            label='Used observations',
+            label='Observations',
             s=3
         )
 
@@ -383,7 +386,7 @@ def plot_variable(
             merged_data.index,
             merged_data[f'{var_name}_OBS'],
             color='red',
-            label='Used observations' if add_labels else "_Used observations",
+            label='Observations' if add_labels else "_Used observations",
             **{**obs_kwargs, 's': 6}
         )
 
@@ -400,7 +403,7 @@ def plot_variable(
 def plot_results(
         models: Union[Any, List[Any]],
         variables: List[str],
-        observations: Optional[Any] = None,
+        observations: Optional[Any] = observations.Obs(station='MOW1_202503'),
         calibrated_vars: Optional[List[str]] = None,
         climatology: bool = True,
         show_full_obs: bool = False,
@@ -607,12 +610,12 @@ def plot_sinks_sources(
             ncols = (num_models + nrows - 1) // nrows
 
         # Determine figure size
-        if figsize is None or auto_adjust_figsize:
-            # Calculate figsize based on grid dimensions
-            used_figsize = (default_subplot_size[0] * ncols, default_subplot_size[1] * nrows)
-        else:
-            # Use user-provided figsize
-            used_figsize = figsize
+    if figsize is None or auto_adjust_figsize:
+        # Calculate figsize based on grid dimensions
+        used_figsize = (default_subplot_size[0] * ncols, default_subplot_size[1] * nrows)
+    else:
+        # Use user-provided figsize
+        used_figsize = figsize
 
     # Create subplots
     fig, axes = plt.subplots(nrows, ncols, figsize=used_figsize, sharex=True)

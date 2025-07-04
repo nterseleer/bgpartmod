@@ -78,7 +78,7 @@ class DIM(BaseStateVar):
         self.get_source_remineralization()
         self.get_source_respiration()
         self.get_source_airseaexchange()
-        self.get_source_redox()
+        self.get_source_redox(t)
         self.get_source_sloppy_feeding()
         self.get_source_exudation()
 
@@ -131,10 +131,10 @@ class DIM(BaseStateVar):
         else:
             self.source_airseaexchange = 0.
 
-    def get_source_redox(self):
+    def get_source_redox(self, t):
         # Onur22
         if self.name == 'NO3':
-            self.source_redox = self.r_nit * fns.getlimT(self.setup.T, A_E=self.A_E, T_ref=self.T_ref,
+            self.source_redox = self.r_nit * fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
                                                          boltz=True) * self.coupled_NH4.concentration
         else:
             self.source_redox = 0.
