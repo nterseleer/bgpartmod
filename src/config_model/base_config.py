@@ -221,7 +221,7 @@ Onur = {
                  'gamma_C_exud_prod': 0.11,  # [-] !OK
                  'lysrate': 0.1,  # [d-1] !OK
                  'A_E': 0.32,  # [-] !OK
-                 'T_ref': 283.,  # [K] !OK
+                 'T_ref': 283.15,  # [K] !OK
                  'eps_kd': 0.024,  # [m2 mmolC-1]
                  'kdvar': True,
                  },
