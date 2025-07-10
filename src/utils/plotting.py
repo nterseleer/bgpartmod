@@ -13,172 +13,11 @@ from typing import Union, List, Dict, Optional, Tuple, Any
 
 from . import functions as fns
 from src.config_model import varinfos
+from src.config_model import vars_to_plot
 from src.config_system import path_config as path_cfg
 from src.utils import observations
 
 FIGURE_PATH = path_cfg.FIGURE_PATH
-
-# Pre-defined variable groups for common plotting scenarios
-phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
-            'DIP_concentration', 'DSi_concentration']
-phy_nuts_and_pools = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si', 'NO3_concentration', 'NH4_concentration',
-                      'DIN_concentration',
-                      'DIP_concentration', 'DSi_concentration']
-phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_numconc",
-                      'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam',
-                      "Macroflocs_numconc",
-                      'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_numconc",
-                      'SPMC']
-
-phy_TEP_lim_sink = ['Phy_C', 'Phy_Chl', 'TEPC_C', 'Phy_mmDSi',
-                    'Phy_mmNH4', 'Phy_mmNO3', 'Phy_mmDIP', "Phy_limNUT",
-                    "Phy_lim_I", 'Phy_sink_lysis.C', 'Phy_sink_mortality.C', 'Phy_sink_exudation.C',
-                    'Phy_sink_respiration.C', 'Phy_sink_aggregation.C', "TEP_to_PhyC_ratio", "Phy_source_PP.C"]
-
-phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', 'Phy_kd']
-
-phy_nuts_lim_stoichio = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si',
-                         'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'DIP_concentration',
-                         'DSi_concentration',
-                         'Phy_limNUT', 'Phy_lim_N', 'Phy_lim_P', 'Phy_lim_Si', 'Phy_limI',
-                         'Phy_QN', 'Phy_QP', 'Phy_QSi', 'Phy_thetaC', 'Phy_source_PP.C'
-                         ]
-
-# Limitation functions affecting Phytoplankton C and Chl
-phy_limitation_vars = [
-    # Overall limitation factors
-    'Phy_limNUT',  # Overall nutrient limitation (min of N, P, Si limitations)
-    'Phy_limT',  # Temperature limitation
-    'Phy_limI',  # Light limitation (also called lim_I)
-    'Phy_kd',    # Light attenuation coefficient
-
-    # Individual nutrient limitations (Onur22 formulation)
-    'Phy_lim_N',  # Nitrogen limitation (1 - QN_min/QN)
-    'Phy_lim_P',  # Phosphorus limitation (1 - QP_min/QP)
-    'Phy_lim_Si',  # Silicon limitation (1 - QSi_min/QSi)
-
-    # Quota-based limitations
-    'Phy_limQUOTA.N',  # N quota limitation (1 - limQUOTAmin.N)
-    'Phy_limQUOTA.P',  # P quota limitation (1 - limQUOTAmin.P)
-    'Phy_limQUOTA.Si',  # Si quota limitation (1 - limQUOTAmin.Si)
-    'Phy_limQUOTAmin.N',  # Minimum N quota factor
-    'Phy_limQUOTAmin.P',  # Minimum P quota factor
-    'Phy_limQUOTAmin.Si',  # Minimum Si quota factor
-
-    # Michaelis-Menten terms for nutrient uptake
-    'Phy_mmNH4',  # NH4 uptake limitation
-    'Phy_mmNO3',  # NO3 uptake limitation
-    'Phy_mmDIP',  # DIP (phosphate) uptake limitation
-    'Phy_mmDSi',  # DSi (silicate) uptake limitation
-
-    # Primary production components
-    'Phy_PC_max',  # Maximum photosynthetic rate
-    'Phy_PC',  # Actual photosynthetic rate
-]
-
-phy_limNUT = [
-    # Overall limitation factors
-    'Phy_limNUT',  # Overall nutrient limitation (min of N, P, Si limitations)
-    'Phy_limT',  # Temperature limitation
-    'Phy_limI',  # Light limitation (also called lim_I)
-
-    # Individual nutrient limitations (Onur22 formulation)
-    'Phy_lim_N',  # Nitrogen limitation (1 - QN_min/QN)
-    'Phy_lim_P',  # Phosphorus limitation (1 - QP_min/QP)
-    'Phy_lim_Si',  # Silicon limitation (1 - QSi_min/QSi)
-
-    # Stoichiometric ratios
-    'Phy_QN',  # N:C ratio
-    'Phy_QP',  # P:C ratio
-    'Phy_QSi',  # Si:C ratio
-]
-
-phy_limitation_context = [
-    # Stoichiometric ratios
-    'Phy_QN',  # N:C ratio
-    'Phy_QP',  # P:C ratio
-    'Phy_QSi',  # Si:C ratio
-    'Phy_thetaC',  # Chl:C ratio
-
-    # Light attenuation
-    'Phy_kd',  # Light attenuation coefficient (if kdvar=True)
-
-    # Source terms for growth
-    'Phy_source_PP.C',  # Primary production source for C
-    'Phy_source_Chlprod.Chl',  # Chlorophyll production
-    'Phy_rho_Chl',  # Chlorophyll synthesis rate
-]
-
-phy_C_SMS = ['Phy_source_PP.C',
-             'Phy_sink_respiration.C', 'Phy_sink_exudation.C', 'Phy_sink_aggregation.C',
-             'Phy_sink_ingestion.C', 'Phy_sink_lysis.C', 'Phy_sink_mortality.C']
-phyDOM = ['Phy_C', 'DOCS_C', 'TEPC_C', 'DOCL_C']
-nutvars = ['NO3_concentration', 'NH4_concentration',
-           'DIP_concentration', 'DSi_concentration']
-domvars = ['DOCS_C', 'DOCS_N', 'DOCS_P', 'DOCL_C',
-           'DOCL_N', 'DOCL_P', 'TEPC_C', 'TEPC_N', 'TEPC_P']
-detvars = ['DetS_C', 'DetS_N', 'DetS_P',
-           'DetL_C', 'DetL_N', 'DetL_P']
-hetvars = ['BacF_C', 'BacF_N', 'BacF_P',
-           'BacA_C', 'BacA_N', 'BacA_P',
-           'HF_C', 'HF_N', 'HF_P',
-           'Cil_C', 'Cil_N', 'Cil_P']
-QNvars = ['QN', 'BacA_QN', 'BacF_QN', 'HF_QN', 'Cil_QN']
-stoichioPhy = ['Phy_QN', 'Phy_QP', 'Phy_QSi', 'CN', 'CP', 'CSi',
-               'thetaC', 'CChl', 'thetaN']
-phyvars = ['Phy_C', 'Phy_Chl', 'Phy_N', 'Phy_P', 'Phy_Si']
-flocsvar = ["Microflocs_numconc", "Macroflocs_numconc",
-            "Micro_in_Macro_numconc", 'Floc_diam']
-flocsvar2 = ["Microflocs_numconc", "Macroflocs_numconc", "Micro_in_Macro_numconc",
-             "Macroflocs_diam", 'Floc_diam',
-             "Macroflocs_settling_vel", "Microflocs_TOT",
-             "Microflocs_massconcentration", "Micro_in_Macro_massconcentration",
-             'SPMC']
-flocsvar3 = ["Microflocs_numconc", "Macroflocs_numconc", "Micro_in_Macro_numconc",
-             # 'Floc_diam',
-             "Macroflocs_diam", "Micro_in_Macro_concentration",
-             "Macroflocs_concentration", "Microflocs_concentration",
-             "Macroflocs_settling_vel",
-             'Macroflocs_ppsource', 'Macroflocs_ffloss',
-             'Macroflocs_breaksource', 'Macroflocs_settling_loss',
-             "Macroflocs_massconcentration", "Microflocs_massconcentration",
-             'SPMC']
-
-flocs_tep_comprehensive = [
-    "TEPC_C", "Macroflocs_diam", "Macroflocs_settling_vel", "Macroflocs_fyflocstrength",
-    "Macroflocs_alpha_FF", "Microflocs_numconc", "Microflocs_massconcentration", "SPMC",
-    "Macroflocs_alpha_PF", "Macroflocs_numconc", "Macroflocs_massconcentration", "SPMC",  #, "Microflocs_TOT",
-    "Macroflocs_alpha_PP", "Micro_in_Macro_numconc", "Micro_in_Macro_massconcentration", "Macroflocs_Ncnum"
-
-    # "Macroflocs_volconcentration",
-
-]
-
-flocsrelatedvars = ["Phy_C", "TEPC_C",
-                    "Macroflocs_diam", "Macroflocs_settling_vel",
-                    "Microflocs_numconc", "Macroflocs_numconc",
-                    "Micro_in_Macro_numconc", 'Floc_diam',
-                    "Macroflocs_alpha_FF", "SPMC"]
-phyTEPflocs = ['Phy_C', 'TEPC_C', 'Macroflocs_numconc', 'Floc_diam']
-
-phy_C_budget = {
-    'sources': ['Phy_source_PP.C'],
-    'sinks': ['Phy_sink_respiration.C', 'Phy_sink_exudation.C', 'Phy_sink_aggregation.C',
-              'Phy_sink_ingestion.C', 'Phy_sink_lysis.C', 'Phy_sink_mortality.C']
-}
-
-bac_C_budget = {
-    'sources': ['BacF_source_ing_C_assimilated'],
-    'sinks': ['BacF_sink_respiration.C', 'BacF_sink_lysis.C',
-              'BacF_sink_mortality.C', 'BacF_sink_ingestion.C']
-}
-
-dom_C_budget = {
-    'sources': ['DOCS_source_exudation.C', 'DOCS_source_breakdown.C',
-                'DOCS_source_aggregation.C', 'DOCS_source_sloppy_feeding.C'],
-    'sinks': ['DOCS_sink_ingestion.C', 'DOCS_sink_remineralization.C',
-              'DOCS_sink_breakdown.C', 'DOCS_sink_aggregation.C']
-}
 
 # General plotting setup
 plt.rcParams["font.family"] = "Times New Roman"
@@ -194,7 +33,7 @@ plt.rcParams.update({'font.size': 8})
 OBS_STYLES = {
     'calibrated': {
         'marker': 'o',
-        'color': 'red',
+        'color': 'grey',
         'markersize': 6,
         'alpha': 0.7
     },
@@ -267,7 +106,7 @@ def create_comparison_plots(
 def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
         observations: Optional[Any] = None,
-        climatology: bool = True
+        daily_mean: bool = True
 ) -> Tuple[List[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], List[str]]:
     """
     Prepare model and observation data for plotting.
@@ -275,7 +114,7 @@ def prepare_model_obs_data(
     Args:
         models: Single model/DataFrame or list of models/DataFrames
         observations: Observation data object
-        climatology: Whether to use climatological means
+        daily_mean: Whether to use daily means
 
     Returns:
         Tuple of (model_data_list, merged_data, full_obs_data, model_names)
@@ -303,7 +142,7 @@ def prepare_model_obs_data(
             else:
                 name_counts[name] = 1
 
-        if climatology and model_data.index.name != 'julian_day':
+        if daily_mean and model_data.index.name != 'julian_day':
             model_data['julian_day'] = model_data.index.dayofyear
             model_data = model_data.groupby('julian_day').mean()
 
@@ -315,7 +154,8 @@ def prepare_model_obs_data(
 
     # Prepare observation data
     obs_data = observations.df.copy()
-    if climatology and obs_data.index.name != 'julian_day':
+
+    if daily_mean and obs_data.index.name != 'julian_day':
         obs_data['julian_day'] = obs_data.index.dayofyear
         obs_data = obs_data.groupby('julian_day').mean()
 
@@ -325,7 +165,7 @@ def prepare_model_obs_data(
         obs_data,
         left_index=True,
         right_index=True,
-        how='left',
+        how='outer',
         suffixes=('_MOD', '_OBS')
     )
 
@@ -371,24 +211,52 @@ def plot_variable(
             ax.plot(model_data.index, model_data[var_name],
                     label=name if add_labels else "_" + name, **style)
 
-    # Plot observations if available
-    if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
-        ax.scatter(
-            full_obs_data.index,
-            full_obs_data[var_name],
-            color='orange',
-            label='All observations' if add_labels else "_All observations",
-            **obs_kwargs
-        )
+    # if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
+    #     # Check if std data is available for error bars
+    #     std_col = f"{var_name}_std"
+    #     if std_col in full_obs_data.columns:
+    #         # Use errorbar for observations with std
+    #         ax.errorbar(
+    #             full_obs_data.index,
+    #             full_obs_data[var_name],
+    #             yerr=full_obs_data[std_col],
+    #             color='orange',
+    #             label='All observations' if add_labels else "_All observations",
+    #             fmt='o',  # marker style
+    #             capsize=3,
+    #             **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle']}
+    #         )
+    #     else:
+    #         ax.scatter(
+    #         full_obs_data.index,
+    #         full_obs_data[var_name],
+    #         color='orange',
+    #         label='All observations' if add_labels else "_All observations",
+    #         **obs_kwargs)
 
     if merged_data is not None and f'{var_name}_OBS' in merged_data.columns:
-        ax.scatter(
+        # Check if std data is available for error bars
+        std_col = f"{var_name}_std"
+        if std_col in merged_data.columns:
+            # Use errorbar for observations with std
+            ax.errorbar(
+                merged_data.index,
+                merged_data[f'{var_name}_OBS'],
+                yerr=merged_data[std_col],
+                color='grey',
+                label='Observations' if add_labels else "_Used observations",
+                fmt='o',  # marker style
+                capsize=3,
+                **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle', 's']}
+            )
+        else:
+            ax.scatter(
             merged_data.index,
             merged_data[f'{var_name}_OBS'],
             color='red',
             label='Observations' if add_labels else "_Used observations",
             **{**obs_kwargs, 's': 6}
-        )
+            )
 
     # Format labels and title
     var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
@@ -405,7 +273,7 @@ def plot_results(
         variables: List[str],
         observations: Optional[Any] = observations.Obs(station='MOW1_202503'),
         calibrated_vars: Optional[List[str]] = None,
-        climatology: bool = True,
+        daily_mean: bool = True,
         show_full_obs: bool = False,
         ncols: int = 2,
         figsize: Optional[Tuple[int, int]] = None,
@@ -425,7 +293,7 @@ def plot_results(
         variables: List of variables to plot
         observations: Optional observation data
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
-        climatology: Whether to use climatological means
+        daily_mean: Whether to use daily means
         show_full_obs: Whether to show full observation range
         ncols: Number of columns in subplot grid
         figsize: Figure size (default: auto-calculated)
@@ -443,7 +311,7 @@ def plot_results(
     # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
     #     print(models[0].df['Phy_source_PP.C'])
     model_data_list, merged_data, full_obs_data, model_names = prepare_model_obs_data(
-        models, observations, climatology
+        models, observations, daily_mean
     )
 
     # Calculate grid dimensions
@@ -530,17 +398,17 @@ def plot_results(
 # Specialized plotting functions
 def plot_nutrients(model, observations=None, **kwargs):
     """Plot nutrient concentrations."""
-    return plot_results(model, nutvars, observations, **kwargs)
+    return plot_results(model, vars_to_plot.nutvars, observations, **kwargs)
 
 
 def plot_stoichiometry(model, observations=None, **kwargs):
     """Plot stoichiometric ratios."""
-    return plot_results(model, stoichioPhy, observations, **kwargs)
+    return plot_results(model, vars_to_plot.stoichioPhy, observations, **kwargs)
 
 
 def plot_biomass(model, observations=None, **kwargs):
     """Plot biomass variables."""
-    return plot_results(model, phyvars, observations, **kwargs)
+    return plot_results(model, vars_to_plot.phyvars, observations, **kwargs)
 
 
 def plot_sinks_sources(
@@ -548,7 +416,7 @@ def plot_sinks_sources(
         sources: List[str],
         sinks: List[str],
         observations: Optional[Any] = None,
-        climatology: bool = True,
+        daily_mean: bool = True,
         increase_resolution_factor: int = 2,
         figsize: Optional[Tuple[float, float]] = None,
         default_subplot_size: Tuple[float, float] = (3.6, 5.7),
@@ -571,7 +439,7 @@ def plot_sinks_sources(
         sources: List of column names to be plotted as sources (positive values)
         sinks: List of column names to be plotted as sinks (negative values)
         observations: Optional observation data
-        climatology: Whether to use climatological means
+        daily_mean: Whether to use daily means
         increase_resolution_factor: Factor to increase resolution of the datetime index
         figsize: Custom figure size (if None, calculated based on default_subplot_size)
         default_subplot_size: Default size for a single subplot when auto-calculating figsize
@@ -590,7 +458,7 @@ def plot_sinks_sources(
     """
     # Prepare model data
     model_data_list, _, _, model_names = prepare_model_obs_data(
-        models, observations, climatology
+        models, observations, daily_mean
     )
 
     # Create subplots
@@ -647,8 +515,8 @@ def plot_sinks_sources(
             continue
 
         # Create high-resolution index for smoother visualization
-        if climatology:
-            # For julian day indices (climatology=True)
+        if daily_mean:
+            # For julian day indices (daily_mean=True)
             min_day = df.index.min()
             max_day = df.index.max()
             new_index = np.linspace(min_day, max_day,
@@ -657,7 +525,7 @@ def plot_sinks_sources(
                 df[valid_sources + valid_sinks].astype(float),
                 how='outer').interpolate(method='linear')
         else:
-            # For datetime indices (climatology=False)
+            # For datetime indices (daily_mean=False)
             new_index = pd.date_range(
                 start=df.index.min(),
                 end=df.index.max(),
