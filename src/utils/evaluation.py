@@ -12,7 +12,7 @@ from src.utils import plotting
 def prepare_likelihood_data(
         model_results: pd.DataFrame,
         observations: Any,
-        climatology: bool = True,
+        daily_mean: bool = True,
         _cached_obs: Optional[pd.DataFrame] = None
 ) -> pd.DataFrame:
     """
@@ -21,14 +21,14 @@ def prepare_likelihood_data(
     Args:
         model_results: Model results DataFrame
         observations: Observation data object
-        climatology: Whether to use climatological means
+        daily_mean: Whether to use daily means
         _cached_obs: Optional cached observation data
 
     Returns:
         DataFrame with merged model and observation data
     """
     # Prepare model data - direct operation on input
-    if climatology and model_results.index.name != 'julian_day':
+    if daily_mean and model_results.index.name != 'julian_day':
         model_data = model_results.copy()
         model_data['julian_day'] = model_data.index.dayofyear
         model_data = model_data.groupby('julian_day').mean()
@@ -40,7 +40,7 @@ def prepare_likelihood_data(
         obs_data = _cached_obs
     else:
         obs_data = observations.df
-        if climatology and obs_data.index.name != 'julian_day':
+        if daily_mean and obs_data.index.name != 'julian_day':
             obs_data = obs_data.copy()
             obs_data['julian_day'] = obs_data.index.dayofyear
             obs_data = obs_data.groupby('julian_day').mean()
@@ -60,7 +60,7 @@ def calculate_likelihood(
         model_results: pd.DataFrame,
         observations: Any,
         calibrated_vars: Optional[List[str]] = None,
-        climatology: bool = True,
+        daily_mean: bool = True,
         plot: bool = False,
         save_plots: bool = False,
         plot_size: Tuple[int, int] = (10, 6),
@@ -79,7 +79,7 @@ def calculate_likelihood(
     merged_data = prepare_likelihood_data(
         model_results,
         observations,
-        climatology,
+        daily_mean,
         _cached_obs
     )
 
@@ -89,7 +89,7 @@ def calculate_likelihood(
             model_results,
             variables=calibrated_vars,
             observations=observations,
-            climatology=climatology,
+            daily_mean=daily_mean,
             figsize=plot_size,
             save=save_plots,
             filename='likelihood_comparison'
@@ -123,7 +123,7 @@ def calculate_rmse(
         model_results: pd.DataFrame,
         observations: Any,
         variables: Optional[List[str]] = None,
-        climatology: bool = True
+        daily_mean: bool = True
 ) -> Dict[str, float]:
     """
     Calculate Root Mean Square Error between model and Observations.
@@ -132,7 +132,7 @@ def calculate_rmse(
         model_results: DataFrame containing model results
         observations: Observations object with .df attribute
         variables: List of variables to calculate RMSE for
-        climatology: Whether to compare climatological means
+        daily_mean: Whether to compare daily means
 
     Returns:
         Dictionary of RMSE values by variable
@@ -141,7 +141,7 @@ def calculate_rmse(
         variables = observations.df.columns
 
     model_data = model_results.copy()
-    if climatology:
+    if daily_mean:
         model_data['julian_day'] = model_data.index.dayofyear
         model_data = model_data.groupby('julian_day').mean()
 
