@@ -12,8 +12,9 @@ from src.utils import plotting
 def prepare_likelihood_data(
         model_results: pd.DataFrame,
         observations: Any,
-        climatology: bool = True,
-        _cached_obs: Optional[pd.DataFrame] = None
+        daily_mean: bool = True,
+        _cached_obs: Optional[pd.DataFrame] = None,
+        method: str = 'aggregate',  # 'aggregate' or 'interpolate'
 ) -> pd.DataFrame:
     """
     Streamlined data preparation for likelihood calculation.
@@ -21,14 +22,16 @@ def prepare_likelihood_data(
     Args:
         model_results: Model results DataFrame
         observations: Observation data object
-        climatology: Whether to use climatological means
+        daily_mean: Whether to use daily means
+        method: 'aggregate' (default) aggregates model to obs periods,
+                'interpolate' interpolates model to obs times
         _cached_obs: Optional cached observation data
 
     Returns:
         DataFrame with merged model and observation data
     """
     # Prepare model data - direct operation on input
-    if climatology and model_results.index.name != 'julian_day':
+    if daily_mean and model_results.index.name != 'julian_day':
         model_data = model_results.copy()
         model_data['julian_day'] = model_data.index.dayofyear
         model_data = model_data.groupby('julian_day').mean()
@@ -40,27 +43,63 @@ def prepare_likelihood_data(
         obs_data = _cached_obs
     else:
         obs_data = observations.df
-        if climatology and obs_data.index.name != 'julian_day':
+        if daily_mean and obs_data.index.name != 'julian_day':
             obs_data = obs_data.copy()
             obs_data['julian_day'] = obs_data.index.dayofyear
             obs_data = obs_data.groupby('julian_day').mean()
 
-    # Merge and return
-    return pd.merge(
-        model_data,
-        obs_data,
-        left_index=True,
-        right_index=True,
-        how='left',
-        suffixes=('_MOD', '_OBS')
+    # Handle different temporal resolutions
+    if method == 'interpolate':
+        # Option 1: Interpolate model to observation times
+        model_reworked = model_data.reindex(obs_data.index, method='nearest')
+
+    else:  # method == 'aggregate' (default)
+        # Option 2: Aggregate model to match observation periods
+
+        # Detect period_days from observation index spacing
+        if len(obs_data) > 1:
+            obs_spacing = np.diff(obs_data.index).mean()
+            period_days = int(round(obs_spacing))
+        else:
+            period_days = 1  # Fallback for single observation
+
+        # Aggregate model data to observation periods
+        aggregated_model = []
+        for obs_time in obs_data.index:
+            # Determine the period this observation represents
+            period_start = obs_time - period_days / 2 + 0.5
+            period_end = obs_time + period_days / 2 + 0.5
+
+            # Find model days in this period
+            period_mask = (model_data.index >= period_start) & (model_data.index <= period_end)
+            period_model = model_data[period_mask]
+
+            if len(period_model) > 0:
+                # Compute mean over the period
+                period_mean = period_model.mean()
+                period_mean.name = obs_time
+                aggregated_model.append(period_mean)
+
+        if aggregated_model:
+            model_reworked = pd.DataFrame(aggregated_model)
+        else:
+            # No overlap - return empty DataFrame with proper structure
+            return pd.DataFrame()
+
+    merged_data = pd.merge(
+        model_reworked, obs_data,
+        left_index=True, right_index=True,
+        how='inner', suffixes=('_MOD', '_OBS')
     )
+
+    return merged_data
 
 
 def calculate_likelihood(
         model_results: pd.DataFrame,
         observations: Any,
         calibrated_vars: Optional[List[str]] = None,
-        climatology: bool = True,
+        daily_mean: bool = True,
         plot: bool = False,
         save_plots: bool = False,
         plot_size: Tuple[int, int] = (10, 6),
@@ -79,7 +118,7 @@ def calculate_likelihood(
     merged_data = prepare_likelihood_data(
         model_results,
         observations,
-        climatology,
+        daily_mean,
         _cached_obs
     )
 
@@ -89,7 +128,7 @@ def calculate_likelihood(
             model_results,
             variables=calibrated_vars,
             observations=observations,
-            climatology=climatology,
+            daily_mean=daily_mean,
             figsize=plot_size,
             save=save_plots,
             filename='likelihood_comparison'
@@ -123,7 +162,7 @@ def calculate_rmse(
         model_results: pd.DataFrame,
         observations: Any,
         variables: Optional[List[str]] = None,
-        climatology: bool = True
+        daily_mean: bool = True
 ) -> Dict[str, float]:
     """
     Calculate Root Mean Square Error between model and Observations.
@@ -132,7 +171,7 @@ def calculate_rmse(
         model_results: DataFrame containing model results
         observations: Observations object with .df attribute
         variables: List of variables to calculate RMSE for
-        climatology: Whether to compare climatological means
+        daily_mean: Whether to compare daily means
 
     Returns:
         Dictionary of RMSE values by variable
@@ -141,7 +180,7 @@ def calculate_rmse(
         variables = observations.df.columns
 
     model_data = model_results.copy()
-    if climatology:
+    if daily_mean:
         model_data['julian_day'] = model_data.index.dayofyear
         model_data = model_data.groupby('julian_day').mean()
 
