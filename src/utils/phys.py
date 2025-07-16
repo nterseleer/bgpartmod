@@ -131,6 +131,8 @@ class Setup:
                  gshearfact: float = 0.5,
                  gshearper: float = 0.5,
                  kb: float = 0.13,
+                 riverine_loads: bool = False,
+                 riverine_loads_file: str = 'riverine_loads.feather',
                  plotPAR: bool = False,
                  plotTEMP: bool = False,
                  verbose: bool = False):
@@ -182,6 +184,12 @@ class Setup:
         self.pCO2 = pCO2
         self.kb = kb
 
+        # Riverine loads
+        self.riverine_loads = riverine_loads
+        self.riverine_loads_file = riverine_loads_file
+        if self.riverine_loads:
+            self._load_riverine_loads()
+
         # Light settings
         self.PARfromfile = PARfromfile
         self.I = I
@@ -211,6 +219,37 @@ class Setup:
         self.dates1_set: Optional[Set] = None
         self.dates1: Optional[pd.DatetimeIndex] = None
         self.two_dt: bool = dt2 is not None
+
+    def _load_riverine_loads(self):
+        """Load riverine nutrient loads data."""
+        import pandas as pd
+
+        loads_file = os.path.join(path_cfg.DATA_DIR, self.riverine_loads_file)
+
+        if not os.path.exists(loads_file):
+            raise FileNotFoundError(
+                f"Riverine loads file not found: {loads_file}\n"
+                "Please run the preprocessing script first."
+            )
+
+        loads_df = pd.read_feather(loads_file)
+
+        # Handle time range and precision differences
+        # Filter to our simulation time window first
+        loads_df = loads_df[self.start_date:self.end_date]
+
+        # Reindex to match setup.dates exactly, using nearest time interpolation
+        loads_df = loads_df.reindex(self.dates, method='nearest')
+
+        self.loads = loads_df.rename(columns={
+            'NH4_loads': 'NH4',
+            'NO3_loads': 'NO3',
+            'DIP_loads': 'DIP',
+            'DSi_loads': 'DSi'
+        })
+
+        if self.verbose:
+            print(f"Loaded riverine loads for {len(loads_df)} time steps")
 
     def _initialize_PAR(self, plotPAR: bool) -> pd.DataFrame:
         """Initialize Photosynthetically Active Radiation data."""
