@@ -177,6 +177,7 @@ class Flocs(BaseStateVar):
 
 
     def update_val(self, numconc,
+                   t=None,
                    debugverbose=False):
         self.numconc = numconc
 
