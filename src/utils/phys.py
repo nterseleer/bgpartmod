@@ -42,10 +42,11 @@ DEFAULT_SETUPS = {
         'I': 12.798 * 86400,
         'light_prop': 12. / 24.,
     },
-    'odontella_medium': {
+    # auria medium light = 15 µmol photons.m-2.s-1
+    'Odontella_medium': {
         'T': 19.,
         'PARfromfile': False,
-        'I': 4.266 * 86400,
+        'I': 15. * 86400, #µmol photon m-2 d-1 of PAR
         'light_prop': 12. / 24.,
     },
 
