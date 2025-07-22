@@ -305,6 +305,7 @@ class Model:
         for key, component in self.components.items():
             update_map = self.component_update_maps[key]
             component.update_val(
+                t=t,
                 debugverbose=self.debug_budgets,
                 **{name: y[idx] for name, idx in update_map.items()}
             )

@@ -419,7 +419,7 @@ def plot_sinks_sources(
         daily_mean: bool = True,
         increase_resolution_factor: int = 2,
         figsize: Optional[Tuple[float, float]] = None,
-        default_subplot_size: Tuple[float, float] = (3.6, 5.7),
+        default_subplot_size: Tuple[float, float] = (4.6, 5.7),
         auto_adjust_figsize: bool = True,
         maxrows: int = 3,
         legend_loc: int = 0,
@@ -656,6 +656,93 @@ def plot_budget(
         sinks=budget['sinks'],
         **kwargs
     )
+
+
+def plot_element_distribution_stacked(model_output, element_vars, element_name=None,
+                                      time_var='time', **kwargs):
+    """
+    Create a stacked area plot showing element distribution across model compartments
+
+    Parameters:
+    -----------
+    model_output : DataFrame
+        Model output containing the variables
+    element_vars : list
+        List of element variables to plot (e.g., vars_to_plot.all_nitrogen_vars)
+    element_name : str, optional
+        Name of the element for labeling (auto-detected if None)
+    time_var : str, default 'time'
+        Name of time variable
+    **kwargs : dict
+        Additional plotting arguments
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axis objects
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Auto-detect element name if not provided
+    if element_name is None:
+        if any('_N' in var for var in element_vars):
+            element_name = 'Nitrogen'
+            unit = 'mmol N m⁻³'
+        elif any('_P' in var for var in element_vars):
+            element_name = 'Phosphorus'
+            unit = 'mmol P m⁻³'
+        elif any('_Si' in var for var in element_vars):
+            element_name = 'Silicon'
+            unit = 'mmol Si m⁻³'
+        else:
+            element_name = 'Element'
+            unit = 'mmol m⁻³'
+    else:
+        unit = f'mmol {element_name} m⁻³'
+
+    # Filter available variables
+    available_vars = [var for var in element_vars if var in model_output.columns]
+
+    # Define compartments based on variable naming patterns
+    compartments = {
+        'Phytoplankton': [var for var in available_vars if var.startswith('Phy_')],
+        'Heterotrophs': [var for var in available_vars if
+                         any(var.startswith(x) for x in ['BacF_', 'BacA_', 'HF_', 'Cil_'])],
+        'Dissolved Organic': [var for var in available_vars if any(x in var for x in ['DOCS_', 'DOCL_', 'TEPC_'])],
+        'Detritus': [var for var in available_vars if var.startswith('Det')],
+        'NH4': [var for var in available_vars if 'NH4' in var and 'concentration' in var],
+        'NO3': [var for var in available_vars if 'NO3' in var and 'concentration' in var],
+        'DIP': [var for var in available_vars if 'DIP' in var and 'concentration' in var],
+        'DSi': [var for var in available_vars if 'DSi' in var and 'concentration' in var]
+    }
+
+    # Remove empty compartments and calculate totals
+    compartment_totals = {}
+    for comp_name, variables in compartments.items():
+        if variables:  # Only include non-empty compartments
+            compartment_totals[comp_name] = sum(model_output[var] for var in variables)
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Create stacked area plot
+    if compartment_totals:
+        ax.stackplot(model_output.index,
+                     *compartment_totals.values(),
+                     labels=compartment_totals.keys(),
+                     alpha=0.8)
+
+        ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+
+    # Formatting
+    ax.set_xlabel('Time [d]')
+    ax.set_ylabel(f'{element_name} concentration [{unit}]')
+    ax.set_title(f'{element_name} Distribution Across Model Compartments')
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    return fig, ax
 
 
 def add_subplot_label(ax: plt.Axes,

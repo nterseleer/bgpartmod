@@ -66,6 +66,7 @@ class DOM(BaseOrg):
         self.coupled_aggreg_target = None
         self.coupled_sloppy_feeding_sources = None
         self.coupled_consumers = None
+        self.coupled_remin_products = None
 
     def set_coupling(self,
                      coupled_exud_sources_phyto=None, coupled_exud_sources_zoo=None,
@@ -74,7 +75,8 @@ class DOM(BaseOrg):
                      coupled_aggreg_target=None,
                      coupled_TEPC=None,
                      coupled_sloppy_feeding_sources=None,
-                     coupled_consumers=None
+                     coupled_consumers=None,
+                     coupled_remin_products=None
                      ):
         self.coupled_exud_sources_phyto = coupled_exud_sources_phyto
         self.coupled_exud_sources_zoo = coupled_exud_sources_zoo
@@ -90,6 +92,8 @@ class DOM(BaseOrg):
             self.coupled_consumers = [coupled_consumers]
         else:
             self.coupled_consumers = coupled_consumers
+        self.coupled_remin_products = coupled_remin_products
+
 
     def get_coupled_processes_indepent_sinks_sources(self, t=None):
         """
@@ -102,6 +106,7 @@ class DOM(BaseOrg):
 
         # SINKS
         self.get_sink_breakdown()
+        self.get_sink_remineralization()
 
     def get_sources(self, t=None):
         # SOURCES
@@ -135,7 +140,7 @@ class DOM(BaseOrg):
     def get_sinks(self, t=None):
         # SINKS
         self.get_sink_ingestion()
-        self.get_sink_remineralization()
+        # self.get_sink_remineralization()
         # self.get_sink_breakdown()
         # self.get_sink_aggregation()
 
@@ -252,11 +257,20 @@ class DOM(BaseOrg):
             self.sink_ingestion.N = 0.
             self.sink_ingestion.P = 0.
 
-    def get_sink_remineralization(self):
+    def get_sink_remineralization(self, t=None):
         if self.formulation == "Onur22":
             self.sink_remineralization.C = 0.
             self.sink_remineralization.N = 0.
             self.sink_remineralization.P = 0.
+
+            if self.coupled_remin_products is not None:
+                for product in self.coupled_remin_products:
+                    if product.name == 'NH4' and hasattr(self, 'N'):
+                        self.sink_remineralization.N = product.remineralization_rate * self.N
+                    elif product.name == 'DIP' and hasattr(self, 'P'):
+                        self.sink_remineralization.P = product.remineralization_rate * self.P
+
+
         else:  # Sch07
             if self.name == 'resDOC' or self.name == 'DON':
                 self.sink_remineralization.C = self.rho * fns.getlimT(self.setup.T.loc[t]['T']) * self.C
