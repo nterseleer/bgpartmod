@@ -16,7 +16,7 @@ from deepdiff import DeepDiff
 from typing import Optional, List, Dict, Any, Union
 
 from src.utils import functions as fns
-from src.Config_system import path_config as path_cfg
+from src.config_system import path_config as path_cfg
 
 # Constants
 
@@ -820,6 +820,8 @@ def run_sensitivity(base_simulation: 'Model',
             name=sim_name,
             user_notes=sim_notes,
             save_type = save_type,
+            setup_changes=setup_changes,
+            # save=save,
             **kwargs
         ))
 

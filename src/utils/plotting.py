@@ -12,9 +12,12 @@ import pandas as pd
 from typing import Union, List, Dict, Optional, Tuple, Any
 
 from . import functions as fns
-from src.Config_model import varinfos
+from src.config_model import varinfos
+from src.config_model import vars_to_plot
+from src.config_system import path_config as path_cfg
+from src.utils import observations
 
-FIGURE_PATH = os.path.join(os.getcwd(), 'Figs')
+FIGURE_PATH = path_cfg.FIGURE_PATH
 
 # Pre-defined variable groups for common plotting scenarios
 phy_nuts = ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'NH4_concentration', 'DIN_concentration',
@@ -23,19 +26,17 @@ phy_nuts_TEP_flocs = ['Phy_C', 'Phy_Chl', 'TEPC_C', "Microflocs_numconc",
                       'NO3_concentration', 'NH4_concentration', 'DIN_concentration', 'Macroflocs_diam', "Macroflocs_numconc",
                       'DIP_concentration', 'DSi_concentration', "Macroflocs_settling_vel", "Micro_in_Macro_numconc",
                       'SPMC']
-auria_metric = ['TEPC_C', 'BacF_C', 'BacA_C', 'Phy_Chl', "DOCS_C", "DOCL_C", "C_part_tot", "Phy_C"]
 
-phy_TEP_lim_sink = [ 'Phy_mmDSi','Phy_mmNH4', 'Phy_mmNO3', 'Phy_mmDIP', "Phy_lim_I",   "TEP_to_PhyC_ratio"]
+phy_TEP_lim_sink = ['Phy_C', 'Phy_Chl', 'TEPC_C', 'Phy_mmDSi',
+                    'Phy_mmNH4', 'Phy_mmNO3', 'Phy_mmDIP', "Phy_limNUT",
+                    "Phy_lim_I", 'Phy_sink_lysis.C', 'Phy_sink_mortality.C', 'Phy_sink_exudation.C',
+                    'Phy_sink_respiration.C','Phy_sink_aggregation.C', "TEP_to_PhyC_ratio", "Phy_source_PP.C"]
 
 
 phy_PPsource_decomp = ['Phy_limNUT', 'Phy_limT', 'Phy_limI', ]
 phy_C_SMS = ['Phy_source_PP.C',
              'Phy_sink_respiration.C', 'Phy_sink_exudation.C', 'Phy_sink_aggregation.C',
              'Phy_sink_ingestion.C', 'Phy_sink_lysis.C', 'Phy_sink_mortality.C' ]
-
-nut_tot = ["Si_tot", "P_tot", "N_tot", "C_tot"]
-Si_metric = ["Si_tot", "DSi_concentration", "Phy_Si", "Phy_QSi", "DSi_sinks", "Phy_mmDSi", "Phy_limQUOTA.Si"]
-
 phyDOM = ['Phy_C', 'DOCS_C', 'TEPC_C', 'DOCL_C']
 nutvars = ['NO3_concentration', 'NH4_concentration',
            'DIP_concentration', 'DSi_concentration']
@@ -115,12 +116,11 @@ plt.rcParams['axes.prop_cycle'] = (
 )
 plt.rcParams.update({'font.size': 8})
 
-
 # Define observation styling
 OBS_STYLES = {
     'calibrated': {
         'marker': 'o',
-        'color': 'red',
+        'color': 'grey',
         'markersize': 6,
         'alpha': 0.7
     },
@@ -178,7 +178,7 @@ def create_comparison_plots(
             mod_obs_data.index,
             mod_obs_data[f'{var}_OBS'],
             color='orange',
-            label='Used observations',
+            label='Observations',
             s=3
         )
 
@@ -189,19 +189,19 @@ def create_comparison_plots(
             plt.savefig(f'Figs/{var}_comparison.png')
         plt.close()
 
+
 def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
         observations: Optional[Any] = None,
-        climatology: bool = True
+        daily_mean: bool = True
 ) -> Tuple[List[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], List[str]]:
-
     """
     Prepare model and observation data for plotting.
 
     Args:
         models: Single model/DataFrame or list of models/DataFrames
         observations: Observation data object
-        climatology: Whether to use climatological means
+        daily_mean: Whether to use daily means
 
     Returns:
         Tuple of (model_data_list, merged_data, full_obs_data, model_names)
@@ -217,10 +217,10 @@ def prepare_model_obs_data(
     for i, model in enumerate(models):
         if isinstance(model, pd.DataFrame):
             model_data = model.copy()
-            name = f'Model {i+1}'
+            name = f'Model {i + 1}'
         else:
             model_data = model.df.copy()
-            name = getattr(model, 'name', f'Model {i+1}')
+            name = getattr(model, 'name', f'Model {i + 1}')
 
             # Handle duplicate names by adding a counter
             if name in name_counts:
@@ -229,8 +229,7 @@ def prepare_model_obs_data(
             else:
                 name_counts[name] = 1
 
-
-        if climatology and model_data.index.name != 'julian_day':
+        if daily_mean and model_data.index.name != 'julian_day':
             model_data['julian_day'] = model_data.index.dayofyear
             model_data = model_data.groupby('julian_day').mean()
 
@@ -242,7 +241,8 @@ def prepare_model_obs_data(
 
     # Prepare observation data
     obs_data = observations.df.copy()
-    if climatology and obs_data.index.name != 'julian_day':
+
+    if daily_mean and obs_data.index.name != 'julian_day':
         obs_data['julian_day'] = obs_data.index.dayofyear
         obs_data = obs_data.groupby('julian_day').mean()
 
@@ -252,7 +252,7 @@ def prepare_model_obs_data(
         obs_data,
         left_index=True,
         right_index=True,
-        how='left',
+        how='outer',
         suffixes=('_MOD', '_OBS')
     )
 
@@ -298,24 +298,52 @@ def plot_variable(
             ax.plot(model_data.index, model_data[var_name],
                     label=name if add_labels else "_" + name, **style)
 
-    # Plot observations if available
-    if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
-        ax.scatter(
-            full_obs_data.index,
-            full_obs_data[var_name],
-            color='orange',
-            label='All observations' if add_labels else "_All observations",
-            **obs_kwargs
-        )
+    # if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
+    #     # Check if std data is available for error bars
+    #     std_col = f"{var_name}_std"
+    #     if std_col in full_obs_data.columns:
+    #         # Use errorbar for observations with std
+    #         ax.errorbar(
+    #             full_obs_data.index,
+    #             full_obs_data[var_name],
+    #             yerr=full_obs_data[std_col],
+    #             color='orange',
+    #             label='All observations' if add_labels else "_All observations",
+    #             fmt='o',  # marker style
+    #             capsize=3,
+    #             **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle']}
+    #         )
+    #     else:
+    #         ax.scatter(
+    #         full_obs_data.index,
+    #         full_obs_data[var_name],
+    #         color='orange',
+    #         label='All observations' if add_labels else "_All observations",
+    #         **obs_kwargs)
 
     if merged_data is not None and f'{var_name}_OBS' in merged_data.columns:
-        ax.scatter(
+        # Check if std data is available for error bars
+        std_col = f"{var_name}_std"
+        if std_col in merged_data.columns:
+            # Use errorbar for observations with std
+            ax.errorbar(
+                merged_data.index,
+                merged_data[f'{var_name}_OBS'],
+                yerr=merged_data[std_col],
+                color='grey',
+                label='Observations' if add_labels else "_Used observations",
+                fmt='o',  # marker style
+                capsize=3,
+                **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle', 's']}
+            )
+        else:
+            ax.scatter(
             merged_data.index,
             merged_data[f'{var_name}_OBS'],
             color='red',
-            label='Used observations' if add_labels else "_Used observations",
+            label='Observations' if add_labels else "_Used observations",
             **{**obs_kwargs, 's': 6}
-        )
+            )
 
     # Format labels and title
     var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
@@ -330,9 +358,9 @@ def plot_variable(
 def plot_results(
         models: Union[Any, List[Any]],
         variables: List[str],
-        observations: Optional[Any] = None,
+        observations: Optional[Any] = observations.Obs(station='MOW1_202503'),
         calibrated_vars: Optional[List[str]] = None,
-        climatology: bool = True,
+        daily_mean: bool = True,
         show_full_obs: bool = False,
         ncols: int = 2,
         figsize: Optional[Tuple[int, int]] = None,
@@ -352,7 +380,7 @@ def plot_results(
         variables: List of variables to plot
         observations: Optional observation data
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
-        climatology: Whether to use climatological means
+        daily_mean: Whether to use daily means
         show_full_obs: Whether to show full observation range
         ncols: Number of columns in subplot grid
         figsize: Figure size (default: auto-calculated)
@@ -370,7 +398,7 @@ def plot_results(
     # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
     #     print(models[0].df['Phy_source_PP.C'])
     model_data_list, merged_data, full_obs_data, model_names = prepare_model_obs_data(
-        models, observations, climatology
+        models, observations, daily_mean
     )
 
     # Calculate grid dimensions
@@ -457,24 +485,25 @@ def plot_results(
 # Specialized plotting functions
 def plot_nutrients(model, observations=None, **kwargs):
     """Plot nutrient concentrations."""
-    return plot_results(model, nutvars, observations, **kwargs)
+    return plot_results(model, vars_to_plot.nutvars, observations, **kwargs)
 
 
 def plot_stoichiometry(model, observations=None, **kwargs):
     """Plot stoichiometric ratios."""
-    return plot_results(model, stoichioPhy, observations, **kwargs)
+    return plot_results(model, vars_to_plot.stoichioPhy, observations, **kwargs)
 
 
 def plot_biomass(model, observations=None, **kwargs):
     """Plot biomass variables."""
-    return plot_results(model, phyvars, observations, **kwargs)
+    return plot_results(model, vars_to_plot.phyvars, observations, **kwargs)
+
 
 def plot_sinks_sources(
         models: Union[Any, List[Any]],
         sources: List[str],
         sinks: List[str],
         observations: Optional[Any] = None,
-        climatology: bool = True,
+        daily_mean: bool = True,
         increase_resolution_factor: int = 2,
         figsize: Optional[Tuple[float, float]] = None,
         default_subplot_size: Tuple[float, float] = (3.6, 5.7),
@@ -497,7 +526,7 @@ def plot_sinks_sources(
         sources: List of column names to be plotted as sources (positive values)
         sinks: List of column names to be plotted as sinks (negative values)
         observations: Optional observation data
-        climatology: Whether to use climatological means
+        daily_mean: Whether to use daily means
         increase_resolution_factor: Factor to increase resolution of the datetime index
         figsize: Custom figure size (if None, calculated based on default_subplot_size)
         default_subplot_size: Default size for a single subplot when auto-calculating figsize
@@ -516,7 +545,7 @@ def plot_sinks_sources(
     """
     # Prepare model data
     model_data_list, _, _, model_names = prepare_model_obs_data(
-        models, observations, climatology
+        models, observations, daily_mean
     )
 
     # Create subplots
@@ -536,12 +565,12 @@ def plot_sinks_sources(
             ncols = (num_models + nrows - 1) // nrows
 
         # Determine figure size
-        if figsize is None or auto_adjust_figsize:
-            # Calculate figsize based on grid dimensions
-            used_figsize = (default_subplot_size[0] * ncols, default_subplot_size[1] * nrows)
-        else:
-            # Use user-provided figsize
-            used_figsize = figsize
+    if figsize is None or auto_adjust_figsize:
+        # Calculate figsize based on grid dimensions
+        used_figsize = (default_subplot_size[0] * ncols, default_subplot_size[1] * nrows)
+    else:
+        # Use user-provided figsize
+        used_figsize = figsize
 
     # Create subplots
     fig, axes = plt.subplots(nrows, ncols, figsize=used_figsize, sharex=True)
@@ -573,8 +602,8 @@ def plot_sinks_sources(
             continue
 
         # Create high-resolution index for smoother visualization
-        if climatology:
-            # For julian day indices (climatology=True)
+        if daily_mean:
+            # For julian day indices (daily_mean=True)
             min_day = df.index.min()
             max_day = df.index.max()
             new_index = np.linspace(min_day, max_day,
@@ -583,7 +612,7 @@ def plot_sinks_sources(
                 df[valid_sources + valid_sinks].astype(float),
                 how='outer').interpolate(method='linear')
         else:
-            # For datetime indices (climatology=False)
+            # For datetime indices (daily_mean=False)
             new_index = pd.date_range(
                 start=df.index.min(),
                 end=df.index.max(),
@@ -602,7 +631,6 @@ def plot_sinks_sources(
         # Calculate net balance
         netbalance = cumulative_sources.iloc[:, -1] - cumulative_sinks.iloc[:, -1]
         df_high_res['netbalance'] = netbalance
-
 
         # Plot sources (stacked positive values)
         for j, source in enumerate(valid_sources):
@@ -680,7 +708,6 @@ def plot_sinks_sources(
         if subplot_labels:
             add_subplot_label(ax, i, position=label_position)
 
-
             continue
     plt.tight_layout()
 
@@ -719,9 +746,9 @@ def plot_budget(
 
 
 def add_subplot_label(ax: plt.Axes,
-                     index: int,
-                     position: str = 'top_left',
-                     fontsize: int = 10) -> None:
+                      index: int,
+                      position: str = 'top_left',
+                      fontsize: int = 10) -> None:
     """Add letter labels (a, b, c, etc.) to subplots."""
     positions = {
         'top_left': {'x': 0.02, 'y': 0.98, 'ha': 'left', 'va': 'top'},
@@ -953,5 +980,3 @@ def save_figure(fig: plt.Figure,
     """Save figure with optional timestamp."""
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S_' if savetime else '%Y%m%d_')
     fig.savefig(f"{figsdir}{timestamp}{figname}", dpi=figsdpi)
-
-

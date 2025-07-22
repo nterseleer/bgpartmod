@@ -5,7 +5,7 @@ import os
 from typing import Dict
 
 from src.utils import functions as fns
-from src.Config_system import path_config as path_cfg
+from src.config_system import path_config as path_cfg
 
 
 class Obs:

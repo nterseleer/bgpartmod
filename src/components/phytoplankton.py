@@ -1,7 +1,7 @@
 import numpy as np
 
 from ..core.base import BaseOrg, Elms
-from src.Config_model import varinfos
+from src.config_model import varinfos
 from ..utils import functions as fns
 
 
@@ -32,6 +32,9 @@ class Phyto(BaseOrg):
                  T_ref=18. + varinfos.degCtoK,  # [K]
                  A_E=0.32,  # [-] Activation energy for T° scaling (Onur22)
                  r_ref=0.025,  # [d-1]
+
+                 QratioIC = None, # Ratio to correct for the ICs internal pools vs Q_max (in BaseOrg.set_ICs)
+                 checkQmax = True, # Boolean: whether to check that IC are OK wrt Q_max
 
                  sigmaN_C=1000 * varinfos.molmass_N ** 2 / varinfos.molmass_C ** 2,
                  # [mmolN2 mmolC-2] Slope parameter for DIN-uptake regulation (Sch07)
@@ -64,7 +67,6 @@ class Phyto(BaseOrg):
 
                  dt2=False,
                  name='DefaultPhyto',
-                 # formulation='Sch07'
                  ):
 
         super().__init__()
@@ -101,6 +103,8 @@ class Phyto(BaseOrg):
         self.T_ref = T_ref
         self.A_E = A_E
         self.r_ref = r_ref
+        self.QratioIC = QratioIC
+        self.checkQmax = checkQmax
         self.sigmaN_C = sigmaN_C
         self.gamma_C = gamma_C
         self.gamma_N = gamma_N
@@ -186,9 +190,9 @@ class Phyto(BaseOrg):
         # Limitation functions
         self.get_limNUT()
         if self.formulation == 'Onur22':
-            self.limT = fns.getlimT(self.setup.T, A_E=self.A_E, T_ref=self.T_ref, boltz=True)
+            self.limT = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref, boltz=True)
         else:
-            self.limT = fns.getlimT(self.setup.T)
+            self.limT = fns.getlimT(self.setup.T.loc[t]['T'])
         if self.P is not None and self.Si is not None:
             self.fnut = min(self.QN, self.QP, self.QSi)
 
@@ -287,6 +291,7 @@ class Phyto(BaseOrg):
             self.limQUOTA.P = 1 - self.limQUOTAmin.P
             self.limQUOTAmin.Si = (self.QSi - self.QSi_min) / (self.QSi_max - self.QSi_min)
             self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
+
 
         else:
             self.lim_N = self.coupled_NH4.concentration / (self.coupled_NH4.concentration + self.KNH4)

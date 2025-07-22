@@ -100,7 +100,7 @@ class Heterotrophs(BaseOrg):
 
     def get_sources(self, t=None):
         # Limitation functions
-        self.lim_T = fns.getlimT(self.setup.T)
+        self.lim_T = fns.getlimT(self.setup.T.loc[t]['T'])
 
         # SOURCES
         self.get_source_ingestion()

@@ -12,7 +12,7 @@ from deepdiff import DeepDiff
 from typing import Any, Dict, List, Optional, Union
 
 from . import phys
-from src.Config_model import varinfos
+from src.config_model import varinfos
 
 
 def flatten_simulation_list(sims: Union[List, Any]) -> Union[List, Dict[str, Any]]:
@@ -262,16 +262,31 @@ def update_config_from_optimization(base_config: Dict, best_parameters: Dict) ->
 # (initially from https://stackoverflow.com/questions/3232943/update-value-of-a-nested-dictionary-of-varying-depth)
 from typing import (Any, Dict, TypeVar)
 KeyType = TypeVar('KeyType')
-def deep_update(mapping: Dict[KeyType, Any], *updating_mappings: Dict[KeyType, Any]) -> Dict[KeyType, Any]:
+def deep_update(mapping: Dict[KeyType, Any], *updating_mappings: Dict[KeyType, Any],
+                overwrite_keys: list = None) -> Dict[KeyType, Any]:
+    """
+    Deep update dictionaries with selective overwrite behavior.
+
+    Args:
+        mapping: Base dictionary to update
+        *updating_mappings: One or more dictionaries to merge in
+        overwrite_keys: List of keys where dict values should be overwritten instead of merged
+    """
     updated_mapping = mapping.copy()
+    overwrite_keys = overwrite_keys or []
+
     for updating_mapping in updating_mappings:
         for k, v in updating_mapping.items():
-            if k in updated_mapping and isinstance(updated_mapping[k], dict) and isinstance(v, dict):
-                updated_mapping[k] = deep_update(updated_mapping[k], v)
+            if (k in updated_mapping and
+                    isinstance(updated_mapping[k], dict) and
+                    isinstance(v, dict) and
+                    k not in overwrite_keys):
+                # Recursive merge (current behavior)
+                updated_mapping[k] = deep_update(updated_mapping[k], v, overwrite_keys=overwrite_keys)
             else:
+                # Direct assignment (overwrite or non-dict)
                 updated_mapping[k] = v
     return updated_mapping
-
 
 def get_nested_attr(obj, attr):
     """
@@ -353,7 +368,7 @@ operators = {ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul,
              ast.Div: op.truediv, ast.Pow: op.pow, ast.BitXor: op.xor,
              ast.USub: op.neg}
 
-def eval_expr(expr, subdf, fulldf, setup=phys.Setup):
+def eval_expr(expr, subdf, fulldf, setup=phys.Setup, varinfos=varinfos):
     # adapted from https://stackoverflow.com/questions/2371436/evaluating-a-mathematical-expression-in-a-string
     if expr.startswith('SUMALL'):
         df = fulldf[expr.replace('SUMALL(', '').replace(')', '')]
@@ -362,17 +377,17 @@ def eval_expr(expr, subdf, fulldf, setup=phys.Setup):
         else:
             return df
     else:
-        return neweval(ast.parse(expr, mode='eval').body, subdf, fulldf, setup)
+        return neweval(ast.parse(expr, mode='eval').body, subdf, fulldf, setup, varinfos)
 
-def neweval(node, subdf, fulldf, setup):
+def neweval(node, subdf, fulldf, setup, varinfos):
     if isinstance(node, ast.Num): # <number>
         return node.n
     elif isinstance(node, ast.BinOp): # <left> <operator> <right>
         # print(node.left, node.right)
-        return operators[type(node.op)](neweval(node.left, subdf, fulldf, setup),
-                                        neweval(node.right, subdf, fulldf, setup))
+        return operators[type(node.op)](neweval(node.left, subdf, fulldf, setup, varinfos),
+                                        neweval(node.right, subdf, fulldf, setup, varinfos))
     elif isinstance(node, ast.UnaryOp): # <operator> <operand> e.g., -1
-        return operators[type(node.op)](neweval(node.operand, subdf, fulldf, setup))
+        return operators[type(node.op)](neweval(node.operand, subdf, fulldf, setup, varinfos))
     elif isinstance(node, ast.Name):
         if 'SUMALL' in node.id:
             df = fulldf[node.id.replace('SUMALL', '')]
@@ -384,19 +399,26 @@ def neweval(node, subdf, fulldf, setup):
             return subdf[node.id]
     elif isinstance(node, ast.Call):
         if isinstance(node.func, ast.Name): # for built-in functions like 'max'
-            return eval(node.func.id)([neweval(a, subdf, fulldf, setup) for a in node.args])
+            return eval(node.func.id)([neweval(a, subdf, fulldf, setup, varinfos) for a in node.args])
         elif isinstance(node.func, ast.Attribute): # for a call to a module etc e.g. np.exp
             # for 'np.exp', node.func.value.id = 'np' and node.func.attr = 'exp'
-            return eval(node.func.value.id+'.'+node.func.attr)([neweval(a, subdf, fulldf, setup) for a in node.args])[0]
+            return eval(node.func.value.id+'.'+node.func.attr)([neweval(a, subdf, fulldf, setup, varinfos) for a in node.args])[0]
             # [0] needed because somehow it returns a list...
     elif isinstance(node, ast.Attribute):
         # When e.g. setup.I is called...
         if node.value.id == 'setup':
             return setup.__getattribute__(node.attr)
+        elif node.value.id == 'varinfos':
+            return varinfos.__getattribute__(node.attr)
     else:
         print('Error with node ', node)
         print(node.value.id, node.attr)
         raise TypeError(node)
+
+def getmodkwargs(newtmax=80, full_dia=False):
+    setup = phys.Setup(**phys.DEFAULT_SETUPS['onur22'], PARfromfile=True, tmax=newtmax, dt=1e-2, dt2=1e-3)
+    modkwargs = {'setup': setup, 'verbose': True, 'do_diagnostics': True, 'full_diagnostics': full_dia}
+    return modkwargs
 
 
 if __name__ == "__main__":

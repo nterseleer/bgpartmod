@@ -43,6 +43,7 @@ class DIM(BaseStateVar):
         self.source_respiration = None
         self.source_airseaexchange = None
         self.source_redox = None
+        self.source_riverine_loads = None
         self.sink_uptake = None
         self.sink_redox = None
 
@@ -78,9 +79,10 @@ class DIM(BaseStateVar):
         self.get_source_remineralization()
         self.get_source_respiration()
         self.get_source_airseaexchange()
-        self.get_source_redox()
+        self.get_source_redox(t)
         self.get_source_sloppy_feeding()
         self.get_source_exudation()
+        self.get_source_riverine_loads(t)
 
         # SOURCE terms of the state equation
         self.sources = (self.source_respiration +
@@ -88,7 +90,8 @@ class DIM(BaseStateVar):
                         self.source_airseaexchange +
                         self.source_redox +
                         self.source_sloppy_feeding +
-                        self.source_exudation)
+                        self.source_exudation +
+                        self.source_riverine_loads)
 
         return np.array(self.sources)
 
@@ -131,10 +134,10 @@ class DIM(BaseStateVar):
         else:
             self.source_airseaexchange = 0.
 
-    def get_source_redox(self):
+    def get_source_redox(self, t):
         # Onur22
         if self.name == 'NO3':
-            self.source_redox = self.r_nit * fns.getlimT(self.setup.T, A_E=self.A_E, T_ref=self.T_ref,
+            self.source_redox = self.r_nit * fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
                                                          boltz=True) * self.coupled_NH4.concentration
         else:
             self.source_redox = 0.
@@ -168,6 +171,18 @@ class DIM(BaseStateVar):
                 self.source_exudation = 0.
         else:
             self.source_exudation = 0.
+
+    def get_source_riverine_loads(self, t=None):
+        """Get riverine nutrient loads for current timestep."""
+        if not self.setup.riverine_loads:
+            self.source_riverine_loads = 0.
+            return
+
+        if self.name in self.setup.loads.columns:
+            self.source_riverine_loads = self.setup.loads.loc[t][self.name]
+        else:
+            self.source_riverine_loads = 0.
+
 
     def get_sink_uptake(self):
         if self.name == 'DIC':  # Onur22 and Sch07

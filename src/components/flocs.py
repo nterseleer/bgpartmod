@@ -1,7 +1,7 @@
 import numpy as np
 
 from ..core.base import BaseStateVar
-from src.Config_model import varinfos
+from src.config_model import varinfos
 from ..utils import functions as fns
 
 

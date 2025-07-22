@@ -11,7 +11,7 @@ from src.utils import functions as fns
 from src.utils import phys
 from src.utils import evaluation
 from src.components import phytoplankton as phyto
-from src.Config_model import varinfos
+from src.config_model import varinfos
 
 
 @staticmethod
@@ -40,7 +40,7 @@ class Model:
             debug_budgets: bool = False,
             aggregate_vars: Optional[List[str]] = None,
             do_diagnostics: bool = True,
-            full_diagnostics: bool = True,
+            full_diagnostics: bool = False,
     ):
         # Basic attributes
         self.setup = setup

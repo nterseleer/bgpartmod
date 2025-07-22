@@ -1,54 +1,78 @@
-# Marine Biogeochemical Model
+# Marine Biogeochemical Model Framework
 
-A modular Python framework for simulating marine ecosystem dynamics, with a focus on phytoplankton, heterotrophs, and particulate matter aggregation processes.
+A Python framework for implementing 0D marine biogeochemical models with comprehensive simulation management and optimization facilities. This modular code provides a flexible platform for marine ecosystem modeling, making it particularly suitable for research applications, MSc and PhD theses, and model development studies.
 
-## Overview
+## What This Code Is
 
-This marine biogeochemical model implements an ecosystem with phytoplankton, multiple types of heterotrophs (bacteria, ciliates), dissolved organic matter, detritus, and flocculation processes. It is designed to simulate the interactions between biological components and their environment in aquatic ecosystems, with particular emphasis on:
+This is a **Python implementation framework** that enables users to:
 
-- Phytoplankton growth and nutrient uptake
-- Bacterial activity and organic matter decomposition
-- Dissolved and particulate organic matter dynamics
-- Flocculation and aggregation processes
-- Nutrient cycling (N, P, Si, C)
+- Build and run 0D marine biogeochemical models through simple configuration
+- Manage complex simulation workflows with automatic logging and version control
+- Optimize model parameters against observational data using advanced algorithms
+- Analyze and visualize results with comprehensive plotting utilities
 
-The model framework features a modular design that allows for components to be enabled or disabled, and parameter values to be easily calibrated through optimization tools.
+## Note about the license
+This software is currently **under embargo** until scientific publication (submission planned for summer 2025). 
+After publication, it will be released under the European Union Public Licence (EUPL). 
+For any inquiry, please contact @nterseleer.
 
-## Model Structure
+## What It Was Developed For
 
-The model is organized into components, with each component representing a specific group of organisms or chemical species:
+The framework was specifically developed to implement a **pioneering coupled biogeochemical-mineral flocculation model**. This coupling addresses the traditionally separate treatment of biological processes and physical particle dynamics, which are fundamentally interconnected in marine systems. The coupled approach enables simulation of:
 
-### Core Components
+- Phytoplankton exudation and transparent exopolymer particle (TEP) formation
+- Bacterial processing of dissolved and particulate organic matter  
+- Bimodal flocculation dynamics (microflocs and macroflocs)
+- Feedback mechanisms between biological activity and particle aggregation
 
-- **Phytoplankton (`Phyto`)**: Models primary producers with multi-nutrient (N, P, Si) limitation, variable stoichiometry, and photosynthetic dynamics
-- **Heterotrophs (`Heterotrophs`)**: Models bacteria, flagellates, and ciliates with different feeding preferences
-- **Dissolved Organic Matter (`DOM`)**: Models various pools of dissolved organic carbon and nutrients
-- **Detritus (`Detritus`)**: Models particulate organic matter of different size classes
-- **Dissolved Inorganic Matter (`DIM`)**: Models nutrients like NH4, NO3, DIP, DSi
-- **Flocculation (`Flocs`)**: Models aggregation of particles into larger flocs with size-dependent properties
+## Framework Philosophy
 
-### Framework Features
+The code follows the **Framework for Aquatic Biogeochemical Models (FABM; Bruggeman and Bolding, 2014)** approach, using runtime composition where model structure is defined through dictionary-based configuration. This FABM-inspired design makes it exceptionally well-suited for biogeochemical modeling applications, particularly in academic settings where flexibility and ease of use are paramount.
 
-- **Modular design**: Components can be added or removed via configuration
-- **Flexible coupling**: Components can be coupled in various ways to represent different food webs
-- **Multiple time scales**: Support for components operating at different timescales
-- **Parameter optimization**: Built-in capabilities for model calibration with observations
-- **Comprehensive diagnostics**: Extensive diagnostic outputs for model analysis
+**Key advantages for BGC modeling:**
+- **Runtime model composition**: Add/remove processes without code modification
+- **Parameter experimentation**: Easy sensitivity analysis and calibration
+- **Reproducible configurations**: Version-controlled model setups
+- **Educational value**: Clear separation between model and implementation
+
+## Model Components
+
+The framework is built around the concept of **components** - self-contained modules that represent specific biological, chemical, or physical processes. Each component can be independently configured and coupled with others to create complex ecosystem models.
+
+### Available Components
+
+#### Biological Components
+- **Phytoplankton (`Phyto`)**: Primary producers with multi-nutrient (N, P, Si) limitation, variable stoichiometry, and growth-dependent DOM exudation
+- **Heterotrophs**: Multiple bacterial types (free-living bacteria, particle-attached bacteria), heterotrophic flagellates, and ciliates with distinct feeding preferences and metabolic pathways
+
+#### Chemical Components  
+- **Dissolved Inorganic Matter (`DIM`)**: Individual nutrient pools (NH4, NO3, DIP, DSi) with competitive uptake dynamics
+- **Dissolved Organic Matter (`DOM`)**: Size-structured pools with different bioavailability and aggregation properties
+- **Detritus**: Particulate organic matter with size-dependent bacterial processing and settling
+
+#### Physical Components
+- **Flocculation (`Flocs`)**: Bimodal population balance model representing microflocs and macroflocs with TEP-mediated aggregation processes
+
+### Key Processes
+
+- **DOM Dynamics**: Phytoplankton exudation shifts from small to large molecules under nutrient stress
+- **TEP Formation**: DOC coagulation creates sticky particles that enhance flocculation
+- **Bimodal Flocculation**: Efficient representation of natural particle size distributions
+- **Bacterial Processing**: Distinct communities handle dissolved vs. particulate substrates
 
 ## Installation
 
 ### Prerequisites
 
 - Python 3.8+
-- NumPy, Pandas, Matplotlib, SciPy
-- dill, pickle, json
+- Required packages: numpy, pandas, matplotlib, scipy, dill
 
 ### Setup
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/username/marine-biogeochemical-model.git
-   cd marine-biogeochemical-model
+   git clone https://github.com/nterseleer/bgpartmod.git
+   cd bgpartmod
    ```
 
 2. Install dependencies:
@@ -58,192 +82,143 @@ The model is organized into components, with each component representing a speci
 
 3. Create necessary directories:
    ```bash
-   mkdir -p Figs Observations Simulations/Model_runs Simulations/References_simulations Simulations/Optimizations
+   mkdir -p Figs Observations simulations/{Simulations,References,Optimizations}
    ```
 
-## Getting Started
+4. Verify installation:
+   ```bash
+   python src/main_example.py
+   ```
 
-### Running a Basic Simulation
+## Quick Start
+
+### Basic Simulation
 
 ```python
-from config import config
-from utils import phys
-from utils import simulation_manager as sim_manager
+from src.Config_model import base_config
+from src.utils import phys, simulation_manager, plotting
 
-# Load a base configuration and setup
-conf = config.MOW1
+# Use base configuration (available in repository)
+model_config = base_config.Onur
+
+# Set up physical environment
 setup = phys.Setup(
-    PARfromfile=True,  # Load light data from file
-    tmax=20,           # Run for 20 days
-    dt=1e-2,           # Main timestep (days)
-    dt2=1e-3,          # Secondary timestep for fast processes
-    T=10.0             # Temperature (Celsius)
+    **phys.DEFAULT_SETUPS['onur22'],
+    tmax=20,           # Simulation duration (days)
+    PARfromfile=True   # Use light data if available
 )
 
-# Run the simulation
-sim = sim_manager.run_or_load_simulation(
-    conf, setup,
-    name="my_first_simulation",
-    user_notes="Testing base configuration"
+# Run simulation
+simulation = simulation_manager.run_or_load_simulation(
+    model_config, setup,
+    name="basic_simulation"
 )
 
-# Plot results
-from utils import plotting
-import matplotlib.pyplot as plt
-plotting.plot_results(sim, ['Phy_Chl', 'NO3_concentration', 'NH4_concentration'])
-plt.show()
-```
-
-### Running a Sensitivity Analysis
-
-```python
-# Starting from a base simulation, test parameter sensitivity
-sim_sensitivity = sim_manager.run_sensitivity(
-    sim,
-    {'Phy+mu_max': [3.0, 4.0, 5.0]},  # Test different maximum growth rates
-    name="growth_rate_sensitivity",
-    user_notes="Testing phytoplankton growth rate sensitivity"
-)
-
-# Plot comparison
-plotting.plot_results(sim_sensitivity, ['Phy_Chl', 'Phy_C'])
-plt.show()
-```
-
-### Running Model Optimization
-
-```python
-from utils import optimization
-from utils import observations
-
-# Define parameters to optimize and their bounds
-params_to_optimize = [
-    ('Phy+mu_max', 2.0, 5.5),
-    ('Phy+mortrate', 0.02, 0.15)
-]
-
-# Run optimization
-opt = optimization.Optimization.run_new(
-    dconf=config.MOW1,
-    modkwargs={'setup': setup},
-    obs=observations.Obs(),  # Load Observations
-    optimized_parameters=[p[0] for p in params_to_optimize],
-    bounds=([p[1] for p in params_to_optimize], 
-            [p[2] for p in params_to_optimize]),
-    population_size=50,
-    num_generations=100
-)
+# Plot key results
+plotting.plot_results(simulation, plotting.phy_nuts)
 ```
 
 ## Model Configuration
 
-The model uses dictionary-based configuration with nested parameters for each component:
+Models are configured using nested dictionaries that define components, parameters, coupling relationships, and initial conditions:
 
 ```python
-model_config = {
-    'formulation': 'Onur22',  # Model formulation (implementation)
+coupled_config = {
+    'formulation': 'Coupled_BGC_Floc',
     'Phy': {
         'class': phyto.Phyto,
         'parameters': {
-            'mu_max': 5.2,    # Maximum growth rate (d-1)
-            'QN_max': 0.15,   # Maximum N:C ratio (molN:molC)
-            # ... more parameters
+            'mu_max': 4.5,        # Maximum growth rate (d⁻¹)
+            'QN_max': 0.15,       # Max N:C ratio (mol:mol)
+            'exud_rate': 0.1      # DOM exudation rate
         },
         'coupling': {
             'coupled_NH4': 'NH4',
-            'coupled_NO3': 'NO3',
-            # ... coupling to other components
+            'coupled_TEP_source': 'TEP'
         },
-        'initialization': {
-            'C': 20.0,        # Initial carbon concentration
-            'N': 3.0,         # Initial nitrogen concentration
-            # ... initial conditions
-        },
-        'aggregate': {
-            'C_tot': 'C',     # How this component contributes to totals
-            # ... aggregation declarations
-        }
+        # ... initialization and aggregation rules
     },
+    'Microflocs': {
+        'class': flocs.Flocs,
+        'parameters': {
+            'K_glue': 10.0,       # TEP stickiness factor
+            'alpha_FF_ref': 0.05  # Base collision efficiency
+        },
+        'coupling': {
+            'coupled_TEP': 'TEP',
+            'coupled_detritus': 'Detritus'
+        }
+    }
     # ... other components
 }
 ```
 
-## Model Output
+## Model Output and Analysis
 
-The model produces a pandas DataFrame with all state variables and diagnostic variables. Output can be saved in various formats (pickle, feather, CSV) and includes:
+The model produces comprehensive output including:
 
-- State variables over time for all components
-- Diagnostic variables (e.g., growth rates, nutrient limitation factors)
-- Aggregate variables (e.g., total C, N, P in the system)
+- **State variables**: All component concentrations over time
+- **Diagnostic variables**: Growth rates, limitation factors, flocculation rates
+- **Aggregate variables**: Total C, N, P, Si pools and fluxes
+- **Size distributions**: Particle size spectra and settling velocities
 
-## Acknowledgements
+Output formats: pickle (full data), feather (fast I/O), CSV (external analysis)
 
-This model is based on the work of Kerimoglu et al. (2022) and other sources, with modifications and extensions.
-
-## License
-
-[Insert license information here]
 
 ## File Structure
 
-The codebase is organized into several key directories and modules:
-
 ```
-marine-biogeochemical-model/
-├── src/                    # Source code directory
-│   ├── components/         # Model components
-│   │   ├── heterotrophs.py   # Heterotrophic organisms (bacteria, ciliates)
-│   │   ├── phytoplankton.py  # Phytoplankton component
-│   │   ├── dim.py            # Dissolved inorganic matter
-│   │   ├── dom.py            # Dissolved organic matter
-│   │   ├── detritus.py       # Particulate detritus
-│   │   └── flocs.py          # Flocculation processes
-│   ├── core/               # Core model functionality
-│   │   ├── base.py           # Base classes for model components
-│   │   └── model.py          # Main model class
-│   ├── config/             # Configuration files
-│   │   ├── base_config.py    # Base model configurations
-│   │   └── varinfos.py       # Variable information and units
-│   ├── utils/              # Utility modules
-│   │   ├── functions.py      # Utility functions
-│   │   ├── phys.py           # Physical setup configuration
-│   │   ├── plotting.py       # Plotting utilities
-│   │   ├── evaluation.py     # Model evaluation methods
-│   │   ├── desolver.py       # Differential evolution solver
-│   │   ├── optimization.py   # Optimization framework
-│   │   └── simulation_manager.py  # Simulation management
-│   ├── main_example.py     # Example script for running simulations
-│   └── optim_main_example.py  # Example script for optimizations
-├── Figs/                   # Directory for generated figures
-├── Observations/           # Directory for observation data
-└── simulations/            # Directory for simulation output
-    ├── Simulations/        # Regular simulations
-    ├── References/         # Reference simulations
-    └── Optimizations/      # Optimization results
+bgpartmod/
+├── src/
+│   ├── components/           # Model components
+│   │   ├── phytoplankton.py    # Primary producers
+│   │   ├── heterotrophs.py     # Bacteria, flagellates, ciliates
+│   │   ├── dim.py             # Dissolved inorganic nutrients
+│   │   ├── dom.py             # Dissolved organic matter
+│   │   ├── detritus.py        # Particulate organic matter
+│   │   └── flocs.py           # Flocculation processes
+│   ├── core/                # Core model functionality
+│   │   ├── base.py             # Base classes
+│   │   └── model.py           # Main model orchestration
+│   ├── Config_model/        # Model configurations
+│   │   └── base_config.py      # Standard model setups
+│   ├── Config_system/       # System configurations
+│   │   └── path_config.py      # Directory paths
+│   ├── utils/               # Utilities and analysis tools
+│   │   ├── simulation_manager.py # Simulation workflow management
+│   │   ├── optimization.py     # Parameter optimization
+│   │   ├── plotting.py         # Visualization utilities
+│   │   ├── evaluation.py       # Model-data comparison
+│   │   ├── desolver.py         # Differential evolution solver
+│   │   ├── phys.py            # Physical setup
+│   │   └── functions.py        # General utilities
+│   ├── main_example.py      # Basic usage examples
+│   └── optim_main_example.py  # Optimization examples
+├── Figs/                    # Generated figures
+├── Observations/            # Observational data
+├── Simulations/            # Model output storage
+│   ├── Model_runs/           # Regular simulations  
+│   ├── References_simulations/ # Reference runs
+│   └── Optimizations/        # Parameter optimization results
+└── data/                   # Input data files
 ```
 
-### Key Files and Their Roles
+## Troubleshooting
 
-#### Components
-- **heterotrophs.py**: Implements bacteria, flagellates, and ciliates with feeding preferences
-- **phytoplankton.py**: Implements photosynthetic organisms with variable stoichiometry
-- **dim.py**: Handles dissolved inorganic nutrients (NH4, NO3, DIP, DSi)
-- **dom.py**: Manages dissolved organic matter pools
-- **detritus.py**: Manages particulate organic matter and aggregation
-- **flocs.py**: Implements flocculation processes for particles
+**Import errors**: Ensure you're running Python from the repository root directory
+**Missing data**: Check that required directories exist (created in setup step 3)
+**Optimization issues**: Reduce population size for testing; check parameter bounds
 
-#### Core
-- **base.py**: Contains base classes for state variables and organisms
-- **model.py**: Main model class that coordinates components and runs simulations
+## Acknowledgements
 
-#### Utilities
-- **functions.py**: Utility functions for data handling and calculations
-- **phys.py**: Physical setup configurations (light, temperature, etc.)
-- **plotting.py**: Comprehensive plotting utilities for model output
-- **evaluation.py**: Model evaluation against observations
-- **optimization.py**: Parameter optimization framework
-- **simulation_manager.py**: Manages simulation runs, storage, and retrieval
+This model builds upon several key works:
 
-## Contributing
+- **Biogeochemical model**: Kerimoglu, O., Hintz, N. H., Lücken, L., Blasius, B., Böttcher, L., Bunse, C., ... & Simon, M. (2022). Growth, organic matter release, aggregation and recycling during a diatom bloom: a model-based analysis of a mesocosm experiment. bioRxiv, 2022-05.
+- **Flocculation approach**: Lee, B. J., Toorman, E., Molz, F. J., & Wang, J. (2011). A two-class population balance equation yielding bimodal flocculation of marine or estuarine sediments. Water research, 45(5), 2131-2145.
+- **FABM framework**: Bruggeman, J., & Bolding, K. (2014). A general framework for aquatic biogeochemical models. Environmental modelling & software, 61, 249-265.
+- **Differential evolution**: Storn, R., & Price, K. (1997). Differential evolution–a simple and efficient heuristic for global optimization over continuous spaces. Journal of global optimization, 11, 341-359.
 
-[Insert contribution guidelines here]
+
+## Citation
+
+When using this model, please cite the forthcoming publication. 

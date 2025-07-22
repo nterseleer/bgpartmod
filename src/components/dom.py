@@ -2,7 +2,7 @@ import numpy as np
 
 from ..core.base import BaseOrg, Elms
 from ..utils import functions as fns
-from src.Config_model import varinfos
+from src.config_model import varinfos
 
 class DOM(BaseOrg):
     def __init__(self,
@@ -259,7 +259,7 @@ class DOM(BaseOrg):
             self.sink_remineralization.P = 0.
         else:  # Sch07
             if self.name == 'resDOC' or self.name == 'DON':
-                self.sink_remineralization.C = self.rho * fns.getlimT(self.setup.T) * self.C
+                self.sink_remineralization.C = self.rho * fns.getlimT(self.setup.T.loc[t]['T']) * self.C
             else:
                 self.sink_remineralization.C = 0.
 
@@ -276,7 +276,7 @@ class DOM(BaseOrg):
             if self.name == 'resDOC' or self.name == 'DON' or self.name == 'PCHO':
                 self.sink_breakdown.C = 0.
             elif self.name == 'TEPC':
-                self.sink_breakdown.C = self.rho_TEP * fns.getlimT(self.setup.T) * self.C
+                self.sink_breakdown.C = self.rho_TEP * fns.getlimT(self.setup.T.loc[t]['T']) * self.C
 
     def get_sink_aggregation(self):
         if self.formulation == 'Onur22':
