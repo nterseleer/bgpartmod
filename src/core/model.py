@@ -551,6 +551,16 @@ class Model:
                         print(f'KeyError in output preparation for {var}')
                     self.df[var] = np.nan
 
+    # @_track_time
+    # def _add_diagnostics(self) -> None:
+    #     """Add diagnostic variables to the results DataFrame efficiently."""
+    #     if not hasattr(self, 'diagnostics'):
+    #         return
+    #     ydiags = self._pad_results(self.diagnostics.T)
+    #     diag_df = pd.DataFrame(ydiags, index=self.t, columns=self.diag_pool_names)
+    #     with pd.option_context('future.no_silent_downcasting', True):
+    #         diag_df = diag_df.bfill()
+    #     self.df = pd.concat([self.df, diag_df], axis=1)
     @_track_time
     def _add_diagnostics(self) -> None:
         """Add diagnostic variables to the results DataFrame efficiently."""
@@ -560,8 +570,13 @@ class Model:
         diag_df = pd.DataFrame(ydiags, index=self.t, columns=self.diag_pool_names)
         with pd.option_context('future.no_silent_downcasting', True):
             diag_df = diag_df.bfill()
-        self.df = pd.concat([self.df, diag_df], axis=1)
 
+        # *** CORRECTION : Éviter les colonnes dupliquées ***
+        # Ne garder que les colonnes diagnostics qui n'existent pas déjà
+        new_columns = [col for col in diag_df.columns if col not in self.df.columns]
+        if new_columns:
+            diag_df_filtered = diag_df[new_columns]
+            self.df = pd.concat([self.df, diag_df_filtered], axis=1)
 
     def get_model_summary(self) -> Dict[str, Any]:
         """Get comprehensive model summary for logging"""
