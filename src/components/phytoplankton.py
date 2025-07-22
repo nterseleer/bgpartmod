@@ -369,7 +369,8 @@ class Phyto(BaseOrg):
                 self.mmNH4 = wNH4 / (1 + wNH4 + wNO3)
                 self.mmNO3 = wNO3 / (1 + wNH4 + wNO3)
                 self.mmDIP = self.coupled_DIP.concentration / (self.coupled_DIP.concentration + self.KDIP)
-                self.mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi)
+                # self.mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi)
+                self.mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi) if self.coupled_DSi.concentration > 0 else 0
                 self.source_uptake.NH4 = self.v_max_N * self.limQUOTA.N * self.mmNH4 * self.limT * self.C
                 self.source_uptake.NO3 = self.v_max_N * self.limQUOTA.N * self.mmNO3 * self.limT * self.C
                 self.source_uptake.N = self.source_uptake.NH4 + self.source_uptake.NO3

@@ -182,6 +182,7 @@ class DIM(BaseStateVar):
             self.sink_uptake = fns.get_all_contributors(self.coupled_uptake_sinks, 'source_uptake', 'P')
         elif self.name == 'DSi':
             self.sink_uptake = fns.get_all_contributors(self.coupled_uptake_sinks, 'source_uptake', 'Si')
+            self.sink_uptake = self.sink_uptake if self.concentration > 0 else 0
 
 
         elif self.name == 'DIN':  # Sch07
