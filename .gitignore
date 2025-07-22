@@ -11,6 +11,7 @@ src/config_model/config.py
 src/config_model/obsinfos.py
 src/config_model/vars_to_plot.py
 src/utils/observations.py
+src/utils/*_additional_predefined_plot_variables.py
 src/_*main*
 _requirements.txt
 _*requirements.txt
