@@ -52,25 +52,50 @@ class Optimization:
                 num_generations: int = 100,
                 badlnl: float = -100000.,
                 **solver_kwargs) -> 'Optimization':
+        """Legacy single-configuration optimization method."""
+        return cls.run_multi_config(
+            descriptions=[(dconf, modkwargs, obs)],
+            optimized_parameters=optimized_parameters,
+            bounds=bounds,
+            calibrated_vars=calibrated_vars,
+            name=name,
+            population_size=population_size,
+            num_cpus=num_cpus,
+            num_generations=num_generations,
+            badlnl=badlnl,
+            **solver_kwargs
+        )
+
+    @classmethod
+    def run_multi_config(cls,
+                        descriptions: List[Tuple[Dict, Dict, Any]],
+                        optimized_parameters: List[str],
+                        bounds: Tuple[List[float], List[float]],
+                        calibrated_vars: Optional[List[str]] = None,
+                        name: Optional[str] = None,
+                        population_size: int = 90,
+                        num_cpus: int = 30,
+                        num_generations: int = 100,
+                        badlnl: float = -100000.,
+                        **solver_kwargs) -> 'Optimization':
         """
-        Run new optimization.
+        Run multi-configuration optimization with shared parameters.
 
         Args:
-            dconf: Model configuration
-            modkwargs: Model keyword arguments
-            obs: Observation data
-            optimized_parameters: Parameters to optimize
+            descriptions: List of tuples (dconf, modkwargs, obs) for each description
+            optimized_parameters: Parameters to optimize across all descriptions
             bounds: (min_bounds, max_bounds) for parameters
             calibrated_vars: Variables to use in likelihood calculation
             name: Optional name (generated if None)
             population_size: DE population size
+            num_cpus: Number of CPU cores to use
             num_generations: Number of generations
             badlnl: Score for failed evaluations
             **solver_kwargs: Additional solver parameters
         """
         instance = cls()
         instance.name = name or instance._get_next_name()
-        instance.obs = obs
+        instance.descriptions = descriptions
         instance._setup_directories()
 
         # Store calibrated variables
@@ -79,10 +104,10 @@ class Optimization:
             'DIP_concentration', 'DSi_concentration', 'Phy_C', 'TEPC_C'
         ]
 
-        # Store configuration
+        # Store configuration - now handles multiple descriptions
         instance.config = {
-            'dconf': dconf,
-            'modkwargs': modkwargs,
+            'descriptions': descriptions,
+            'num_descriptions': len(descriptions),
             'optimized_parameters': optimized_parameters,
             'bounds': bounds,
             'population_size': population_size,
@@ -91,13 +116,11 @@ class Optimization:
             'badlnl': badlnl,
             'solver_kwargs': solver_kwargs,
             'calibrated_vars': instance.calibrated_vars,
-            'observation_info': {
-                'station': obs.station,
-                'name': obs.name
-            }
+            'observation_info': [
+                {'station': obs.station, 'name': obs.name} 
+                for _, _, obs in descriptions
+            ]
         }
-
-        instance.obs = obs  # Store observation data
 
         # Save initial state
         instance._save_configuration()
@@ -105,7 +128,7 @@ class Optimization:
         instance._save_calibration_info()
 
         # Run optimization
-        instance._run_optimization(obs)
+        instance._run_optimization()
 
         return instance
 
@@ -125,17 +148,28 @@ class Optimization:
         if not os.path.exists(instance.files['config']):
             raise FileNotFoundError(f"Configuration file not found: {instance.files['config']}")
 
-        with open(instance.files['config'], 'rb') as f:
-            instance.config = pickle.load(f)
-            instance.calibrated_vars = instance.config['calibrated_vars']
+        instance.config = instance._load_pickle(instance.files['config'])
+        
+        # Backward compatibility: convert old 'configs' to 'descriptions'
+        if 'configs' in instance.config and 'descriptions' not in instance.config:
+            instance.config['descriptions'] = instance.config['configs']
+            if 'num_configs' in instance.config:
+                instance.config['num_descriptions'] = instance.config['num_configs']
+        
+        instance.calibrated_vars = instance.config['calibrated_vars']
 
-        # Load Observations
+        # Load Observations (handles both single and multi-description)
         obs_path = os.path.join(instance.optdir,
                                 f"{instance.name}_observations",
                                 f"{instance.name}_observations.pkl")
         if os.path.exists(obs_path):
-            with open(obs_path, 'rb') as f:
-                instance.obs = pickle.load(f)
+            loaded_obs = instance._load_pickle(obs_path)
+            if isinstance(loaded_obs, list):
+                # Multi-description: store descriptions for compatibility
+                instance.descriptions = [(None, None, obs) for obs in loaded_obs]
+            else:
+                # Legacy single observation
+                instance.obs = loaded_obs
         else:
             print(f"Warning: Could not load original observations from {obs_path}")
 
@@ -152,6 +186,27 @@ class Optimization:
         numbers = [int(d[3:]) for d in existing if d.startswith('OPT')]
         next_num = max(numbers + [-1]) + 1
         return f'OPT{next_num:03d}'
+
+    def _get_description_suffix(self, description_index: int) -> str:
+        """Generate suffix for description files based on observation name."""
+        if len(self.config['descriptions']) <= 1:
+            return ""
+        _, _, obs = self.config['descriptions'][description_index]
+        return f"_{obs.name}"
+
+    def _save_pickle(self, data: Any, filepath: str) -> None:
+        """Centralized pickle saving with error handling."""
+        with open(filepath, 'wb') as f:
+            pickle.dump(data, f)
+
+    def _load_pickle(self, filepath: str) -> Any:
+        """Centralized pickle loading with error handling."""
+        with open(filepath, 'rb') as f:
+            return pickle.load(f)
+
+    def _get_file_path(self, filename_type: str, suffix: str = "") -> str:
+        """Centralized file path construction."""
+        return os.path.join(self.optdir, f"{self.name}_{filename_type}{suffix}")
 
     def _setup_directories(self):
         """Create optimization directory structure and define file paths."""
@@ -171,21 +226,27 @@ class Optimization:
     def _save_configuration(self):
         """Save all configuration information for reproducibility."""
         # Save main configuration
-        with open(os.path.join(self.optdir, f"{self.name}_config.pkl"), 'wb') as f:
-            pickle.dump(self.config, f)
+        config_path = self._get_file_path("config.pkl")
+        self._save_pickle(self.config, config_path)
 
-        # Save human-readable versions
-        fns.write_dict_to_file(self.config['dconf'],
-                               f"{self.name}_CONFIG",
-                               fdir=self.optdir)
-        fns.write_dict_to_file(self.config['modkwargs'],
-                               f"{self.name}_modkwargs",
-                               fdir=self.optdir,
-                               serialize_objects=False)
+        # Save human-readable versions for all descriptions
+        for i, (dconf, modkwargs, obs) in enumerate(self.config['descriptions']):
+            suffix = self._get_description_suffix(i)
+            fns.write_dict_to_file(dconf,
+                                   f"{self.name}_CONFIG{suffix}",
+                                   fdir=self.optdir)
+            fns.write_dict_to_file(modkwargs,
+                                   f"{self.name}_modkwargs{suffix}",
+                                   fdir=self.optdir,
+                                   serialize_objects=False)
 
-        # Write readme
+        # Write readme - backward compatibility for count
+        num_descriptions = self.config.get('num_descriptions', 
+                                         self.config.get('num_configs', 
+                                                        1 if 'dconf' in self.config else 0))
         readme = (f"Optimization: {self.name}\n"
                   f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                  f"Descriptions: {num_descriptions}\n"
                   f"Parameters: {', '.join(self.config['optimized_parameters'])}\n"
                   f"Generations: {self.config['num_generations']}\n"
                   f"Population: {self.config['population_size']}")
@@ -195,12 +256,11 @@ class Optimization:
 
     def _load_configuration(self):
         """Load optimization configuration."""
-        config_file = os.path.join(self.optdir, f"{self.name}_config.pkl")
+        config_file = self._get_file_path("config.pkl")
         if not os.path.exists(config_file):
             raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
-        with open(config_file, 'rb') as f:
-            self.config = pickle.load(f)
+        self.config = self._load_pickle(config_file)
 
     def _save_observations(self):
         """Save observation data and metadata."""
@@ -208,25 +268,29 @@ class Optimization:
         obs_dir = os.path.join(self.optdir, f"{self.name}_observations")
         os.makedirs(obs_dir, exist_ok=True)
 
-        # Save full observation object with prefix
+        # Save all observations
+        all_obs = [obs for _, _, obs in self.config['descriptions']]
         obs_pkl_path = os.path.join(obs_dir, f"{self.name}_observations.pkl")
-        with open(obs_pkl_path, 'wb') as f:
-            pickle.dump(self.obs, f)
-
-        # Save metadata summary with prefix
-        summary = self.obs.create_summary()
-        summary_path = os.path.join(obs_dir, f"{self.name}_observations_summary.json")
-        with open(summary_path, 'w') as f:
-            json.dump(summary, f, indent=2)
-
-        # Try to create symbolic link to original data with prefix
-        try:
-            source_path = os.path.abspath(os.path.join(self.obs.datadir, f"{self.obs.station}.feather"))
-            link_path = os.path.join(obs_dir, f"{self.name}_original_data.feather")
-            if os.path.exists(source_path) and not os.path.exists(link_path):
-                os.symlink(source_path, link_path)
-        except Exception as e:
-            print(f"Could not create symbolic link to original data: {e}")
+        # Save as single obs if only one, otherwise as list
+        obs_data = all_obs[0] if len(all_obs) == 1 else all_obs
+        self._save_pickle(obs_data, obs_pkl_path)
+        
+        # Save individual observation summaries
+        for i, obs in enumerate(all_obs):
+            suffix = self._get_description_suffix(i)
+            summary = obs.create_summary()
+            summary_path = os.path.join(obs_dir, f"{self.name}_observations{suffix}_summary.json")
+            with open(summary_path, 'w') as f:
+                json.dump(summary, f, indent=2)
+                
+            # Try to create symbolic links to original data
+            try:
+                source_path = os.path.abspath(os.path.join(obs.datadir, f"{obs.station}.feather"))
+                link_path = os.path.join(obs_dir, f"{self.name}_original_data{suffix}.feather")
+                if os.path.exists(source_path) and not os.path.exists(link_path):
+                    os.symlink(source_path, link_path)
+            except Exception as e:
+                print(f"Could not create symbolic link to original data{suffix}: {e}")
 
     def _save_calibration_info(self):
         """Save calibration variables information."""
@@ -236,13 +300,12 @@ class Optimization:
         }
 
         # Save in optimization directory with optimization name prefix
-        calib_path = os.path.join(self.optdir, f"{self.name}_calibration_info.json")
+        calib_path = self._get_file_path("calibration_info.json")
         with open(calib_path, 'w') as f:
             json.dump(calib_info, f, indent=2)
 
-    def _run_optimization(self, obs):
+    def _run_optimization(self):
         """Run the optimization using DESolver."""
-        self.obs = obs  # Store observation data for evaluation
         min_bounds, max_bounds = self.config['bounds']
 
         # Configure solver
@@ -264,34 +327,53 @@ class Optimization:
         self._save_results()
 
     def evaluate_model(self, parameters):
-        """Evaluate a parameter set (called by solver)."""
+        """Evaluate a parameter set across all descriptions (called by solver)."""
+        total_score = 0.0
+        num_valid_descriptions = 0
+        
         try:
-            # Create new configuration with updated parameters
-            newconfig = fns.update_config(
-                self.config['dconf'],
-                self.config['optimized_parameters'],
-                parameters
-            )
+            # Evaluate all descriptions
+            for dconf, modkwargs, obs in self.config['descriptions']:
+                try:
+                    # Create new configuration with updated parameters
+                    newconfig = fns.update_config(
+                        dconf,
+                        self.config['optimized_parameters'],
+                        parameters
+                    )
 
-            # Run the model
-            trial = model.Model(newconfig, **self.config['modkwargs'])
+                    # Run the model
+                    trial = model.Model(newconfig, **modkwargs)
 
-            # Calculate likelihood using calibrated_vars
-            lnl = trial.get_likelihood(
-                self.obs,
-                calibrated_vars=self.calibrated_vars,
-                verbose=False,
-                _cached_obs=self.obs.df
-            )
+                    # Calculate likelihood using calibrated_vars
+                    lnl = trial.get_likelihood(
+                        obs,
+                        calibrated_vars=self.calibrated_vars,
+                        verbose=False,
+                        _cached_obs=obs.df
+                    )
 
-            # Handle invalid results
-            if lnl is None or np.isinf(lnl) or np.isnan(lnl):
+                    # Handle invalid results for this description
+                    if lnl is None or np.isinf(lnl) or np.isnan(lnl): #TODO break instead continue
+                        if self.verbose:
+                            print(f"Description failed with invalid likelihood: {lnl}")
+                        continue  # Skip this description but try others
+                    
+                    total_score += lnl
+                    num_valid_descriptions += 1
+                    
+                except (RuntimeWarning, FloatingPointError, ValueError, ZeroDivisionError) as e:
+                    if self.verbose:
+                        print(f"Description evaluation failed with error: {e}")
+                    continue  # Skip this description but try others
+                    
+            # Return bad score if no descriptions succeeded
+            if num_valid_descriptions == 0:
                 return self.config['badlnl']
-
-            return lnl
+                
+            return total_score
 
         except (RuntimeWarning, FloatingPointError, ValueError, ZeroDivisionError) as e:
-            # If warnings are treated as errors, they'll be caught here
             if self.verbose:
                 print(f"Model evaluation failed with error: {e}")
             return self.config['badlnl']
@@ -305,22 +387,24 @@ class Optimization:
             'runtime': self.runtime,
             'timestamp': datetime.now()
         }
-        with open(os.path.join(self.optdir, 'solver_results.pkl'), 'wb') as f:
-            pickle.dump(results_dict, f)
+        solver_results_path = os.path.join(self.optdir, 'solver_results.pkl')
+        self._save_pickle(results_dict, solver_results_path)
 
-        # Process and save winning configuration
+        # Process and save winning configuration(s)
         if hasattr(self, 'summary'):
             winner = self.summary['best_parameters']
-            winning_config = fns.update_config(
-                self.config['dconf'],
-                self.config['optimized_parameters'],
-                winner
-            )
-            fns.write_dict_to_file(
-                winning_config,
-                f"{self.name}_WINNING_CONFIG",
-                fdir=self.optdir
-            )
+            for i, (dconf, modkwargs, obs) in enumerate(self.config['descriptions']):
+                suffix = self._get_description_suffix(i)
+                winning_config = fns.update_config(
+                    dconf,
+                    self.config['optimized_parameters'],
+                    winner
+                )
+                fns.write_dict_to_file(
+                    winning_config,
+                    f"{self.name}_WINNING_CONFIG{suffix}",
+                    fdir=self.optdir
+                )
 
     def process_results(self, rerun_best: bool = False):
         """Process optimization results to get best parameters and statistics."""
@@ -351,17 +435,19 @@ class Optimization:
             'parameter_ranges': self._analyze_parameter_ranges()
         }
 
-        # Save winning configuration
-        winning_config = fns.update_config(
-            self.config['dconf'],
-            self.config['optimized_parameters'],
-            self.summary['best_parameters'].values()
-        )
-        fns.write_dict_to_file(
-            winning_config,
-            f"{self.name}_WINNING_CONFIG",
-            fdir=self.optdir
-        )
+        # Save winning configuration(s)
+        for i, (dconf, modkwargs, obs) in enumerate(self.config['descriptions']):
+            suffix = self._get_description_suffix(i)
+            winning_config = fns.update_config(
+                dconf,
+                self.config['optimized_parameters'],
+                self.summary['best_parameters'].values()
+            )
+            fns.write_dict_to_file(
+                winning_config,
+                f"{self.name}_WINNING_CONFIG{suffix}",
+                fdir=self.optdir
+            )
 
         # Save summary stats
         fns.write_dict_to_file(
@@ -422,23 +508,24 @@ class Optimization:
         if not hasattr(self, 'summary'):
             self.process_results()
 
-        model_file = os.path.join(self.optdir, f"{self.name}_best_model.pkl")
+        model_file = self._get_file_path("best_model.pkl")
 
         # Return existing unless forced rerun
         if os.path.exists(model_file) and not force_rerun:
             with open(model_file, 'rb') as f:
                 return dill.load(f)
 
-        # Create and run best model
+        # Create and run best model (returns first description's model)
+        dconf, modkwargs, obs = self.config['descriptions'][0]
+        
         best_config = fns.update_config(
-            self.config['dconf'],
+            dconf,
             self.config['optimized_parameters'],
             self.summary['best_parameters'].values()
         )
 
-        # Add additional diagnostics for best model
         model_kwargs = {
-            **self.config['modkwargs'],
+            **modkwargs,
             'verbose': True,
             'do_diagnostics': True,
             'full_diagnostics': False

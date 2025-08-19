@@ -16,3 +16,4 @@ REFERENCES_SIMULATION_DIR = os.path.join(SIMULATION_DIR, 'Reference_simulations'
 OPTIM_DIR = os.path.join(SIMULATION_DIR, 'Optimizations')
 LOG_FILE = os.path.join(SIMULATION_DIR, 'Simulations_log.csv')
 OPT_LOG_FILE = os.path.join(SIMULATION_DIR, 'Optimizations_log.csv')
+STRAINS_INIT_COND_FILE = os.path.join(OBSERVATION_DIR, 'init_condition.CSV')

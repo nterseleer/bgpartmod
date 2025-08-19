@@ -192,19 +192,19 @@ def create_comparison_plots(
 
 def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
-        observations: Optional[Any] = None,
+        observations: Optional[Union[Any, List[Any]]] = None,
         daily_mean: bool = True
-) -> Tuple[List[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], List[str]]:
+) -> Tuple[List[pd.DataFrame], Optional[List[pd.DataFrame]], Optional[List[pd.DataFrame]], List[str], Optional[List[str]]]:
     """
     Prepare model and observation data for plotting.
 
     Args:
         models: Single model/DataFrame or list of models/DataFrames
-        observations: Observation data object
+        observations: Single observation object or list of observation objects
         daily_mean: Whether to use daily means
 
     Returns:
-        Tuple of (model_data_list, merged_data, full_obs_data, model_names)
+        Tuple of (model_data_list, merged_data_list, full_obs_data_list, model_names, obs_names)
     """
     # Flatten nested lists of models
     models = fns.flatten_simulation_list(models)
@@ -237,26 +237,40 @@ def prepare_model_obs_data(
         model_names.append(f"{name} {len(model_names) + 1}" if name == 'Model' else name)
 
     if observations is None:
-        return model_data_list, None, None, model_names
+        return model_data_list, None, None, model_names, None
+
+    # Handle both single observation and list of observations
+    if not isinstance(observations, list):
+        observations = [observations]
 
     # Prepare observation data
-    obs_data = observations.df.copy()
+    merged_data_list = []
+    full_obs_data_list = []
+    obs_names = []
 
-    if daily_mean and obs_data.index.name != 'julian_day':
-        obs_data['julian_day'] = obs_data.index.dayofyear
-        obs_data = obs_data.groupby('julian_day').mean()
+    for obs in observations:
+        obs_data = obs.df.copy()
+        obs_name = getattr(obs, 'name', 'Observations')
+        obs_names.append(obs_name)
 
-    # Merge with first model for the model period
-    merged_data = pd.merge(
-        model_data_list[0],
-        obs_data,
-        left_index=True,
-        right_index=True,
-        how='outer',
-        suffixes=('_MOD', '_OBS')
-    )
+        if daily_mean and obs_data.index.name != 'julian_day':
+            obs_data['julian_day'] = obs_data.index.dayofyear
+            obs_data = obs_data.groupby('julian_day').mean()
 
-    return model_data_list, merged_data, obs_data, model_names
+        # Merge with first model for the model period
+        merged_data = pd.merge(
+            model_data_list[0],
+            obs_data,
+            left_index=True,
+            right_index=True,
+            how='outer',
+            suffixes=('_MOD', '_OBS')
+        )
+        
+        merged_data_list.append(merged_data)
+        full_obs_data_list.append(obs_data)
+
+    return model_data_list, merged_data_list, full_obs_data_list, model_names, obs_names
 
 
 def plot_variable(
@@ -264,14 +278,15 @@ def plot_variable(
         model_data_list: List[pd.DataFrame],
         model_names: List[str],
         var_name: str,
-        merged_data: Optional[pd.DataFrame] = None,
-        full_obs_data: Optional[pd.DataFrame] = None,
+        merged_data_list: Optional[List[pd.DataFrame]] = None,
+        full_obs_data_list: Optional[List[pd.DataFrame]] = None,
+        obs_names: Optional[List[str]] = None,
         model_styles: Optional[List[Dict]] = None,
         obs_kwargs: Optional[Dict] = None,
         show_full_obs: bool = False,
         add_labels: bool = True
 ) -> None:
-    """Plot a single variable with model results and optional observations."""
+    """Plot a single variable with model results and optional multiple observations."""
     # Default styles
     if model_styles is None:
         # model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
@@ -298,52 +313,38 @@ def plot_variable(
             ax.plot(model_data.index, model_data[var_name],
                     label=name if add_labels else "_" + name, **style)
 
-    # if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
-    #     # Check if std data is available for error bars
-    #     std_col = f"{var_name}_std"
-    #     if std_col in full_obs_data.columns:
-    #         # Use errorbar for observations with std
-    #         ax.errorbar(
-    #             full_obs_data.index,
-    #             full_obs_data[var_name],
-    #             yerr=full_obs_data[std_col],
-    #             color='orange',
-    #             label='All observations' if add_labels else "_All observations",
-    #             fmt='o',  # marker style
-    #             capsize=3,
-    #             **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle']}
-    #         )
-    #     else:
-    #         ax.scatter(
-    #         full_obs_data.index,
-    #         full_obs_data[var_name],
-    #         color='orange',
-    #         label='All observations' if add_labels else "_All observations",
-    #         **obs_kwargs)
-
-    if merged_data is not None and f'{var_name}_OBS' in merged_data.columns:
-        # Check if std data is available for error bars
-        std_col = f"{var_name}_std"
-        if std_col in merged_data.columns:
-            # Use errorbar for observations with std
-            ax.errorbar(
-                merged_data.index,
-                merged_data[f'{var_name}_OBS'],
-                yerr=merged_data[std_col],
-                color='grey',
-                label='Observations' if add_labels else "_Used observations",
-                fmt='o',  # marker style
-                capsize=3,
-                **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle', 's']}
-            )
-        else:
-            ax.scatter(
-            merged_data.index,
-            merged_data[f'{var_name}_OBS'],
-            color='red',
-            label='Observations' if add_labels else "_Used observations",
-            **{**obs_kwargs, 's': 6}
-            )
+    # Plot multiple observations if available
+    if merged_data_list is not None:
+        # Get colors from matplotlib's color cycle for observations
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        
+        for i, merged_data in enumerate(merged_data_list):
+            if f'{var_name}_OBS' in merged_data.columns:
+                obs_name = obs_names[i] if obs_names else f'Observations {i+1}'
+                obs_color = colors[i % len(colors)]
+                
+                # Check if std data is available for error bars
+                std_col = f"{var_name}_std"
+                if std_col in merged_data.columns:
+                    # Use errorbar for observations with std
+                    ax.errorbar(
+                        merged_data.index,
+                        merged_data[f'{var_name}_OBS'],
+                        yerr=merged_data[std_col],
+                        color=obs_color,
+                        label=obs_name if add_labels else f"_{obs_name}",
+                        fmt='o',  # marker style
+                        capsize=3,
+                        **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle', 's']}
+                    )
+                else:
+                    ax.scatter(
+                        merged_data.index,
+                        merged_data[f'{var_name}_OBS'],
+                        color=obs_color,
+                        label=obs_name if add_labels else f"_{obs_name}",
+                        **{**obs_kwargs, 's': 6}
+                    )
 
     # Format labels and title
     var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
@@ -378,7 +379,7 @@ def plot_results(
     Args:
         models: Single model or list of models
         variables: List of variables to plot
-        observations: Optional observation data
+        observations: Optional observation data (single or list of observations)
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
         daily_mean: Whether to use daily means
         show_full_obs: Whether to show full observation range
@@ -397,7 +398,7 @@ def plot_results(
     # Prepare data
     # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
     #     print(models[0].df['Phy_source_PP.C'])
-    model_data_list, merged_data, full_obs_data, model_names = prepare_model_obs_data(
+    model_data_list, merged_data_list, full_obs_data_list, model_names, obs_names = prepare_model_obs_data(
         models, observations, daily_mean
     )
 
@@ -420,8 +421,9 @@ def plot_results(
                 model_data_list,
                 model_names,
                 var,
-                merged_data,
-                full_obs_data,
+                merged_data_list,
+                full_obs_data_list,
+                obs_names,
                 model_styles,
                 show_full_obs=show_full_obs,
                 add_labels=(i == 0),  # Only add labels on the first subplot

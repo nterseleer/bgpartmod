@@ -8,6 +8,7 @@ Manual_Saves/
 src/bgc/
 src/config_model/_*config*.py
 src/config_model/config.py
+src/config_model/strains_config.py
 src/config_model/obsinfos.py
 src/config_model/vars_to_plot.py
 src/utils/observations.py

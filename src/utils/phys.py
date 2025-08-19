@@ -37,14 +37,8 @@ DEFAULT_SETUPS = {
         'light_prop': 12. / 24.,
     },
 
-    'youri_medium_mean_strain': {
-        'T': 15.,
-        'PARfromfile': False,
-        'I': 12.798 * 86400,
-        'light_prop': 12. / 24.,
-    },
     # auria medium light = 15 µmol photons.m-2.s-1
-    'Odontella_medium': {
+    'multi_strains_medium_light': {
         'T': 19.,
         'PARfromfile': False,
         'I': 15. * 86400, #µmol photon m-2 d-1 of PAR
