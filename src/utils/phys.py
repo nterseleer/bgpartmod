@@ -89,6 +89,7 @@ class Setup:
             'k_att',  # Light attenuation coefficient
             'kb',  # Background turbidity
             'pCO2',  # Partial pressure CO2 in µatm
+            'water_depth',  # Water depth in m
         ],
         'light_settings': [
             'light_prop',  # Proportion of time with light
@@ -131,6 +132,7 @@ class Setup:
                  gshearfact: float = 0.5,
                  gshearper: float = 0.5,
                  kb: float = 0.13,
+                 water_depth: float = 7.,
                  riverine_loads: bool = False,
                  riverine_loads_file: str = 'riverine_loads.feather',
                  plotPAR: bool = False,
@@ -183,6 +185,8 @@ class Setup:
         self.z = z
         self.pCO2 = pCO2
         self.kb = kb
+
+        self.water_depth = water_depth
 
         # Riverine loads
         self.riverine_loads = riverine_loads

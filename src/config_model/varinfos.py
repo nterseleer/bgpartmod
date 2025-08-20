@@ -213,9 +213,28 @@ ref_values = {
         'symbol': 'deltaFymax',
         'units': '---',
         'complete_name': "deltaFymax"
+    },
+    'NH4+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_remin^{NH_4}',
+        'units': '--',
+        'complete_name': "k_remin_NH4"
+    },
+    'DIP+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_remin^{DIP}',
+        'units': '--',
+        'complete_name': "k_remin_DIP"
+    },
+    'DSi+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_remin^{DSi}',
+        'units': '--',
+        'complete_name': "k_remin_DSi"
     }
 
 }
+
 
 """
 Definition of output variables: Each output variable refers to a dictionary potentially containing:
@@ -693,6 +712,48 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                                 'munits': '-',
                                 'longname': 'Number of microflocs per macrofloc',
                                 'cleanname': 'N_c'},
+
+           # Resuspension diagnostics variables
+           "Macroflocs_g_shear_rate_at_t": {'units': 's^{-1}',
+                                            'munits': 's^{-1}',
+                                            'longname': 'Shear rate at time t',
+                                            'cleanname': 'g_{shear}'},
+
+           "Macroflocs_tau_cr": {'units': 'Pa',
+                                 'munits': 'Pa',
+                                 'longname': 'Critical shear stress',
+                                 'cleanname': '\\tau_{cr}'},
+
+           "Macroflocs_sedimentation": {'units': ' m^{-3} d^{-1}',
+                                       'munits': ' m^{-3} d^{-1}',
+                                       'longname': 'Sedimentation rate',
+                                       'cleanname': 'Sedimentation'},
+
+           "Macroflocs_resuspension": {'units': ' m^{-3} d^{-1}',
+                                      'munits': ' m^{-3} d^{-1}',
+                                      'longname': 'Resuspension rate',
+                                      'cleanname': 'Resuspension'},
+
+           # Micro_in_Macro resuspension diagnostics
+           "Micro_in_Macro_g_shear_rate_at_t": {'units': 's^{-1}',
+                                                'munits': 's^{-1}',
+                                                'longname': 'Shear rate at time t (micro in macro)',
+                                                'cleanname': 'g_{shear}'},
+
+           "Micro_in_Macro_tau_cr": {'units': 'Pa',
+                                     'munits': 'Pa',
+                                     'longname': 'Critical shear stress (micro in macro)',
+                                     'cleanname': '\\tau_{cr}'},
+
+           "Micro_in_Macro_sedimentation": {'units': ' m^{-3} d^{-1}',
+                                           'munits': ' m^{-3} d^{-1}',
+                                           'longname': 'Sedimentation rate (micro in macro)',
+                                           'cleanname': 'Sedimentation'},
+
+           "Micro_in_Macro_resuspension": {'units': ' m^{-3} d^{-1}',
+                                          'munits': ' m^{-3} d^{-1}',
+                                          'longname': 'Resuspension rate (micro in macro)',
+                                          'cleanname': 'Resuspension'},
 
            }
 

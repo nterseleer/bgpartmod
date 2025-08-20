@@ -14,9 +14,9 @@ class Flocs(BaseStateVar):
                  p_exp=0.4,
                  q_exp=0.1,
                  f_frac_floc_break=0.1,
-                 efficiency_break=2e-4 / np.sqrt(3600 * 24),  # 2e-4/np.sqrt(3600*24*100),
+                 efficiency_break=2e-4,
                  fyflocstrength=1e-10,
-                 mu_viscosity=1e-6 / 3600 / 24,  # 1e-6/3600/24/10000,
+                 mu_viscosity=1e-6,
 
                  d_p_microflocdiam=18e-6,
                  nf_fractal_dim=2,
@@ -28,6 +28,9 @@ class Flocs(BaseStateVar):
                  alpha_PF_ref = None,
                  K_glue = None,
                  deltaFymax=1e-9,
+                 tau_cr_base = 0.1,        # [Pa]
+                 delta_tau = 2.,       # [-]
+                 resuspension_rate = 0.,       # [kg/m²/s/Pa]
 
                  # eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
                  # # value from
@@ -45,11 +48,12 @@ class Flocs(BaseStateVar):
         super().__init__()
 
         self.deltaFymax = deltaFymax
-        self.fyflocstrength_ref = fyflocstrength
+        self.fyflocstrength_base = fyflocstrength
         self.K_glue = K_glue
         self.alpha_FF_ref = alpha_FF_ref
         self.alpha_PP_ref = alpha_PP_ref
         self.alpha_PF_ref = alpha_PF_ref
+
         self.SMS = None
         self.settling_vel = None
         self.breaksource = None
@@ -70,6 +74,8 @@ class Flocs(BaseStateVar):
         self.numconc = None
         self.massconcentration = None
         self.volconcentration = None
+        self.sedimentation = None
+        self.resuspension = None
         self.diagnostics = None
         self.classname = 'Floc'
         self.name = name
@@ -83,6 +89,11 @@ class Flocs(BaseStateVar):
         self.fyflocstrength = fyflocstrength
         self.mu_viscosity = mu_viscosity
         self.sinking_leak = sinking_leak
+
+        self.tau_cr_base = tau_cr_base
+        self.delta_tau = delta_tau
+        self.resuspension_rate = resuspension_rate
+        self.tau_cr = self.tau_cr_base
 
         self.d_p_microflocdiam = d_p_microflocdiam
         self.diam = d_p_microflocdiam
@@ -170,6 +181,9 @@ class Flocs(BaseStateVar):
 
         if self.name == 'Micro_in_Macro':
             self.sinking_leak = self.coupled_Nf.sinking_leak
+            self.resuspension_rate = self.coupled_Nf.resuspension_rate
+            self.tau_cr_base = self.coupled_Nf.tau_cr_base
+            self.delta_tau = self.coupled_Nf.delta_tau
 
         # Initialize macrofloc diameter if couplings are now established
         if self.name == 'Macroflocs':
@@ -197,31 +211,37 @@ class Flocs(BaseStateVar):
 
     def get_sources(self, t=None):
         """
-                Note: the "FABM" and "get_sources/get_sinks" approach is not adopted here - for simplicity and also
-                with some mathematical simplifications within the SMS equations to enhance computational efficiency
-                (since the floc module is run at smaller time step)
+        Note: the "FABM" and "get_sources/get_sinks" approach is not adopted here - for simplicity and also
+        with some mathematical simplifications within the SMS equations to enhance computational efficiency
+        (since the floc module is run at smaller time step)
         """
 
         self.Ncnum = self.coupled_Nt.numconc / self.coupled_Nf.numconc
         self.g_shear_rate_at_t = self.setup.g_shear_rate.loc[t]['ShearRate']
 
         if self.coupled_glue and self.K_glue:
-                self.alpha_FF = self.alpha_FF_ref * self.coupled_glue.C / (self.K_glue + self.coupled_glue.C)
 
-                # Optionally modify alpha_PP if reference value exists
-                if hasattr(self, 'alpha_PP_ref') and self.alpha_PP_ref is not None:
-                    self.alpha_PP = self.alpha_PP_ref * self.coupled_glue.C / (self.K_glue + self.coupled_glue.C)
+            mm_TEP = self.coupled_glue.C / (self.K_glue + self.coupled_glue.C)
 
-                # Optionally modify alpha_PF if reference value exists
-                if hasattr(self, 'alpha_PF_ref') and self.alpha_PF_ref is not None:
-                    self.alpha_PF = self.alpha_PF_ref * self.coupled_glue.C / (self.K_glue + self.coupled_glue.C)
+            self.alpha_FF = self.alpha_FF_ref * mm_TEP
 
-                self.fyflocstrength = (self.fyflocstrength_ref + self.deltaFymax *
-                                               self.coupled_glue.C / (self.K_glue + self.coupled_glue.C))
+            # Optionally modify alpha_PP if reference value exists
+            if hasattr(self, 'alpha_PP_ref') and self.alpha_PP_ref is not None:
+                self.alpha_PP = self.alpha_PP_ref * mm_TEP
+
+            # Optionally modify alpha_PF if reference value exists
+            if hasattr(self, 'alpha_PF_ref') and self.alpha_PF_ref is not None:
+                self.alpha_PF = self.alpha_PF_ref * mm_TEP
+
+            self.fyflocstrength = self.fyflocstrength_base + self.deltaFymax * mm_TEP
+
+
+            if self.name == 'Macroflocs' or self.name == 'Micro_in_Macro':
+                self.tau_cr = self.tau_cr_base * (1 + self.delta_tau * mm_TEP)
+
+
 
         if self.name == 'Microflocs':
-
-
             self.SMS = (
                         # Loss from microfloc-microfloc collisions forming macroflocs
                         -2. / 3. * self.alpha_PP * self.coupled_Np.diam * self.coupled_Np.diam * self.coupled_Np.diam *
@@ -243,7 +263,34 @@ class Flocs(BaseStateVar):
         elif self.name == 'Macroflocs':
             # Calculate settling velocity for sinking loss
             self.settling_vel = 2000 / 9 * (1200 - 1000) * 9.81 * (self.diam * self.diam / 4) / 1e-3 * 1e-3 * 3600 * 24
-            self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
+            # self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
+            if self.resuspension_rate > 0:
+                # Physical settling and resuspension
+                self.sedimentation = self.settling_vel * self.numconc / self.setup.water_depth
+
+                timestep_factor = self.setup.used_dt * self.time_conversion_factor
+                max_allowable_loss = 0.001 * self.numconc / timestep_factor
+                self.sedimentation = min(self.sedimentation, max_allowable_loss)
+
+                self.resuspension = self.resuspension_rate * max(0, self.g_shear_rate_at_t - self.tau_cr)
+                self.resuspension = min(self.resuspension, max_allowable_loss)
+
+
+                # print('IN FLOCS', self.name, t)
+                # print(self.settling_vel)
+                # print(self.g_shear_rate_at_t, self.tau_cr, self.g_shear_rate_at_t - self.tau_cr)
+                # print(self.resuspension)
+                # print(self.sedimentation)
+                # print('numconc, massconcentration: ', self.numconc, self.massconcentration)
+                # print('net settling: ', self.sedimentation - self.resuspension,
+                #       (self.sedimentation - self.resuspension) / self.numconc)
+                # print('numconc after change: ', self.numconc - (self.sedimentation - self.resuspension))
+
+                self.settling_loss = self.sedimentation - self.resuspension
+            else:
+                # Fallback to original formulation
+                self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
+
 
             # Formation from microfloc-microfloc collisions
             self.ppsource = (2. / 3. * self.alpha_PP * self.coupled_Np.diam * self.coupled_Np.diam * self.coupled_Np.diam *
@@ -259,6 +306,13 @@ class Flocs(BaseStateVar):
                         (self.mu_viscosity * self.g_shear_rate_at_t * self.Ncnum ** (2. / self.nf_fractal_dim) *
                          self.coupled_Np.diam * self.coupled_Np.diam / self.fyflocstrength) ** self.q_exp * self.coupled_Nf.numconc)
 
+            # print('MACROFLOCS SMS TERMS: ')
+            # print(self.ppsource)
+            # print(self.ffloss)
+            # print(self.breaksource)
+            # print(self.settling_loss)
+            # print()
+
             self.SMS = (self.ppsource -
                         self.ffloss +
                         self.breaksource -
@@ -269,6 +323,26 @@ class Flocs(BaseStateVar):
         else:
 
             self.settling_vel = self.coupled_Nf.settling_vel
+
+            if self.resuspension_rate > 0:
+                # Physical settling and resuspension
+                self.sedimentation = self.coupled_Nf.sedimentation * self.Ncnum
+                self.resuspension = self.coupled_Nf.resuspension * self.Ncnum
+                self.settling_loss = self.sedimentation - self.resuspension
+
+                # print('IN FLOCS', self.name, t)
+                # # print(self.settling_vel)
+                # # print(self.resuspension_rate)
+                # # print(self.g_shear_rate_at_t, self.tau_cr, self.g_shear_rate_at_t - self.tau_cr)
+                # print(self.resuspension)
+                # print(self.sedimentation)
+                # print('numconc, massconcentration: ', self.numconc, self.massconcentration)
+                # print('net settling: ', self.sedimentation - self.resuspension, (self.sedimentation - self.resuspension)/self.numconc)
+                # print('numconc after change: ', self.numconc - (self.sedimentation - self.resuspension))
+
+            else:
+                # Fallback to original formulation
+                self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
 
             self.SMS = (
                         # Gain from microfloc-microfloc collisions
@@ -289,10 +363,13 @@ class Flocs(BaseStateVar):
                          self.coupled_Np.diam * self.coupled_Np.diam / self.fyflocstrength) ** self.q_exp * self.coupled_Nf.numconc -
 
                         # Loss from sinking
-                        self.sinking_leak * self.settling_vel * self.numconc
+                        self.settling_loss
 
                         )
 
+
+        # print(self.name, self.SMS, self.numconc, self.numconc+self.SMS*10)
+        # print()
 
         return np.array(self.SMS)
 
