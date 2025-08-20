@@ -263,7 +263,7 @@ def update_config_from_optimization(base_config: Dict, best_parameters: Dict) ->
 from typing import (Any, Dict, TypeVar)
 KeyType = TypeVar('KeyType')
 def deep_update(mapping: Dict[KeyType, Any], *updating_mappings: Dict[KeyType, Any],
-                overwrite_keys: list = None) -> Dict[KeyType, Any]:
+                overwrite_keys: list = None, merge_lists: list = None) -> Dict[KeyType, Any]:
     """
     Deep update dictionaries with selective overwrite behavior.
 
@@ -271,9 +271,12 @@ def deep_update(mapping: Dict[KeyType, Any], *updating_mappings: Dict[KeyType, A
         mapping: Base dictionary to update
         *updating_mappings: One or more dictionaries to merge in
         overwrite_keys: List of keys where dict values should be overwritten instead of merged
+        merge_lists: List of keys where list values should be merged instead of overwritten.
+                    Defaults to ['diagnostics'] for common use case of merging diagnostic lists.
     """
     updated_mapping = mapping.copy()
     overwrite_keys = overwrite_keys or []
+    merge_lists = merge_lists or ['diagnostics']
 
     for updating_mapping in updating_mappings:
         for k, v in updating_mapping.items():
@@ -282,7 +285,19 @@ def deep_update(mapping: Dict[KeyType, Any], *updating_mappings: Dict[KeyType, A
                     isinstance(v, dict) and
                     k not in overwrite_keys):
                 # Recursive merge (current behavior)
-                updated_mapping[k] = deep_update(updated_mapping[k], v, overwrite_keys=overwrite_keys)
+                updated_mapping[k] = deep_update(updated_mapping[k], v, 
+                                                overwrite_keys=overwrite_keys, 
+                                                merge_lists=merge_lists)
+            elif (k in updated_mapping and
+                  k in merge_lists and
+                  isinstance(updated_mapping[k], list) and
+                  isinstance(v, list)):
+                # Merge lists by extending and removing duplicates while preserving order
+                merged_list = updated_mapping[k].copy()
+                for item in v:
+                    if item not in merged_list:
+                        merged_list.append(item)
+                updated_mapping[k] = merged_list
             else:
                 # Direct assignment (overwrite or non-dict)
                 updated_mapping[k] = v
