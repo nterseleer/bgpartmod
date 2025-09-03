@@ -31,12 +31,13 @@ class Flocs(BaseStateVar):
                  tau_cr_base = 0.1,        # [Pa]
                  delta_tau = 2.,       # [-]
                  resuspension_rate = 0.,       # [kg/m²/s/Pa]
+                 settling_vel_min_fraction = 0.5,  # [-] Minimum fraction of settling velocity retained at max shear
 
                  # eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
                  # # value from
                  # eps_kd=2e-5,  # [m2 mg-1] Diffuse attenuation cross section of SPM with kd = ... + eps_kd * sqrt(SPM)
                  # # value from Tian et al., 2009
-                 eps_kd = 0.066* 1e3, # m-1 (mg l-1)-1 Light attenuation due to SPM
+                 eps_kd = 0.066* 1e-3, # from 0.066 m-1 (mg l-1)-1 to g l-1 = kg m-3 (model units) Light attenuation due to SPM
                  # model is in kg m-3
 
                  sinking_leak=0,
@@ -46,6 +47,7 @@ class Flocs(BaseStateVar):
                  ):
 
         super().__init__()
+
 
         self.deltaFymax = deltaFymax
         self.fyflocstrength_base = fyflocstrength
@@ -61,6 +63,8 @@ class Flocs(BaseStateVar):
         self.ppsource = None
         self.settling_loss = None
         self.g_shear_rate_at_t = None
+        self.bed_shear_stress_at_t = None
+        self.erosion_factor = None
         self.Ncnum = None
         self.coupled_glue = None
         self.coupled_Nt = None
@@ -93,6 +97,7 @@ class Flocs(BaseStateVar):
         self.tau_cr_base = tau_cr_base
         self.delta_tau = delta_tau
         self.resuspension_rate = resuspension_rate
+        self.settling_vel_min_fraction = settling_vel_min_fraction
         self.tau_cr = self.tau_cr_base
 
         self.d_p_microflocdiam = d_p_microflocdiam
@@ -218,6 +223,8 @@ class Flocs(BaseStateVar):
 
         self.Ncnum = self.coupled_Nt.numconc / self.coupled_Nf.numconc
         self.g_shear_rate_at_t = self.setup.g_shear_rate.loc[t]['ShearRate']
+        self.bed_shear_stress_at_t = self.setup.bed_shear_stress.loc[t]['BedShearStress']
+        self.water_depth_at_t = self.setup.water_depth.loc[t]['WaterDepth']
 
         if self.coupled_glue and self.K_glue:
 
@@ -261,30 +268,25 @@ class Flocs(BaseStateVar):
                          self.coupled_Np.diam * self.coupled_Np.diam / self.fyflocstrength) ** self.q_exp * self.coupled_Nf.numconc)
 
         elif self.name == 'Macroflocs':
-            # Calculate settling velocity for sinking loss
-            self.settling_vel = 2000 / 9 * (1200 - 1000) * 9.81 * (self.diam * self.diam / 4) / 1e-3 * 1e-3 * 3600 * 24
-            # self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
+            # Calculate base settling velocity using Stokes' law
+            settling_vel_base = 2000 / 9 * (1200 - 1000) * 9.81 * (self.diam * self.diam / 4) / 1e-3 * 1e-3 * 3600 * 24
+            
+            # Apply shear-dependent modulation
+            normalized_shear = (self.g_shear_rate_at_t - self.setup.g_shear_rate_min) / (self.setup.delta_g_shear_rate)
+            shear_factor = self.settling_vel_min_fraction + (1 - self.settling_vel_min_fraction) * 0.5 * (1 + np.cos(normalized_shear * np.pi))
+            self.settling_vel = settling_vel_base * shear_factor
+
             if self.resuspension_rate > 0:
                 # Physical settling and resuspension
-                self.sedimentation = self.settling_vel * self.numconc / self.setup.water_depth
+                self.sedimentation = self.settling_vel * self.numconc / self.water_depth_at_t
 
-                timestep_factor = self.setup.used_dt * self.time_conversion_factor
-                max_allowable_loss = 0.001 * self.numconc / timestep_factor
-                self.sedimentation = min(self.sedimentation, max_allowable_loss)
+                # timestep_factor = self.setup.used_dt * self.time_conversion_factor
+                # max_allowable_loss = 0.001 * self.numconc / timestep_factor
+                # self.sedimentation = min(self.sedimentation, max_allowable_loss)
 
-                self.resuspension = self.resuspension_rate * max(0, self.g_shear_rate_at_t - self.tau_cr)
-                self.resuspension = min(self.resuspension, max_allowable_loss)
-
-
-                # print('IN FLOCS', self.name, t)
-                # print(self.settling_vel)
-                # print(self.g_shear_rate_at_t, self.tau_cr, self.g_shear_rate_at_t - self.tau_cr)
-                # print(self.resuspension)
-                # print(self.sedimentation)
-                # print('numconc, massconcentration: ', self.numconc, self.massconcentration)
-                # print('net settling: ', self.sedimentation - self.resuspension,
-                #       (self.sedimentation - self.resuspension) / self.numconc)
-                # print('numconc after change: ', self.numconc - (self.sedimentation - self.resuspension))
+                self.erosion_factor = max(0, (self.bed_shear_stress_at_t / self.tau_cr - 1))
+                self.resuspension = self.resuspension_rate * self.erosion_factor / self.water_depth_at_t
+                # self.resuspension = min(self.resuspension, max_allowable_loss*10)
 
                 self.settling_loss = self.sedimentation - self.resuspension
             else:
@@ -306,13 +308,6 @@ class Flocs(BaseStateVar):
                         (self.mu_viscosity * self.g_shear_rate_at_t * self.Ncnum ** (2. / self.nf_fractal_dim) *
                          self.coupled_Np.diam * self.coupled_Np.diam / self.fyflocstrength) ** self.q_exp * self.coupled_Nf.numconc)
 
-            # print('MACROFLOCS SMS TERMS: ')
-            # print(self.ppsource)
-            # print(self.ffloss)
-            # print(self.breaksource)
-            # print(self.settling_loss)
-            # print()
-
             self.SMS = (self.ppsource -
                         self.ffloss +
                         self.breaksource -
@@ -322,27 +317,19 @@ class Flocs(BaseStateVar):
 
         else:
 
-            self.settling_vel = self.coupled_Nf.settling_vel
-
-            if self.resuspension_rate > 0:
-                # Physical settling and resuspension
-                self.sedimentation = self.coupled_Nf.sedimentation * self.Ncnum
-                self.resuspension = self.coupled_Nf.resuspension * self.Ncnum
-                self.settling_loss = self.sedimentation - self.resuspension
-
-                # print('IN FLOCS', self.name, t)
-                # # print(self.settling_vel)
-                # # print(self.resuspension_rate)
-                # # print(self.g_shear_rate_at_t, self.tau_cr, self.g_shear_rate_at_t - self.tau_cr)
-                # print(self.resuspension)
-                # print(self.sedimentation)
-                # print('numconc, massconcentration: ', self.numconc, self.massconcentration)
-                # print('net settling: ', self.sedimentation - self.resuspension, (self.sedimentation - self.resuspension)/self.numconc)
-                # print('numconc after change: ', self.numconc - (self.sedimentation - self.resuspension))
-
-            else:
-                # Fallback to original formulation
-                self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
+            # self.settling_vel = self.coupled_Nf.settling_vel
+            #
+            # if self.resuspension_rate > 0:
+            #     # Physical settling and resuspension
+            #     # self.sedimentation = self.coupled_Nf.sedimentation * self.Ncnum
+            #     # self.resuspension = self.coupled_Nf.resuspension * self.Ncnum
+            #     # self.settling_loss = self.sedimentation - self.resuspension
+            #     self.settling_loss = self.coupled_Nf.settling_loss * self.Ncnum
+            #
+            # else:
+            #     # Fallback to original formulation
+            #     self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
+            self.settling_loss = self.coupled_Nf.settling_loss * self.Ncnum
 
             self.SMS = (
                         # Gain from microfloc-microfloc collisions
@@ -366,10 +353,6 @@ class Flocs(BaseStateVar):
                         self.settling_loss
 
                         )
-
-
-        # print(self.name, self.SMS, self.numconc, self.numconc+self.SMS*10)
-        # print()
 
         return np.array(self.SMS)
 
