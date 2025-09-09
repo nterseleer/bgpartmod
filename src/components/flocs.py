@@ -289,13 +289,8 @@ class Flocs(BaseStateVar):
                 # Physical settling and resuspension
                 self.sedimentation = self.settling_vel * self.numconc / self.water_depth_at_t
 
-                # timestep_factor = self.setup.used_dt * self.time_conversion_factor
-                # max_allowable_loss = 0.001 * self.numconc / timestep_factor
-                # self.sedimentation = min(self.sedimentation, max_allowable_loss)
-
                 self.erosion_factor = max(0, (self.bed_shear_stress_at_t / self.tau_cr - 1))
                 self.resuspension = self.resuspension_rate * self.erosion_factor / self.water_depth_at_t
-                # self.resuspension = min(self.resuspension, max_allowable_loss*10)
 
                 self.settling_loss = self.sedimentation - self.resuspension
             else:
