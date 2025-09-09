@@ -277,7 +277,7 @@ class DOM(BaseOrg):
             else:
                 self.sink_remineralization.C = 0.
 
-    def get_sink_breakdown(self):
+    def get_sink_breakdown(self, t=None):
         if self.formulation == 'Onur22':
             if self.name == 'TEPC':
                 self.sink_breakdown.C = self.rho_TEP * self.C

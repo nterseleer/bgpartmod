@@ -100,7 +100,7 @@ class Heterotrophs(BaseOrg):
 
     def get_sources(self, t=None):
         # Limitation functions
-        self.lim_T = fns.getlimT(self.setup.T.loc[t]['T'])
+        self.lim_T = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref, boltz=True)
 
         # SOURCES
         self.get_source_ingestion()
@@ -191,7 +191,7 @@ class Heterotrophs(BaseOrg):
 
         sumrpc = np.sum([realpref[t.name] * t.C for t in self.coupled_targets])
         for t in self.coupled_targets:
-            self.source_ingestion.C[t.name] = self.C * self.g_max * realpref[t.name] * t.C / (self.K_i + sumrpc)
+            self.source_ingestion.C[t.name] = self.C * self.g_max * self.lim_T * realpref[t.name] * t.C / (self.K_i + sumrpc)
             if t.N is not None:
                 self.source_ingestion.N[t.name] = self.source_ingestion.C[t.name] * t.N / t.C
             else:
@@ -212,16 +212,16 @@ class Heterotrophs(BaseOrg):
         self.sink_ingestion.P = fns.get_all_contributors(self.coupled_consumers, 'source_ingestion', 'P', dkey=self.name)
 
     def get_sink_respiration(self):
-        self.sink_respiration.C = self.C * self.zeta_resp
+        self.sink_respiration.C = self.C * self.zeta_resp * self.lim_T
         self.sink_respiration.N = 0.
         self.sink_respiration.P = 0.
 
     def get_sink_lysis(self):
-        self.sink_lysis.C = self.C * (self.lysrate_lin + self.C * self.lysrate_quad)
+        self.sink_lysis.C = self.C * (self.lysrate_lin + self.C * self.lysrate_quad) * self.lim_T
         self.sink_lysis.N = self.sink_lysis.C * self.QN
         self.sink_lysis.P = self.sink_lysis.C * self.QP
 
     def get_sink_mortality(self):
-        self.sink_mortality.C = self.C * (self.mortrate_lin + self.C * self.mortrate_quad)
+        self.sink_mortality.C = self.C * (self.mortrate_lin + self.C * self.mortrate_quad) * self.lim_T
         self.sink_mortality.N = self.sink_mortality.C * self.QN
         self.sink_mortality.P = self.sink_mortality.C * self.QP

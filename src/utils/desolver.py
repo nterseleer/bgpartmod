@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import time
 import os
+from datetime import datetime
 from typing import Any, Callable, List, Optional, Tuple, Union
 
 
@@ -162,6 +163,9 @@ class DESolver:
                         resdf = newdf.where(newwinning, olddf)
                         resdf['generation'] = generation + 1
 
+                    # Add timestamp column
+                    resdf['timestamp'] = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+                    
                     # Append to results file
                     resdf.to_csv(
                         self.job.files['results'],

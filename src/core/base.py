@@ -1,6 +1,9 @@
 import numpy as np
 from ..utils import functions as fns
 
+from src.config_model import varinfos
+
+
 class BaseStateVar:
     def __init__(self):
         self.setup = None
@@ -103,7 +106,7 @@ class BaseOrg(BaseStateVar):
         if self.P is not None and self.Si is not None:
             self.fnut = min(self.QN, self.QP, self.QSi)
         if self.Chl is not None:
-            self.thetaC = self.Chl / self.C
+            self.thetaC = self.Chl / self.C #
 
         self.ICs = [pool for pool in [self.C, self.N, self.Chl, self.P, self.Si] if pool is not None]
 

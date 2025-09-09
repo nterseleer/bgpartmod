@@ -1,14 +1,13 @@
 import time
 from functools import wraps
 from collections import defaultdict
-import concurrent.futures
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Set, Any, Tuple
+from typing import Dict, List, Optional, Any
 from scipy import integrate
 
 from src.utils import functions as fns
-from src.utils import phys
+from core import phys
 from src.utils import evaluation
 from src.components import phytoplankton as phyto
 from src.config_model import varinfos

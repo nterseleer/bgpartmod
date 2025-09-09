@@ -158,6 +158,13 @@ def prepare_model_obs_data(
     if daily_mean and obs_data.index.name != 'julian_day':
         obs_data['julian_day'] = obs_data.index.dayofyear
         obs_data = obs_data.groupby('julian_day').mean()
+    elif not daily_mean and obs_data.index.name == 'julian_day':
+        # Convert julian day index to datetime to match model data
+        # Assumes year alignment with model data (first model's year is used)
+        model_year = model_data_list[0].index[0].year
+        obs_data.index = pd.to_datetime(obs_data.index.astype(int), format='%j').map(
+            lambda x: x.replace(year=model_year)
+        )
 
     # Merge with first model for the model period
     merged_data = pd.merge(
@@ -271,7 +278,7 @@ def plot_variable(
 def plot_results(
         models: Union[Any, List[Any]],
         variables: List[str],
-        observations: Optional[Any] = observations.Obs(station='MOW1_202503'),
+        observations: Optional[Any] = observations.Obs(station='MOW1_biweekly_202509_noPhaeo'),
         calibrated_vars: Optional[List[str]] = None,
         daily_mean: bool = True,
         show_full_obs: bool = False,

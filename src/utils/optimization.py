@@ -17,6 +17,7 @@ from src.utils import functions as fns
 from src.utils import desolver
 from src.core import model
 from src.config_system import path_config as path_cfg
+from src.utils import simulation_manager as sim_manager
 
 # Constants
 OPTIMIZATIONS_DIR = path_cfg.OPTIM_DIR
@@ -24,8 +25,9 @@ LOG_FILE = path_cfg.OPT_LOG_FILE
 
 
 
+
 class Optimization:
-    """Manages model optimization including running, saving, and analyzing results."""
+    """Manages model optimization including running, saves, and analyzing results."""
 
     def __init__(self, verbose=True):
         """Initialize optimization container."""
@@ -37,6 +39,20 @@ class Optimization:
         self.obs = None
         self.calibrated_vars = None
         self.verbose = verbose
+    
+    @classmethod
+    def _get_next_id(cls) -> str:
+        """Get next available optimization ID from the shared log."""
+        return sim_manager.get_next_optimization_id()
+    
+    @classmethod 
+    def _prompt_user_note(cls) -> str:
+        """Prompt user for optimization note."""
+        print("\n" + "="*60)
+        print("OPTIMIZATION SETUP - User Note")
+        print("="*60)
+        note = input("Please describe this optimization (purpose, approach, expectations):\n> ")
+        return note.strip()
 
     @classmethod
     def run_new(cls,
@@ -69,7 +85,12 @@ class Optimization:
             **solver_kwargs: Additional solver parameters
         """
         instance = cls()
-        instance.name = name or instance._get_next_name()
+        
+        # Always prompt user and setup optimization log
+        instance.name = name or cls._get_next_id()
+        user_note = cls._prompt_user_note()
+        sim_manager.add_optimization_to_log(instance.name, len(optimized_parameters), user_note)
+            
         instance.obs = obs
         instance._setup_directories()
 
@@ -369,6 +390,11 @@ class Optimization:
             f"{self.name}_SUMMARY",
             fdir=self.optdir
         )
+        
+        # Update optimization log with results
+        if hasattr(self, 'runtime'):
+            runtime_minutes = self.runtime / 60.0
+            sim_manager.update_optimization_log_results(self.name, self.summary['best_score'], runtime_minutes)
 
         return self.summary
 

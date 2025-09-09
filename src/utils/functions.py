@@ -1,17 +1,15 @@
 import ast
 import operator as op
-import re
-import importlib
 import os
 import numpy as np
 import pandas as pd
 import json
 import pickle
-from datetime import datetime
 from deepdiff import DeepDiff
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
-from . import phys
+from core import phys
+from config_model import phys_setup
 from src.config_model import varinfos
 
 
@@ -431,7 +429,8 @@ def neweval(node, subdf, fulldf, setup, varinfos):
         raise TypeError(node)
 
 def getmodkwargs(newtmax=80, full_dia=False):
-    setup = phys.Setup(**phys.DEFAULT_SETUPS['onur22'], PARfromfile=True, tmax=newtmax, dt=1e-2, dt2=1e-3)
+    # setup = phys.Setup(**phys.DEFAULT_SETUPS['onur22'], PARfromfile=True, tmax=newtmax, dt=1e-2, dt2=1e-3)
+    setup = phys.Setup(**phys_setup.MOW1)
     modkwargs = {'setup': setup, 'verbose': True, 'do_diagnostics': True, 'full_diagnostics': full_dia}
     return modkwargs
 

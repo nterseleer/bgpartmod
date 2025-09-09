@@ -1,14 +1,12 @@
 import time
-from datetime import datetime
 import matplotlib.pyplot as plt
 import warnings
 import numpy as np
 
 from utils import optimization as optim
 from Config_model import config
-from utils import phys
+from core import phys
 from utils import evaluation
-from utils import functions as fns
 from utils import observations
 from utils import plotting as plotres
 

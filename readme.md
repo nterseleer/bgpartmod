@@ -96,7 +96,8 @@ The framework is built around the concept of **components** - self-contained mod
 
 ```python
 from src.Config_model import base_config
-from src.utils import phys, simulation_manager, plotting
+from src.utils import simulation_manager, plotting
+from core import phys
 
 # Use base configuration (available in repository)
 model_config = base_config.Onur
@@ -104,8 +105,8 @@ model_config = base_config.Onur
 # Set up physical environment
 setup = phys.Setup(
     **phys.DEFAULT_SETUPS['onur22'],
-    tmax=20,           # Simulation duration (days)
-    PARfromfile=True   # Use light data if available
+    tmax=20,  # Simulation duration (days)
+    PARfromfile=True  # Use light data if available
 )
 
 # Run simulation
