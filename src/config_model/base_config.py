@@ -5,7 +5,7 @@ from src.components import dim
 from src.components import heterotrophs as het
 from src.components import detritus
 from src.components import dom
-
+from src.config_model import varinfos
 
 # Onur22 = Kerimoglu et al 2022
 # =============================
@@ -198,9 +198,11 @@ Onur = {
     'Phy': {'class': phyto.Phyto,
             'parameters':
                 {'mu_max': 5.2,  # [d-1] !OK
-                 'alpha': 7.,  # [mgC mgChl-1 E-1 m2]
+                 'alpha': 7.e-6,  # converted to [mgC mgChl-1 µE-1 m2] from [mgC mgChl-1 E-1 m2]
                  # 'thetaN_max': 0.07 / 0.15 * varinfos.molmass_C,  # [mgChl mmolN-1] from theta_max/QNmax
-                 'theta_max': 0.07,  #* varinfos.molmass_C,  # MUST STAY IN gChl/gC !!!
+                 'theta_max': 0.07  * varinfos.molmass_C,  # Converted to [gChl molC-1] from [gChl gC-1]
+                                    # Conversion is needed as theta_max/QN_max must give [gChl molN-1]
+                                    # to have appropriate units for rho_chl [gChl/mol]
                  'QN_max': 0.15,  # [molN:molC] !OK
                  'QP_max': 0.012,  # [molP:molC] !OK
                  'QSi_max': 0.18,  # [molSi:molC] !OK
@@ -255,6 +257,7 @@ Onur = {
                             'limQUOTAmin.N', 'limQUOTAmin.P', 'limQUOTAmin.Si',
                             'mmNH4', 'mmNO3', 'mmDIP', 'mmDSi',
                             'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl', 'limI', 'limT',
+                            'PAR_t', 'PAR_t_water_column',
                             'source_uptake.NH4', 'source_uptake.NO3', 'source_uptake.N',
                             'source_uptake.P', 'source_uptake.Si',
                             'source_Chlprod.Chl',

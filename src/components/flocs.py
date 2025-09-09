@@ -37,7 +37,7 @@ class Flocs(BaseStateVar):
                  # # value from
                  # eps_kd=2e-5,  # [m2 mg-1] Diffuse attenuation cross section of SPM with kd = ... + eps_kd * sqrt(SPM)
                  # # value from Tian et al., 2009
-                 eps_kd = 0.066* 1e-3, # from 0.066 m-1 (mg l-1)-1 to g l-1 = kg m-3 (model units) Light attenuation due to SPM
+                 eps_kd = 0.066* 1e3, # from 0.066 [m-1 (mg l-1)-1] to [m-1 (g l-1)-1] = [m-1 (kg m-3)-1] (model units) Light attenuation due to SPM
                  # model is in kg m-3
 
                  sinking_leak=0,
@@ -109,6 +109,7 @@ class Flocs(BaseStateVar):
         self.time_conversion_factor = time_conversion_factor
 
         self.setup = None
+
 
     def _calculate_macrofloc_diameter(self):
         """
@@ -268,13 +269,21 @@ class Flocs(BaseStateVar):
                          self.coupled_Np.diam * self.coupled_Np.diam / self.fyflocstrength) ** self.q_exp * self.coupled_Nf.numconc)
 
         elif self.name == 'Macroflocs':
-            # Calculate base settling velocity using Stokes' law
-            settling_vel_base = 2000 / 9 * (1200 - 1000) * 9.81 * (self.diam * self.diam / 4) / 1e-3 * 1e-3 * 3600 * 24
+            # Winterwerp formula: W_s,F = (1/18) × (ρ_s - ρ_w) / μ × g × D_p^(3-nf) × D_F^(nf-1)
+            self.settling_vel = (1/18) * (self.density - self.setup.rho_water) / self.setup.mu_water * 9.81 * (
+                    self.d_p_microflocdiam ** (3 - self.nf_fractal_dim)) * (self.diam ** (self.nf_fractal_dim - 1))
             
-            # Apply shear-dependent modulation
-            normalized_shear = (self.g_shear_rate_at_t - self.setup.g_shear_rate_min) / (self.setup.delta_g_shear_rate)
-            shear_factor = self.settling_vel_min_fraction + (1 - self.settling_vel_min_fraction) * 0.5 * (1 + np.cos(normalized_shear * np.pi))
-            self.settling_vel = settling_vel_base * shear_factor
+            # # OLD: Calculate base settling velocity using Stokes' law
+            # # First very rough test - note that viscosity could (should) be reused from mu_viscosity.
+            # settling_vel_base = 0. #2000 / 9 * (1200 - 1000) * 9.81 * (self.diam * self.diam / 4) / 1e-3 * 1e-3 * 3600 * 24
+            # 
+            # # # Apply shear-dependent modulation
+            # # normalized_shear = (self.g_shear_rate_at_t - self.setup.g_shear_rate_min) / (self.setup.delta_g_shear_rate)
+            # # shear_factor = self.settling_vel_min_fraction + (1 - self.settling_vel_min_fraction) * 0.5 * (1 + np.cos(normalized_shear * np.pi))
+            # if False:
+            #     self.settling_vel = settling_vel_base * shear_factor
+            # else:
+            #     self.settling_vel = settling_vel_base
 
             if self.resuspension_rate > 0:
                 # Physical settling and resuspension
@@ -311,24 +320,11 @@ class Flocs(BaseStateVar):
             self.SMS = (self.ppsource -
                         self.ffloss +
                         self.breaksource -
-                        # First very rough test - note that viscosity could (should) be reused from mu_viscosity.
                         self.settling_loss
                         )
 
         else:
 
-            # self.settling_vel = self.coupled_Nf.settling_vel
-            #
-            # if self.resuspension_rate > 0:
-            #     # Physical settling and resuspension
-            #     # self.sedimentation = self.coupled_Nf.sedimentation * self.Ncnum
-            #     # self.resuspension = self.coupled_Nf.resuspension * self.Ncnum
-            #     # self.settling_loss = self.sedimentation - self.resuspension
-            #     self.settling_loss = self.coupled_Nf.settling_loss * self.Ncnum
-            #
-            # else:
-            #     # Fallback to original formulation
-            #     self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
             self.settling_loss = self.coupled_Nf.settling_loss * self.Ncnum
 
             self.SMS = (

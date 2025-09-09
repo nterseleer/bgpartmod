@@ -20,7 +20,12 @@ from src.config_system import path_config as path_cfg
 
 # Constants
 
-
+# Optimization log columns
+OPTIMIZATION_LOG_COLUMNS = [
+    'optimization_id', 'date', 'environment', 'param_count', 
+    'reference_opt', 'user_note_pre', 'user_note_post', 
+    'likelihood_score', 'runtime_minutes'
+]
 
 class SimulationTypes(Enum):
     MODEL_RUN = 1
@@ -132,6 +137,102 @@ def _get_interactive_yes_no_answer(question : str)-> bool:
             return False
         else:
             print("Invalid input. Please enter yes/no.")
+
+
+# Optimization Log Management Functions
+
+def get_optimization_log() -> pd.DataFrame:
+    """Load or create optimization log."""
+    if not os.path.exists(path_cfg.PRIVATE_OPT_LOG_FILE):
+        # Create with header only
+        df = pd.DataFrame(columns=OPTIMIZATION_LOG_COLUMNS)
+        df.to_csv(path_cfg.PRIVATE_OPT_LOG_FILE, index=False)
+        return df
+    return pd.read_csv(path_cfg.PRIVATE_OPT_LOG_FILE)
+
+
+def save_optimization_log(df: pd.DataFrame):
+    """Save optimization log."""
+    df.to_csv(path_cfg.PRIVATE_OPT_LOG_FILE, index=False)
+
+
+def get_next_optimization_id() -> str:
+    """Get next available optimization ID from the shared log."""
+    log_df = get_optimization_log()
+    if len(log_df) == 0:
+        return 'OPT000'
+    
+    # Extract numbers from existing IDs
+    ids = log_df['optimization_id'].tolist()
+    numbers = [int(id_str[3:]) for id_str in ids if id_str.startswith('OPT')]
+    next_num = max(numbers + [-1]) + 1
+    return f'OPT{next_num:03d}'
+
+
+def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, reference_opt: str = None):
+    """Add new optimization entry to log."""
+    log_df = get_optimization_log()
+    
+    # Detect environment
+    environment = "ecmwf" if "ecmwf" in os.getcwd().lower() or "copernicus" in os.getcwd().lower() else "local"
+    
+    new_entry = pd.DataFrame([{
+        'optimization_id': opt_id,
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'environment': environment,
+        'param_count': param_count,
+        'reference_opt': reference_opt,
+        'user_note_pre': user_note,
+        'user_note_post': '',
+        'likelihood_score': '',
+        'runtime_minutes': ''
+    }])
+    
+    log_df = pd.concat([log_df, new_entry], ignore_index=True)
+    save_optimization_log(log_df)
+
+
+def update_optimization_log_results(opt_id: str, likelihood_score: float, runtime_minutes: float):
+    """Update optimization log with results."""
+    log_df = get_optimization_log()
+    mask = log_df['optimization_id'] == opt_id
+    if mask.any():
+        log_df.loc[mask, 'likelihood_score'] = likelihood_score
+        log_df.loc[mask, 'runtime_minutes'] = runtime_minutes
+        save_optimization_log(log_df)
+
+
+def add_post_note(item_id: str, item_type: str, post_note: str = None):
+    """Unified post-note function for simulations and optimizations."""
+    if item_type.lower() == 'optimization':
+        _add_optimization_post_note(item_id, post_note)
+    elif item_type.lower() == 'simulation':
+        interactive_log_additional_note_modification(item_id)
+    else:
+        raise ValueError(f"Unknown item_type: {item_type}. Use 'optimization' or 'simulation'")
+
+
+def _add_optimization_post_note(opt_id: str, post_note: str = None):
+    """Add or update post-optimization note."""
+    if post_note is None:
+        print(f"\n{'='*60}")
+        print(f"OPTIMIZATION {opt_id} - Post Analysis Note")
+        print("="*60)
+        post_note = input("Please add conclusions/observations after analyzing this optimization:\n> ")
+        post_note = post_note.strip()
+    
+    log_df = get_optimization_log()
+    mask = log_df['optimization_id'] == opt_id
+    if mask.any():
+        log_df.loc[mask, 'user_note_post'] = post_note
+        save_optimization_log(log_df)
+        print(f"✓ Post-analysis note added for {opt_id}")
+    else:
+        print(f"✗ Optimization {opt_id} not found in log")
+
+
+# Legacy function for backward compatibility
+add_optimization_post_note = _add_optimization_post_note
 
 
 def _generate_name(base_name: str = None) -> str:
@@ -742,9 +843,10 @@ def run_sensitivity(base_simulation: 'Model',
             'I': base_simulation.setup.I,
             'light_prop': base_simulation.setup.light_prop,
             'lightfirst': base_simulation.setup.lightfirst,
-            'T': base_simulation.setup.T - 273.15,  # Convert back to Celsius for initialization
+            'T': base_simulation.setup.base_T,  # Use the original Celsius value stored
+            'varyingTEMP': base_simulation.setup.varyingTEMP,
             'k_att': base_simulation.setup.k_att,
-            'z': base_simulation.setup.z,
+            'water_depth': base_simulation.setup.water_depth,
             'pCO2': base_simulation.setup.pCO2,
             'g_shear_rate': base_simulation.setup.g_shear_rate.iloc[0, 0] / (1 + base_simulation.setup.gshearfact) if
             hasattr(base_simulation.setup, 'gshearfact') else
