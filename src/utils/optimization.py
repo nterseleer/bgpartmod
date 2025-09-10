@@ -390,21 +390,23 @@ class Optimization:
         solver_results_path = os.path.join(self.optdir, 'solver_results.pkl')
         self._save_pickle(results_dict, solver_results_path)
 
-        # Process and save winning configuration(s)
-        if hasattr(self, 'summary'):
-            winner = self.summary['best_parameters']
-            for i, (dconf, modkwargs, obs) in enumerate(self.config['descriptions']):
-                suffix = self._get_description_suffix(i)
-                winning_config = fns.update_config(
-                    dconf,
-                    self.config['optimized_parameters'],
-                    winner
-                )
-                fns.write_dict_to_file(
-                    winning_config,
-                    f"{self.name}_WINNING_CONFIG{suffix}",
-                    fdir=self.optdir
-                )
+        # Process results to get best parameters first
+        self.process_results()
+        
+        # Now save winning configuration(s) using best parameters
+        winner = self.summary['best_parameters']
+        for i, (dconf, modkwargs, obs) in enumerate(self.config['descriptions']):
+            suffix = self._get_description_suffix(i)
+            winning_config = fns.update_config(
+                dconf,
+                self.config['optimized_parameters'],
+                winner.values()
+            )
+            fns.write_dict_to_file(
+                winning_config,
+                f"{self.name}_WINNING_CONFIG{suffix}",
+                fdir=self.optdir
+            )
 
     def process_results(self, rerun_best: bool = False):
         """Process optimization results to get best parameters and statistics."""
@@ -435,19 +437,8 @@ class Optimization:
             'parameter_ranges': self._analyze_parameter_ranges()
         }
 
-        # Save winning configuration(s)
-        for i, (dconf, modkwargs, obs) in enumerate(self.config['descriptions']):
-            suffix = self._get_description_suffix(i)
-            winning_config = fns.update_config(
-                dconf,
-                self.config['optimized_parameters'],
-                self.summary['best_parameters'].values()
-            )
-            fns.write_dict_to_file(
-                winning_config,
-                f"{self.name}_WINNING_CONFIG{suffix}",
-                fdir=self.optdir
-            )
+        # Winning configurations are now created in _save_results() 
+        # to avoid recreation on every process_results() call
 
         # Save summary stats
         fns.write_dict_to_file(
@@ -497,26 +488,41 @@ class Optimization:
 
     def get_best_model(self, force_rerun: bool = False) -> Any:
         """
-        Get best model from optimization.
+        Get best model from optimization (backward compatibility - returns first description).
 
         Args:
             force_rerun: Whether to rerun model even if saved version exists
 
         Returns:
-            Best model instance
+            Best model instance for first description
+        """
+        return self.get_best_model_for_description(0, force_rerun)
+
+    def get_best_model_for_description(self, desc_index: int = 0, force_rerun: bool = False) -> Any:
+        """
+        Get best model for a specific description.
+
+        Args:
+            desc_index: Index of the description to get model for
+            force_rerun: Whether to rerun model even if saved version exists
+
+        Returns:
+            Best model instance for specified description
         """
         if not hasattr(self, 'summary'):
             self.process_results()
 
-        model_file = self._get_file_path("best_model.pkl")
+        # Get suffix for this description
+        suffix = self._get_description_suffix(desc_index)
+        model_file = self._get_file_path(f"best_model{suffix}.pkl")
 
         # Return existing unless forced rerun
         if os.path.exists(model_file) and not force_rerun:
             with open(model_file, 'rb') as f:
                 return dill.load(f)
 
-        # Create and run best model (returns first description's model)
-        dconf, modkwargs, obs = self.config['descriptions'][0]
+        # Create and run best model for specified description
+        dconf, modkwargs, obs = self.config['descriptions'][desc_index]
         
         best_config = fns.update_config(
             dconf,
@@ -538,6 +544,21 @@ class Optimization:
             dill.dump(best_model, f)
 
         return best_model
+
+    def get_best_models(self, force_rerun: bool = False) -> Dict[int, Any]:
+        """
+        Get best models for all descriptions.
+
+        Args:
+            force_rerun: Whether to rerun models even if saved versions exist
+
+        Returns:
+            Dictionary mapping description index to best model instance
+        """
+        models = {}
+        for i in range(len(self.config['descriptions'])):
+            models[i] = self.get_best_model_for_description(i, force_rerun)
+        return models
 
     def compare_model_vs_optim(self, obs, rerun: bool = False):
         """Compare rerun model likelihood with optimization results."""
