@@ -213,8 +213,43 @@ ref_values = {
         'symbol': 'deltaFymax',
         'units': '---',
         'complete_name': "deltaFymax"
+    },
+    'Phy+KDSi': {
+        'reference_value': 0.43,
+        'symbol': 'KD^{Si}_{Phy}',
+        'units': '---',
+        'complete_name': "Self shading strength for Phy"
+    },
+    'Phy+eps_kd': {
+        'reference_value': 0.024,
+        'symbol': 'EPS^{K_d}_{Phy}',
+        'units': '---',
+        'complete_name': "Si half-saturation for Phy"
+    },
+    'DetL+eps_kd': {
+        'reference_value': 0.012,
+        'symbol': 'EPS^{K_d}_{DetL}',
+        'units': '---',
+        'complete_name': "Self shading strength for DetL"
+    },
+    'DetS+eps_kd': {
+        'reference_value': 0.012,
+        'symbol': 'EPS^{K_d}_{DetS}',
+        'units': '---',
+        'complete_name': "Self shading strength for DetS"
+    },
+    'BacF+eps_kd': {
+        'reference_value': 0.012,
+        'symbol': 'EPS^{K_d}_{BacF}',
+        'units': '---',
+        'complete_name': "Self shading strength for BacF"
+    },
+    'BacA+eps_kd': {
+        'reference_value': 0.012,
+        'symbol': 'EPS^{K_d}_{BacA}',
+        'units': '---',
+        'complete_name': "Self shading strength for BacA"
     }
-
 }
 
 """
