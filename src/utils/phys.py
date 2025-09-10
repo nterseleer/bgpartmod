@@ -125,7 +125,7 @@ class Setup:
                  T: float = 18.,
                  varyingTEMP: bool = False,
                  k_att: float = 16.,
-                 z: float = 0.25,
+                 z: float = 0.025,
                  pCO2: float = 370,
                  g_shear_rate: float = 95,
                  vary_g_shear: bool = True,
