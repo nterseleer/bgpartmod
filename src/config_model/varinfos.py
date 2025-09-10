@@ -410,8 +410,8 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                       'cleanname': 'DOC_{large}',
                       'longname': 'Dissolved Organic C (large)'
                       },
-           "Macroflocs_settling_vel": {'units': 'm d-1',
-                                       'munits': 'm d-1',
+           "Macroflocs_settling_vel": {'units': 'm s-1',
+                                       'munits': 'm s-1',
                                        'cleanname': 'Settling velocity',
                                        'longname': 'Flocs settling velocity'
                                        },

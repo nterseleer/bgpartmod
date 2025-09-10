@@ -45,12 +45,12 @@ The framework is built around the concept of **components** - self-contained mod
 - **Phytoplankton (`Phyto`)**: Primary producers with multi-nutrient (N, P, Si) limitation, variable stoichiometry, and growth-dependent DOM exudation
 - **Heterotrophs**: Multiple bacterial types (free-living bacteria, particle-attached bacteria), heterotrophic flagellates, and ciliates with distinct feeding preferences and metabolic pathways
 
-#### Chemical Components  
+#### Organic Components  
 - **Dissolved Inorganic Matter (`DIM`)**: Individual nutrient pools (NH4, NO3, DIP, DSi) with competitive uptake dynamics
 - **Dissolved Organic Matter (`DOM`)**: Size-structured pools with different bioavailability and aggregation properties
 - **Detritus**: Particulate organic matter with size-dependent bacterial processing and settling
 
-#### Physical Components
+#### Mineral Components
 - **Flocculation (`Flocs`)**: Bimodal population balance model representing microflocs and macroflocs with TEP-mediated aggregation processes
 
 ### Key Processes
@@ -58,6 +58,7 @@ The framework is built around the concept of **components** - self-contained mod
 - **DOM Dynamics**: Phytoplankton exudation shifts from small to large molecules under nutrient stress
 - **TEP Formation**: DOC coagulation creates sticky particles that enhance flocculation
 - **Bimodal Flocculation**: Efficient representation of natural particle size distributions
+- **Organo-mineral interactions**: TEP of biological origin affect mineral flocculation dynamics
 - **Bacterial Processing**: Distinct communities handle dissolved vs. particulate substrates
 
 ## Installation
