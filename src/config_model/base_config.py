@@ -5,7 +5,7 @@ from src.components import dim
 from src.components import heterotrophs as het
 from src.components import detritus
 from src.components import dom
-
+from src.config_model import varinfos
 
 # Onur22 = Kerimoglu et al 2022
 # =============================
@@ -200,7 +200,7 @@ Onur = {
                 {'mu_max': 5.2,  # [d-1] !OK
                  'alpha': 7.,  # [mgC mgChl-1 E-1 m2]
                  # 'thetaN_max': 0.07 / 0.15 * varinfos.molmass_C,  # [mgChl mmolN-1] from theta_max/QNmax
-                 'theta_max': 0.07,  #* varinfos.molmass_C,  # MUST STAY IN gChl/gC !!!
+                 'theta_max': 0.07 * varinfos.molmass_C,  # from gChl/gC to gChl/molC !!!
                  'QN_max': 0.15,  # [molN:molC] !OK
                  'QP_max': 0.012,  # [molP:molC] !OK
                  'QSi_max': 0.18,  # [molSi:molC] !OK

@@ -333,10 +333,11 @@ class Phyto(BaseOrg):
         if self.kdvar:
             self.get_kd()
             I_t = I_t * np.exp(-self.kd * self.setup.z)
+            pass
 
         if not self.fixedstoichiometry:
             self.PC_max = self.mu_max * self.limNUT * self.limT  # OK
-            self.limI = 1 - np.exp((-self.alpha * self.thetaC * I_t) / self.PC_max) if self.PC_max > 0 else 0  # Eq. 4
+            self.limI = 1 - np.exp((-self.alpha * self.thetaC * I_t) / (self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0  # Eq. 4
             self.PC = self.PC_max * self.limI
             self.source_PP.C = self.PC * self.C
 
@@ -346,8 +347,8 @@ class Phyto(BaseOrg):
             else:
                 # TODO check this
                 if self.formulation == "Onur22":
-                    self.rho_Chl = 0. if I_t<0.01 else self.theta_max / self.QN_max * self.PC / (
-                            self.alpha * self.thetaC * I_t) * 12.
+                    self.rho_Chl = 0. if I_t<0.01 else self.theta_max / self.QN_max * self.PC * varinfos.molmass_C / (
+                            self.alpha * self.thetaC * I_t)
 
                 else:
                     self.rho_Chl = self.thetaN_max * self.PC / (
