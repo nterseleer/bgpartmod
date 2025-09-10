@@ -199,6 +199,7 @@ Onur = {
             'parameters':
                 {'mu_max': 5.2,  # [d-1] !OK
                  'alpha': 7.e-6,  # converted to [mgC mgChl-1 µE-1 m2] from [mgC mgChl-1 E-1 m2]
+
                  # 'thetaN_max': 0.07 / 0.15 * varinfos.molmass_C,  # [mgChl mmolN-1] from theta_max/QNmax
                  'theta_max': 0.07  * varinfos.molmass_C,  # Converted to [gChl molC-1] from [gChl gC-1]
                                     # Conversion is needed as theta_max/QN_max must give [gChl molN-1]
