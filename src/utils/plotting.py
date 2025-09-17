@@ -27,14 +27,14 @@ plt.rcParams['axes.prop_cycle'] = (
     "cycler('color', ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',"
     " '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])"
 )
-plt.rcParams.update({'font.size': 8})
+plt.rcParams.update({'font.size': 6})
 
 # Define observation styling
 OBS_STYLES = {
     'calibrated': {
         'marker': 'o',
         'color': 'grey',
-        'markersize': 6,
+        'markersize': 3,
         'alpha': 0.7
     },
     'non_calibrated': {
@@ -147,7 +147,11 @@ def prepare_model_obs_data(
             model_data = model_data.groupby('julian_day').mean()
 
         model_data_list.append(model_data)
-        model_names.append(f"{name} {len(model_names) + 1}" if name == 'Model' else name)
+        # Only add numbers for generic "Model" names when there are multiple models
+        if name == 'Model' and len(models) > 1:
+            model_names.append(f"{name} {len(model_names) + 1}")
+        else:
+            model_names.append(name)
 
     if observations is None:
         return model_data_list, None, None, model_names
@@ -201,13 +205,14 @@ def plot_variable(
         for i in range(len(model_data_list)):
             model_styles.append({
                 'color': colors[i % len(colors)],
-                'linestyle': linestyles[i % len(linestyles)]
+                'linestyle': linestyles[i % len(linestyles)],
+                'linewidth': 2.
             })
 
     default_obs_kwargs = {
         'marker': 'o',
         'linestyle': 'None',
-        's': 4,
+        's': 2,
         'alpha': 0.6
     }
     obs_kwargs = {**default_obs_kwargs, **(obs_kwargs or {})}
@@ -253,7 +258,11 @@ def plot_variable(
                 color='grey',
                 label='Observations' if add_labels else "_Used observations",
                 fmt='o',  # marker style
-                capsize=3,
+                markersize=4.,
+                elinewidth=1.5,
+                capsize=3.,
+                capthick=1.5,
+                solid_capstyle='round',  # Rounded cap style
                 **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle', 's']}
             )
         else:
@@ -262,7 +271,7 @@ def plot_variable(
             merged_data[f'{var_name}_OBS'],
             color='red',
             label='Observations' if add_labels else "_Used observations",
-            **{**obs_kwargs, 's': 6}
+            **{**obs_kwargs, 's': 1.5}
             )
 
     # Format labels and title
@@ -332,6 +341,10 @@ def plot_results(
         axes = np.array([axes])
     axes = axes.flatten()
 
+    # Extract legend-related kwargs before passing to plot_variable
+    plot_var_kwargs = {k: v for k, v in plot_kwargs.items() 
+                       if k not in ['add_legend', 'legend_fontsize']}
+    
     # Plot each variable
     for i, var in enumerate(variables):
         if i < len(axes):
@@ -345,7 +358,7 @@ def plot_results(
                 model_styles,
                 show_full_obs=show_full_obs,
                 add_labels=(i == 0),  # Only add labels on the first subplot
-                **plot_kwargs
+                **plot_var_kwargs
             )
 
             # Format x-axis
