@@ -372,24 +372,28 @@ class Optimization:
             'parameter_ranges': self._analyze_parameter_ranges()
         }
 
-        # Save winning configuration
-        winning_config = fns.update_config(
-            self.config['dconf'],
-            self.config['optimized_parameters'],
-            self.summary['best_parameters'].values()
-        )
-        fns.write_dict_to_file(
-            winning_config,
-            f"{self.name}_WINNING_CONFIG",
-            fdir=self.optdir
-        )
+        # Save winning configuration (only if it doesn't exist)
+        winning_config_path = os.path.join(self.optdir, f"{self.name}_WINNING_CONFIG.json")
+        if not os.path.exists(winning_config_path):
+            winning_config = fns.update_config(
+                self.config['dconf'],
+                self.config['optimized_parameters'],
+                self.summary['best_parameters'].values()
+            )
+            fns.write_dict_to_file(
+                winning_config,
+                f"{self.name}_WINNING_CONFIG",
+                fdir=self.optdir
+            )
 
-        # Save summary stats
-        fns.write_dict_to_file(
-            self.summary,
-            f"{self.name}_SUMMARY",
-            fdir=self.optdir
-        )
+        # Save summary stats (only if it doesn't exist)
+        summary_path = os.path.join(self.optdir, f"{self.name}_SUMMARY.json")
+        if not os.path.exists(summary_path):
+            fns.write_dict_to_file(
+                self.summary,
+                f"{self.name}_SUMMARY",
+                fdir=self.optdir
+            )
         
         # Update optimization log with results
         if hasattr(self, 'runtime'):
