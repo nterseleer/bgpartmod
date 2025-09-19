@@ -3,6 +3,7 @@ Plotting utilities for BGC model results.
 Handles both single and multiple simulation visualizations.
 """
 import os
+from functools import lru_cache
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -16,92 +17,68 @@ from src.config_model import varinfos
 from src.config_model import vars_to_plot
 from src.config_system import path_config as path_cfg
 from src.utils import observations
+from src.utils.plotted_variables_sets import PlottedVariablesSet
 
 FIGURE_PATH = path_cfg.FIGURE_PATH
+
+# Plotting constants
+DEFAULT_COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+DEFAULT_LINESTYLES = ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]
+DEFAULT_LEGEND_FONTSIZE = 8
+DEFAULT_FIGURE_DPI = 300
 
 # General plotting setup
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["mathtext.fontset"] = "stix"
 plt.rcParams['axes.prop_cycle'] = (
-    "cycler('linestyle', ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]*2)+"
-    "cycler('color', ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',"
-    " '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])"
+    f"cycler('linestyle', {DEFAULT_LINESTYLES * 2})+"
+    f"cycler('color', {DEFAULT_COLORS})"
 )
 plt.rcParams.update({'font.size': 6})
 
 # Define observation styling
 OBS_STYLES = {
     'calibrated': {
-        'marker': 'o',
-        'color': 'grey',
-        'markersize': 3,
-        'alpha': 0.7
+        'marker': '*',
+        'color': 'gray',
+        'markersize': 6,
+        'alpha': 0.6
     },
     'non_calibrated': {
-        'marker': 's',
+        'marker': 'o',
         'color': 'gray',
-        'markersize': 4,
+        'markersize': 3,
         'alpha': 0.4
     }
 }
 
 
-def create_comparison_plots(
-        mod_obs_data: pd.DataFrame,
-        variables: List[str],
-        observation_data: pd.DataFrame,
-        calibrated_vars: Optional[List[str]] = None,
-        save: bool = False,
-        figsize: Tuple[int, int] = (10, 6)
-) -> None:
+@lru_cache(maxsize=32)
+def _get_cached_model_styles(n_models: int) -> Tuple[Dict, ...]:
+    """Generate cached model styles for performance."""
+    return tuple({
+        'color': DEFAULT_COLORS[i % len(DEFAULT_COLORS)],
+        'linestyle': DEFAULT_LINESTYLES[i % len(DEFAULT_LINESTYLES)],
+        'linewidth': 2.
+    } for i in range(n_models))
+
+
+def get_model_styles(n_models: int, custom_styles: Optional[List[Dict]] = None) -> List[Dict]:
     """
-    Create comparison plots between model results and observations.
+    Generate consistent model styles for plotting (cached for performance).
 
     Args:
-        mod_obs_data: DataFrame with model results and corresponding observations
-        variables: List of variables to plot
-        observation_data: DataFrame with observation data
-        calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
-        save: Whether to save the plots
-        figsize: Size of each plot
+        n_models: Number of models to generate styles for
+        custom_styles: Optional custom styles to use instead of defaults
+
+    Returns:
+        List of style dictionaries for each model
     """
-    for var in variables:
-        plt.figure(figsize=figsize)
+    if custom_styles and len(custom_styles) >= n_models:
+        return custom_styles[:n_models]
 
-        # Plot model results
-        plt.plot(
-            mod_obs_data.index,
-            mod_obs_data[f'{var}_MOD'],
-            label=f'{var}_model'
-        )
-
-        is_calibrated = calibrated_vars is not None and var in calibrated_vars
-
-        # Plot all observations
-        plt.scatter(
-            observation_data.index,
-            observation_data[var],
-            color='red',
-            label='Observations',
-            s=6
-        )
-
-        # Plot used observations
-        plt.scatter(
-            mod_obs_data.index,
-            mod_obs_data[f'{var}_OBS'],
-            color='orange',
-            label='Observations',
-            s=3
-        )
-
-        plt.xlabel('Date')
-        plt.legend()
-
-        if save:
-            plt.savefig(f'Figs/{var}_comparison.png')
-        plt.close()
-
+    return list(_get_cached_model_styles(n_models))
 
 def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
@@ -111,6 +88,8 @@ def prepare_model_obs_data(
 ) -> Tuple[List[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], List[str]]:
     """
     Prepare model and observation data for plotting.
+
+    Performance optimization: Only copies necessary columns from potentially huge DataFrames.
 
     Args:
         models: Single model/DataFrame or list of models/DataFrames
@@ -124,18 +103,39 @@ def prepare_model_obs_data(
     # Flatten nested lists of models
     models = fns.flatten_simulation_list(models)
 
+    # Determine which columns we actually need to avoid copying massive DataFrames
+    required_columns = set()
+    if variables_to_plot:
+        required_columns.update(variables_to_plot)
+
+    # Always include time-related columns for daily_mean functionality
+    if daily_mean:
+        required_columns.add('julian_day')
+
     # Extract DataFrames and names
     model_data_list = []
     model_names = []
-    name_counts = {}
 
     for i, model in enumerate(models):
         if isinstance(model, pd.DataFrame):
-            model_data = model.copy()
+            full_df = model
             name = f'Model {i + 1}'
         else:
-            model_data = model.df.copy()
+            full_df = model.df
             name = getattr(model, 'name', f'Model {i + 1}')
+
+        # Performance optimization: only copy necessary columns
+        if required_columns:
+            # Find available columns from the required set
+            available_required = [col for col in required_columns if col in full_df.columns]
+            if available_required:
+                model_data = full_df[available_required].copy()
+            else:
+                # Fallback: if no required columns found, take all (shouldn't happen normally)
+                model_data = full_df.copy()
+        else:
+            # If no specific columns requested, copy all (backward compatibility)
+            model_data = full_df.copy()
 
         # Handle duplicate names by adding a counter
         original_name = name
@@ -202,33 +202,18 @@ def plot_variable(
         model_names: List[str],
         var_name: str,
         merged_data: Optional[pd.DataFrame] = None,
-        full_obs_data: Optional[pd.DataFrame] = None,
         model_styles: Optional[List[Dict]] = None,
         obs_kwargs: Optional[Dict] = None,
-        show_full_obs: bool = False,
-        add_labels: bool = True
+        add_labels: bool = True,
+        calibrated_vars: Optional[List[str]] = None
 ) -> None:
     """Plot a single variable with model results and optional observations."""
     # Default styles
     if model_styles is None:
-        # model_styles = [{'color': f'C{i}'} for i in range(len(model_data_list))]
-        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-        linestyles = ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]
-        model_styles = []
-        for i in range(len(model_data_list)):
-            model_styles.append({
-                'color': colors[i % len(colors)],
-                'linestyle': linestyles[i % len(linestyles)],
-                'linewidth': 2.
-            })
+        model_styles = get_model_styles(len(model_data_list))
 
-    default_obs_kwargs = {
-        'marker': 'o',
-        'linestyle': 'None',
-        's': 2,
-        'alpha': 0.6
-    }
-    obs_kwargs = {**default_obs_kwargs, **(obs_kwargs or {})}
+    # Default observation kwargs (will be overridden by calibration-specific styles)
+    base_obs_kwargs = obs_kwargs or {}
 
     # Plot each model
     for model_data, name, style in zip(model_data_list, model_names, model_styles):
@@ -236,30 +221,16 @@ def plot_variable(
             ax.plot(model_data.index, model_data[var_name],
                     label=name if add_labels else "_" + name, **style)
 
-    # if show_full_obs and full_obs_data is not None and var_name in full_obs_data.columns:
-    #     # Check if std data is available for error bars
-    #     std_col = f"{var_name}_std"
-    #     if std_col in full_obs_data.columns:
-    #         # Use errorbar for observations with std
-    #         ax.errorbar(
-    #             full_obs_data.index,
-    #             full_obs_data[var_name],
-    #             yerr=full_obs_data[std_col],
-    #             color='orange',
-    #             label='All observations' if add_labels else "_All observations",
-    #             fmt='o',  # marker style
-    #             capsize=3,
-    #             **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle']}
-    #         )
-    #     else:
-    #         ax.scatter(
-    #         full_obs_data.index,
-    #         full_obs_data[var_name],
-    #         color='orange',
-    #         label='All observations' if add_labels else "_All observations",
-    #         **obs_kwargs)
 
     if merged_data is not None and f'{var_name}_OBS' in merged_data.columns:
+        # Determine observation style based on calibration status
+        is_calibrated = calibrated_vars is not None and var_name in calibrated_vars
+        obs_style_key = 'calibrated' if is_calibrated else 'non_calibrated'
+        selected_obs_style = OBS_STYLES[obs_style_key]
+
+        # Merge with any user-provided obs_kwargs, giving priority to calibration-specific styles
+        final_obs_style = {**base_obs_kwargs, **selected_obs_style}
+
         # Check if std data is available for error bars
         std_col = f"{var_name}_std"
         if std_col in merged_data.columns:
@@ -268,23 +239,20 @@ def plot_variable(
                 merged_data.index,
                 merged_data[f'{var_name}_OBS'],
                 yerr=merged_data[std_col],
-                color='grey',
                 label='Observations' if add_labels else "_Used observations",
-                fmt='o',  # marker style
-                markersize=4.,
+                fmt=final_obs_style['marker'],
                 elinewidth=1.5,
                 capsize=3.,
                 capthick=1.5,
-                solid_capstyle='round',  # Rounded cap style
-                **{k: v for k, v in obs_kwargs.items() if k not in ['marker', 'linestyle', 's']}
+                solid_capstyle='round',
+                **{k: v for k, v in final_obs_style.items() if k not in ['marker', 'linestyle', 's']}
             )
         else:
             ax.scatter(
-            merged_data.index,
-            merged_data[f'{var_name}_OBS'],
-            color='red',
-            label='Observations' if add_labels else "_Used observations",
-            **{**obs_kwargs, 's': 1.5}
+                merged_data.index,
+                merged_data[f'{var_name}_OBS'],
+                label='Observations' if add_labels else "_Used observations",
+                **{k: v for k, v in final_obs_style.items() if k != 'linestyle'}
             )
 
     # Format labels and title
@@ -299,18 +267,17 @@ def plot_variable(
 
 def plot_results(
         models: Union[Any, List[Any]],
-        variables: List[str],
+        variables: Union[List[str], PlottedVariablesSet],
         observations: Optional[Any] = observations.Obs(station='MOW1_biweekly_202509_noPhaeo'),
         calibrated_vars: Optional[List[str]] = None,
         daily_mean: bool = True,
-        show_full_obs: bool = False,
-        ncols: int = 2,
+        ncols: Optional[int] = None,
         figsize: Optional[Tuple[int, int]] = None,
         model_styles: Optional[List[Dict]] = None,
         subplot_labels: bool = True,
         label_position: str = 'top_left',
         save: bool = False,
-        filename: str = None,
+        filename: Optional[str] = None,
         fnametimestamp: bool = True,
         **plot_kwargs
 ) -> Tuple[plt.Figure, np.ndarray]:
@@ -319,32 +286,68 @@ def plot_results(
 
     Args:
         models: Single model or list of models
-        variables: List of variables to plot
+        variables: List of variables to plot OR PlottedVariablesSet with embedded preferences
         observations: Optional observation data
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
         daily_mean: Whether to use daily means
-        show_full_obs: Whether to show full observation range
-        ncols: Number of columns in subplot grid
-        figsize: Figure size (default: auto-calculated)
+        ncols: Number of columns in subplot grid (auto-detected from PlottedVariablesSet if None)
+        figsize: Figure size (auto-detected from PlottedVariablesSet if None, otherwise auto-calculated)
         model_styles: List of style dictionaries for each model
         subplot_labels: Whether to add subplot labels (a, b, c, etc.)
         label_position: Position for subplot labels
         save: Whether to save the figure
-        filename: Filename for saved figure
+        filename: Filename for saved figure (auto-generated from PlottedVariablesSet.name if None)
         **plot_kwargs: Additional plotting parameters
 
     Returns:
         Figure and axes array
+
+    Raises:
+        ValueError: If input parameters are invalid
     """
+    # Extract PlottedVariablesSet attributes if provided
+    if isinstance(variables, PlottedVariablesSet):
+        variable_set = variables
+        variables_list = list(variable_set)
+
+        # Use PlottedVariablesSet preferences if not explicitly overridden
+        if ncols is None:
+            ncols = variable_set.ncols
+        if figsize is None:
+            figsize = variable_set.figsize
+
+        # Override legend position in plot_kwargs if specified in PlottedVariablesSet
+        if 'legend_position' not in plot_kwargs and hasattr(variable_set, 'legend_position'):
+            plot_kwargs['legend_position'] = variable_set.legend_position
+    else:
+        variables_list = variables
+        # Defaults for regular list input
+        if ncols is None:
+            ncols = 2
+
+    # Input validation
+    if not variables_list:
+        raise ValueError("Variables list cannot be empty")
+    if ncols < 1:
+        raise ValueError("Number of columns must be positive")
+    if label_position not in ['top_left', 'top_right', 'bottom_left', 'bottom_right']:
+        raise ValueError(f"Invalid label_position: {label_position}")
+    # Extract calibrated_vars from models if not provided
+    if calibrated_vars is None:
+        # Flatten models list to check for calibrated_vars
+        flat_models = fns.flatten_simulation_list(models)
+        for model in flat_models:
+            if hasattr(model, 'calibrated_vars') and model.calibrated_vars:
+                calibrated_vars = model.calibrated_vars
+                break
+
     # Prepare data
-    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
-    #     print(models[0].df['Phy_source_PP.C'])
-    model_data_list, merged_data, full_obs_data, model_names = prepare_model_obs_data(
-        models, observations, daily_mean, variables
+    model_data_list, merged_data, _, model_names = prepare_model_obs_data(
+        models, observations, daily_mean, variables_list
     )
 
     # Calculate grid dimensions
-    nrows = (len(variables) + ncols - 1) // ncols
+    nrows = (len(variables_list) + ncols - 1) // ncols
     if figsize is None:
         figsize = (5 * ncols, 4 * nrows)
 
@@ -354,12 +357,16 @@ def plot_results(
         axes = np.array([axes])
     axes = axes.flatten()
 
+    # Set intelligent figure title from PlottedVariablesSet
+    if isinstance(variables, PlottedVariablesSet):
+        fig.canvas.manager.set_window_title(variables.name.replace('_', ' ').title())
+
     # Extract legend-related kwargs before passing to plot_variable
-    plot_var_kwargs = {k: v for k, v in plot_kwargs.items() 
-                       if k not in ['add_legend', 'legend_fontsize']}
+    plot_var_kwargs = {k: v for k, v in plot_kwargs.items()
+                       if k not in ['add_legend', 'legend_fontsize', 'legend_position']}
     
     # Plot each variable
-    for i, var in enumerate(variables):
+    for i, var in enumerate(variables_list):
         if i < len(axes):
             plot_variable(
                 axes[i],
@@ -367,10 +374,9 @@ def plot_results(
                 model_names,
                 var,
                 merged_data,
-                full_obs_data,
                 model_styles,
-                show_full_obs=show_full_obs,
                 add_labels=(i == 0),  # Only add labels on the first subplot
+                calibrated_vars=calibrated_vars,
                 **plot_var_kwargs
             )
 
@@ -390,58 +396,62 @@ def plot_results(
         # Create legend based on all models provided, ensuring consistent styling
         handles, labels = [], []
 
-        # Get default styles
-        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-        linestyles = ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]
+        # Get consistent styles for all models
+        legend_styles = model_styles if model_styles else get_model_styles(len(model_names))
 
         # Create legend entries for all models
         for i, name in enumerate(model_names):
-            if model_styles and i < len(model_styles):
-                style = model_styles[i]
-            else:
-                style = {
-                    'color': colors[i % len(colors)],
-                    'linestyle': linestyles[i % len(linestyles)],
-                    'linewidth': 2.
-                }
+            style = legend_styles[i] if i < len(legend_styles) else legend_styles[-1]
 
             # Create a dummy line for the legend with the correct style
             line = plt.Line2D([0], [0], **style)
             handles.append(line)
             labels.append(name)
 
-        # Add observations if present
+        # Add observations if present (check all subplots)
         if merged_data is not None and len(axes) > 0:
             # Look for observations in any subplot
             for ax in axes:
-                h, l = ax.get_legend_handles_labels()
-                for handle, label in zip(h, l):
-                    if 'Observations' in label and 'Observations' not in labels:
-                        handles.append(handle)
-                        labels.append('Observations')
+                if hasattr(ax, 'get_legend_handles_labels'):
+                    h, l = ax.get_legend_handles_labels()
+                    for handle, label in zip(h, l):
+                        if 'Observations' in label and 'Observations' not in labels:
+                            handles.append(handle)
+                            labels.append('Observations')
+                            break
+                    if 'Observations' in labels:
                         break
-                if 'Observations' in labels:
-                    break
 
         # Create the legend
+        legend_pos = plot_kwargs.get('legend_position', 'center right')
+
+        # Set bbox_to_anchor based on legend position
+        bbox_anchor_map = {
+            'center right': (0.98, 0.5),
+            'upper right': (0.98, 0.98),
+            'lower right': (0.98, 0.02),
+            'upper left': (0.02, 0.98),
+            'lower left': (0.02, 0.02),
+            'upper center': (0.5, 0.98),
+            'lower center': (0.5, 0.02)
+        }
+        bbox_anchor = bbox_anchor_map.get(legend_pos, (0.98, 0.5))
+
         fig.legend(
             handles,
             labels,
-            loc='center right',
-            bbox_to_anchor=(0.98, 0.5),
-            fontsize=plot_kwargs.get('legend_fontsize', 8)
+            loc=legend_pos,
+            bbox_to_anchor=bbox_anchor,
+            fontsize=plot_kwargs.get('legend_fontsize', DEFAULT_LEGEND_FONTSIZE)
         )
 
     # plt.tight_layout()
 
-    # print(save, filename, os.getcwd())
+    # Save figure using centralized function
     if save:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_')
-        if filename:
-            fname = f"{filename}_{timestamp}.png" if fnametimestamp else filename
-        else:
-            fname = f"{timestamp}_model_results.png"
-        plt.savefig(os.path.join(FIGURE_PATH, fname), dpi=300, bbox_inches='tight')
+        # Extract PlottedVariablesSet for intelligent naming
+        var_set = variables if isinstance(variables, PlottedVariablesSet) else None
+        save_figure(fig, filename=filename, variable_set=var_set, add_timestamp=fnametimestamp)
 
     return fig, axes
 
@@ -598,9 +608,6 @@ def plot_sinks_sources(
 
         # Plot sources (stacked positive values)
         for j, source in enumerate(valid_sources):
-            # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
-            #     print(cumulative_sources[source])
-
             if j == 0:
                 ax.fill_between(
                     df_high_res.index,
@@ -671,15 +678,13 @@ def plot_sinks_sources(
         # Add subplot label if requested
         if subplot_labels:
             add_subplot_label(ax, i, position=label_position)
-
-            continue
     plt.tight_layout()
 
     # Save figure if requested
     if save:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_')
         fname = f"{filename}_{timestamp}.png" if fnametimestamp else filename
-        save_figure(fig, figname=fname)
+        save_figure(fig, filename=fname)
 
     return fig, df_high_res_list
 
@@ -732,7 +737,6 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
     fig, ax : matplotlib figure and axis objects
     """
     import matplotlib.pyplot as plt
-    import numpy as np
 
     # Auto-detect element name if not provided
     if element_name is None:
@@ -856,8 +860,8 @@ def plot_optimization_evolution(df: pd.DataFrame,
     ax.set_ylabel('Cost function (score)')
 
     if savefig and name:
-        fig_base_path = os.path.join(FIGURE_PATH, name)
-        plt.savefig(f'{fig_base_path}_opt_evol{rawcost * "_raw"}.png')
+        filename = f'{name}_opt_evol{rawcost * "_raw"}.png'
+        save_figure(plt.gcf(), filename=filename)
 
     return ax
 
@@ -959,8 +963,8 @@ def plot_optimization_summary(df: pd.DataFrame,
 
     if savefig:
         datestr = datetime.now().strftime('%Y%m%d_') if dateinname else ''
-        fig_base_path = os.path.join(FIGURE_PATH, f'{datestr}{name}')
-        plt.savefig(f'{fig_base_path}_pars_optim{rawcost * "_raw"}.png')
+        filename = f'{datestr}{name}_pars_optim{rawcost * "_raw"}.png'
+        save_figure(fig, filename=filename)
 
     return fig
 
@@ -1023,12 +1027,58 @@ def create_parameter_table(df: pd.DataFrame,
     return fig
 
 
-#TODO Refactor (or delete ?) this function with os.join
 def save_figure(fig: plt.Figure,
-                savetime: bool = False,
-                figsdir: str = os.path.join(FIGURE_PATH, ''),
-                figname: str = '',
-                figsdpi: int = 200) -> None:
-    """Save figure with optional timestamp."""
-    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S_' if savetime else '%Y%m%d_')
-    fig.savefig(f"{figsdir}{timestamp}{figname}", dpi=figsdpi)
+                filename: Optional[str] = None,
+                variable_set: Optional[PlottedVariablesSet] = None,
+                add_timestamp: bool = True,
+                figdir: str = FIGURE_PATH,
+                dpi: int = DEFAULT_FIGURE_DPI,
+                **savefig_kwargs) -> str:
+    """
+    Centralized figure saving with intelligent naming from PlottedVariablesSet.
+
+    Args:
+        fig: Figure to save
+        filename: Explicit filename (takes priority over variable_set.name)
+        variable_set: PlottedVariablesSet to extract name from
+        add_timestamp: Whether to add timestamp to filename
+        figdir: Directory to save figures in
+        dpi: Figure DPI
+        **savefig_kwargs: Additional arguments for plt.savefig
+
+    Returns:
+        Full path of saved file
+    """
+    # Determine filename
+    if filename is not None:
+        base_name = filename
+    elif variable_set and hasattr(variable_set, 'name'):
+        base_name = variable_set.name
+    else:
+        base_name = "figure"
+
+    # Add timestamp if requested
+    if add_timestamp:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_')
+        full_name = f"{timestamp}{base_name}.png"
+    else:
+        full_name = f"{base_name}.png" if not base_name.endswith('.png') else base_name
+
+    # Create full path
+    full_path = os.path.join(figdir, full_name)
+
+    # Set default savefig parameters
+    default_kwargs = {
+        'dpi': dpi,
+        'bbox_inches': 'tight',
+        'facecolor': 'white',
+        'edgecolor': 'none'
+    }
+
+    # Merge with user-provided kwargs
+    save_kwargs = {**default_kwargs, **savefig_kwargs}
+
+    # Save figure
+    fig.savefig(full_path, **save_kwargs)
+
+    return full_path
