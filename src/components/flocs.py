@@ -250,7 +250,7 @@ class Flocs(BaseStateVar):
             # self.tau_cr_base = self.coupled_Nf.tau_cr_base
             # self.delta_tau_cr = self.coupled_Nf.delta_tau_cr
             # Legacy parameter
-            self.delta_tau = self.coupled_Nf.delta_tau
+            # self.delta_tau = self.coupled_Nf.delta_tau
             self.apply_settling = self.coupled_Nf.apply_settling
 
         # Initialize macrofloc diameter if couplings are now established
