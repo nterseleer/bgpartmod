@@ -250,6 +250,9 @@ class Setup:
         self.dates1: Optional[pd.DatetimeIndex] = None
         self.two_dt: bool = dt2 is not None
 
+        # Spin-up phase tracking
+        self.in_spinup_phase: bool = False
+
     def _load_riverine_loads(self):
         """Load riverine nutrient loads data."""
         import pandas as pd

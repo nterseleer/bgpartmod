@@ -47,6 +47,7 @@ class Flocs(BaseStateVar):
 
                  dt2=True,
                  time_conversion_factor = 86400,   # Flocs run in s-1 while the rest of the model is in d-1
+                 spinup_days = 0,   # Days of spin-up before interactions with biological components
                  ):
 
         super().__init__()
@@ -113,6 +114,7 @@ class Flocs(BaseStateVar):
         self.eps_kd = eps_kd
         self.dt2 = dt2
         self.time_conversion_factor = time_conversion_factor
+        self.spinup_days = spinup_days
 
         self.setup = None
 
@@ -191,6 +193,8 @@ class Flocs(BaseStateVar):
             self.alpha_PF_ref = self.coupled_Np.alpha_PF_ref
             self.deltaFymax = self.coupled_Np.deltaFymax
 
+            self.spinup_days = self.coupled_Np.spinup_days
+
         if self.name == 'Micro_in_Macro':
             # 20250910 - This should be obsolete and deleted (only computed for Macroflocs, i.e. coupled_Nf)
             self.sinking_leak = self.coupled_Nf.sinking_leak
@@ -235,7 +239,26 @@ class Flocs(BaseStateVar):
         self.bed_shear_stress_at_t = self.setup.bed_shear_stress.loc[t]['BedShearStress']
         self.water_depth_at_t = self.setup.water_depth.loc[t]['WaterDepth']
 
-        if self.coupled_glue and self.K_glue:
+        # Check if we're in spin-up phase
+        is_spinup = hasattr(self.setup, 'in_spinup_phase') and self.setup.in_spinup_phase
+
+        if is_spinup:
+            # Spin-up mode: disable TEP coupling and settling/resuspension (only mineral flocculation dynamics)
+            use_tep_coupling = False
+
+            # Store original values and disable settling
+            original_apply_settling = self.apply_settling
+            original_resuspension_rate = self.resuspension_rate
+            self.apply_settling = False
+            self.resuspension_rate = 0.0
+        else:
+            # Normal mode: use TEP coupling if available
+            use_tep_coupling = self.coupled_glue and self.K_glue
+            # Initialize variables to avoid reference errors
+            original_apply_settling = None
+            original_resuspension_rate = None
+
+        if use_tep_coupling:
 
             mm_TEP = self.coupled_glue.C / (self.K_glue + self.coupled_glue.C)
 
@@ -283,10 +306,8 @@ class Flocs(BaseStateVar):
 
             self.settling_vel_base = self.settling_vel_base * self.apply_settling
 
-
-            # # Apply shear-dependent modulation
-
             if self.counter_settling_by_turbulence:
+                # # Apply shear-dependent modulation
                 normalized_shear = (self.g_shear_rate_at_t - self.setup.g_shear_rate_min) / (
                     self.setup.delta_g_shear_rate)
                 shear_factor = self.settling_vel_min_fraction + (self.settling_vel_max_fraction - self.settling_vel_min_fraction) * 0.5 * (
@@ -295,7 +316,6 @@ class Flocs(BaseStateVar):
             else:
                 self.settling_vel = self.settling_vel_base
             # print('BLA base vs countered', self.diam, self.settling_vel_base, self.settling_vel, self.settling_vel/self.settling_vel_base)
-
 
 
             if self.resuspension_rate > 0:
@@ -357,6 +377,11 @@ class Flocs(BaseStateVar):
                         self.settling_loss
 
                         )
+
+        # Restore original values if we were in spin-up mode
+        if hasattr(self.setup, 'in_spinup_phase') and self.setup.in_spinup_phase:
+            self.apply_settling = original_apply_settling
+            self.resuspension_rate = original_resuspension_rate
 
         return np.array(self.SMS)
 

@@ -10,6 +10,7 @@ class BaseStateVar:
         self.time_conversion_factor = 1
         self.default_diagnostics = True
         self.diagnostics = None
+        self.spinup_days = 0
 
     def get_all_diagnostics(self):
         """Get all numeric non-private attributes as diagnostics."""
