@@ -232,8 +232,8 @@ class Flocs(BaseStateVar):
             self.delta_alpha_PF = self.coupled_Np.delta_alpha_PF
             self.fyflocstrength_base = self.coupled_Np.fyflocstrength_base
             self.deltaFymax = self.coupled_Np.deltaFymax
-            self.tau_cr_base = self.coupled_Np.tau_cr_base
-            self.delta_tau_cr = self.coupled_Np.delta_tau_cr
+            # self.tau_cr_base = self.coupled_Np.tau_cr_base
+            # self.delta_tau_cr = self.coupled_Np.delta_tau_cr
 
             # Copy legacy parameters for backward compatibility
             self.alpha_FF_ref = self.coupled_Np.alpha_FF_ref
@@ -247,8 +247,8 @@ class Flocs(BaseStateVar):
             # 20250910 - This should be obsolete and deleted (only computed for Macroflocs, i.e. coupled_Nf)
             self.sinking_leak = self.coupled_Nf.sinking_leak
             self.resuspension_rate = self.coupled_Nf.resuspension_rate
-            self.tau_cr_base = self.coupled_Nf.tau_cr_base
-            self.delta_tau_cr = self.coupled_Nf.delta_tau_cr
+            # self.tau_cr_base = self.coupled_Nf.tau_cr_base
+            # self.delta_tau_cr = self.coupled_Nf.delta_tau_cr
             # Legacy parameter
             self.delta_tau = self.coupled_Nf.delta_tau
             self.apply_settling = self.coupled_Nf.apply_settling
