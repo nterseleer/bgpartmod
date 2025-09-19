@@ -106,7 +106,8 @@ def create_comparison_plots(
 def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
         observations: Optional[Any] = None,
-        daily_mean: bool = True
+        daily_mean: bool = True,
+        variables_to_plot: Optional[List[str]] = None
 ) -> Tuple[List[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], List[str]]:
     """
     Prepare model and observation data for plotting.
@@ -115,6 +116,7 @@ def prepare_model_obs_data(
         models: Single model/DataFrame or list of models/DataFrames
         observations: Observation data object
         daily_mean: Whether to use daily means
+        variables_to_plot: List of variables that will be plotted (for column standardization)
 
     Returns:
         Tuple of (model_data_list, merged_data, full_obs_data, model_names)
@@ -135,23 +137,34 @@ def prepare_model_obs_data(
             model_data = model.df.copy()
             name = getattr(model, 'name', f'Model {i + 1}')
 
-            # Handle duplicate names by adding a counter
-            if name in name_counts:
-                name_counts[name] += 1
-                name = f"{name} ({name_counts[name]})"
-            else:
-                name_counts[name] = 1
+        # Handle duplicate names by adding a counter
+        original_name = name
+        counter = 1
+        while name in model_names:
+            counter += 1
+            name = f"{original_name} ({counter})"
 
         if daily_mean and model_data.index.name != 'julian_day':
             model_data['julian_day'] = model_data.index.dayofyear
             model_data = model_data.groupby('julian_day').mean()
 
         model_data_list.append(model_data)
-        # Only add numbers for generic "Model" names when there are multiple models
-        if name == 'Model' and len(models) > 1:
-            model_names.append(f"{name} {len(model_names) + 1}")
-        else:
-            model_names.append(name)
+        model_names.append(name)
+
+    # Standardize columns across all DataFrames if variables_to_plot is provided
+    if variables_to_plot:
+        all_columns = set()
+        for df in model_data_list:
+            all_columns.update(df.columns)
+
+        # Add missing columns with NaN for variables that will be plotted
+        for var in variables_to_plot:
+            if var not in all_columns:
+                continue
+
+            for i, df in enumerate(model_data_list):
+                if var not in df.columns:
+                    model_data_list[i] = df.assign(**{var: np.nan})
 
     if observations is None:
         return model_data_list, None, None, model_names
@@ -327,7 +340,7 @@ def plot_results(
     # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
     #     print(models[0].df['Phy_source_PP.C'])
     model_data_list, merged_data, full_obs_data, model_names = prepare_model_obs_data(
-        models, observations, daily_mean
+        models, observations, daily_mean, variables
     )
 
     # Calculate grid dimensions
@@ -374,16 +387,43 @@ def plot_results(
 
     # Add global legend if needed
     if plot_kwargs.get('add_legend', True):
+        # Create legend based on all models provided, ensuring consistent styling
         handles, labels = [], []
-        # Collect unique handles and labels from all subplots
-        for ax in axes:
-            h, l = ax.get_legend_handles_labels()
-            for handle, label in zip(h, l):
-                if label not in labels:  # Only add unique labels
-                    handles.append(handle)
-                    labels.append(label)
 
-        # Create a single legend for the figure
+        # Get default styles
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        linestyles = ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]
+
+        # Create legend entries for all models
+        for i, name in enumerate(model_names):
+            if model_styles and i < len(model_styles):
+                style = model_styles[i]
+            else:
+                style = {
+                    'color': colors[i % len(colors)],
+                    'linestyle': linestyles[i % len(linestyles)],
+                    'linewidth': 2.
+                }
+
+            # Create a dummy line for the legend with the correct style
+            line = plt.Line2D([0], [0], **style)
+            handles.append(line)
+            labels.append(name)
+
+        # Add observations if present
+        if merged_data is not None and len(axes) > 0:
+            # Look for observations in any subplot
+            for ax in axes:
+                h, l = ax.get_legend_handles_labels()
+                for handle, label in zip(h, l):
+                    if 'Observations' in label and 'Observations' not in labels:
+                        handles.append(handle)
+                        labels.append('Observations')
+                        break
+                if 'Observations' in labels:
+                    break
+
+        # Create the legend
         fig.legend(
             handles,
             labels,
@@ -391,15 +431,6 @@ def plot_results(
             bbox_to_anchor=(0.98, 0.5),
             fontsize=plot_kwargs.get('legend_fontsize', 8)
         )
-    # if plot_kwargs.get('add_legend', True):
-    #     handles, labels = axes[0].get_legend_handles_labels()
-    #     fig.legend(
-    #         handles,
-    #         labels,
-    #         loc='center right',
-    #         bbox_to_anchor=(0.98, 0.5),
-    #         fontsize=plot_kwargs.get('legend_fontsize', 8)
-    #     )
 
     # plt.tight_layout()
 
