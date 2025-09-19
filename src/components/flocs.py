@@ -41,10 +41,10 @@ class Flocs(BaseStateVar):
                  K_glue = None,            # [mmol m-3] Half-saturation for TEP effect
 
                  # Legacy parameters (for backward compatibility, will be deprecated)
-                 alpha_FF_ref = None,
-                 alpha_PP_ref = None,
-                 alpha_PF_ref = None,
-                 delta_tau = 2.,       # [-] Legacy parameter
+                 # alpha_FF_ref = None,
+                 # alpha_PP_ref = None,
+                 # alpha_PF_ref = None,
+                 # delta_tau = 2.,       # [-] Legacy parameter
 
                  #
                  resuspension_rate = 0.,       # [kg/m²/s/Pa]
@@ -85,10 +85,10 @@ class Flocs(BaseStateVar):
         self.K_glue = K_glue
 
         # Legacy parameters (for backward compatibility)
-        self.alpha_FF_ref = alpha_FF_ref
-        self.alpha_PP_ref = alpha_PP_ref
-        self.alpha_PF_ref = alpha_PF_ref
-        self.delta_tau = delta_tau
+        # self.alpha_FF_ref = alpha_FF_ref
+        # self.alpha_PP_ref = alpha_PP_ref
+        # self.alpha_PF_ref = alpha_PF_ref
+        # self.delta_tau = delta_tau
 
         self.SMS = None
         self.settling_vel = None
@@ -236,10 +236,10 @@ class Flocs(BaseStateVar):
             # self.delta_tau_cr = self.coupled_Np.delta_tau_cr
 
             # Copy legacy parameters for backward compatibility
-            self.alpha_FF_ref = self.coupled_Np.alpha_FF_ref
-            self.alpha_PP_ref = self.coupled_Np.alpha_PP_ref
-            self.alpha_PF_ref = self.coupled_Np.alpha_PF_ref
-            self.delta_tau = self.coupled_Np.delta_tau
+            # self.alpha_FF_ref = self.coupled_Np.alpha_FF_ref
+            # self.alpha_PP_ref = self.coupled_Np.alpha_PP_ref
+            # self.alpha_PF_ref = self.coupled_Np.alpha_PF_ref
+            # self.delta_tau = self.coupled_Np.delta_tau
 
             self.spinup_days = self.coupled_Np.spinup_days
 
@@ -250,7 +250,7 @@ class Flocs(BaseStateVar):
             # self.tau_cr_base = self.coupled_Nf.tau_cr_base
             # self.delta_tau_cr = self.coupled_Nf.delta_tau_cr
             # Legacy parameter
-            self.delta_tau = self.coupled_Nf.delta_tau
+            # self.delta_tau = self.coupled_Nf.delta_tau
             self.apply_settling = self.coupled_Nf.apply_settling
 
         # Initialize macrofloc diameter if couplings are now established
