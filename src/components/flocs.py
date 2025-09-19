@@ -23,13 +23,30 @@ class Flocs(BaseStateVar):
 
                  density=2500,  # [kg/m3]
 
+                 # Base values for additive TEP formulation - values in the absence of organic TEP (= purely mineral)
+                 alpha_FF_base = 0.02,     # [-] Base FF collision efficiency (mineral only)
+                 alpha_PP_base = 0.02,     # [-] Base PP collision efficiency (mineral only)
+                 alpha_PF_base = 0.02,     # [-] Base PF collision efficiency (mineral only)
+                 fyflocstrength_base = 1e-10,  # [N] Base floc strength (mineral only)
+                 tau_cr_base = 0.1,        # [Pa] Base critical shear stress (mineral only)
+
+                 # Delta values for TEP effect (additive increments)
+                 delta_alpha_FF = 0.03,    # [-] TEP increment for FF collision efficiency
+                 delta_alpha_PP = 0.03,    # [-] TEP increment for PP collision efficiency
+                 delta_alpha_PF = 0.03,    # [-] TEP increment for PF collision efficiency
+                 deltaFymax = 1e-9,        # [N] TEP increment for floc strength
+                 delta_tau_cr = 0.2,       # [Pa] TEP increment for critical shear stress
+
+                 # TEP coupling parameters
+                 K_glue = None,            # [mmol m-3] Half-saturation for TEP effect
+
+                 # Legacy parameters (for backward compatibility, will be deprecated)
                  alpha_FF_ref = None,
                  alpha_PP_ref = None,
                  alpha_PF_ref = None,
-                 K_glue = None,
-                 deltaFymax=1e-9,
-                 tau_cr_base = 0.1,        # [Pa]
-                 delta_tau = 2.,       # [-]
+                 delta_tau = 2.,       # [-] Legacy parameter
+
+                 #
                  resuspension_rate = 0.,       # [kg/m²/s/Pa]
                  settling_vel_min_fraction = 0.1,  # [-] Minimum fraction of settling velocity retained at max shear
                  settling_vel_max_fraction = 1.0,  # [-] Maximum fraction of settling velocity retained at min shear
@@ -52,12 +69,26 @@ class Flocs(BaseStateVar):
 
         super().__init__()
 
+        # Additive formulation parameters
+        self.alpha_FF_base = alpha_FF_base
+        self.alpha_PP_base = alpha_PP_base
+        self.alpha_PF_base = alpha_PF_base
+        self.fyflocstrength_base = fyflocstrength_base
+        self.tau_cr_base = tau_cr_base
+
+        self.delta_alpha_FF = delta_alpha_FF
+        self.delta_alpha_PP = delta_alpha_PP
+        self.delta_alpha_PF = delta_alpha_PF
         self.deltaFymax = deltaFymax
-        self.fyflocstrength_base = fyflocstrength
+        self.delta_tau_cr = delta_tau_cr
+
         self.K_glue = K_glue
+
+        # Legacy parameters (for backward compatibility)
         self.alpha_FF_ref = alpha_FF_ref
         self.alpha_PP_ref = alpha_PP_ref
         self.alpha_PF_ref = alpha_PF_ref
+        self.delta_tau = delta_tau
 
         self.SMS = None
         self.settling_vel = None
@@ -87,25 +118,27 @@ class Flocs(BaseStateVar):
         self.diagnostics = None
         self.classname = 'Floc'
         self.name = name
-        self.alpha_PP = alpha_PP
-        self.alpha_PF = alpha_PF
-        self.alpha_FF = alpha_FF
+        # Initialize alphas with base values (will be updated by TEP coupling if active)
+        self.alpha_PP = alpha_PP_base
+        self.alpha_PF = alpha_PF_base
+        self.alpha_FF = alpha_FF_base
         self.p_exp = p_exp
         self.q_exp = q_exp
         self.f_frac_floc_break = f_frac_floc_break
         self.efficiency_break = efficiency_break
-        self.fyflocstrength = fyflocstrength
+        # Initialize with base value (will be updated by TEP coupling if active)
+        self.fyflocstrength = fyflocstrength_base
         self.mu_viscosity = mu_viscosity
         self.sinking_leak = sinking_leak
 
-        self.tau_cr_base = tau_cr_base
-        self.delta_tau = delta_tau
         self.resuspension_rate = resuspension_rate
         self.settling_vel_min_fraction = settling_vel_min_fraction
         self.settling_vel_max_fraction = settling_vel_max_fraction
         self.counter_settling_by_turbulence = counter_settling_by_turbulence
         self.apply_settling = apply_settling
-        self.tau_cr = self.tau_cr_base
+
+        # Initialize tau_cr with base value (will be updated by TEP coupling if active)
+        self.tau_cr = tau_cr_base
 
         self.d_p_microflocdiam = d_p_microflocdiam
         self.diam = d_p_microflocdiam
@@ -178,20 +211,35 @@ class Flocs(BaseStateVar):
 
         if self.name != 'Microflocs':
             self.nf_fractal_dim = self.coupled_Np.nf_fractal_dim
-            self.alpha_PP = self.coupled_Np.alpha_PP
-            self.alpha_PF = self.coupled_Np.alpha_PF
-            self.alpha_FF = self.coupled_Np.alpha_FF
+            # Initialize with base values (will be updated by TEP coupling if active)
+            self.alpha_PP = self.coupled_Np.alpha_PP_base
+            self.alpha_PF = self.coupled_Np.alpha_PF_base
+            self.alpha_FF = self.coupled_Np.alpha_FF_base
             self.f_frac_floc_break = self.coupled_Np.f_frac_floc_break
             self.efficiency_break = self.coupled_Np.efficiency_break
-            self.fyflocstrength = self.coupled_Np.fyflocstrength
+            # Initialize with base value (will be updated by TEP coupling if active)
+            self.fyflocstrength = self.coupled_Np.fyflocstrength_base
 
             self.eps_kd = self.coupled_Np.eps_kd
 
+            # Copy new additive formulation parameters
             self.K_glue = self.coupled_Np.K_glue
+            self.alpha_FF_base = self.coupled_Np.alpha_FF_base
+            self.alpha_PP_base = self.coupled_Np.alpha_PP_base
+            self.alpha_PF_base = self.coupled_Np.alpha_PF_base
+            self.delta_alpha_FF = self.coupled_Np.delta_alpha_FF
+            self.delta_alpha_PP = self.coupled_Np.delta_alpha_PP
+            self.delta_alpha_PF = self.coupled_Np.delta_alpha_PF
+            self.fyflocstrength_base = self.coupled_Np.fyflocstrength_base
+            self.deltaFymax = self.coupled_Np.deltaFymax
+            self.tau_cr_base = self.coupled_Np.tau_cr_base
+            self.delta_tau_cr = self.coupled_Np.delta_tau_cr
+
+            # Copy legacy parameters for backward compatibility
             self.alpha_FF_ref = self.coupled_Np.alpha_FF_ref
             self.alpha_PP_ref = self.coupled_Np.alpha_PP_ref
             self.alpha_PF_ref = self.coupled_Np.alpha_PF_ref
-            self.deltaFymax = self.coupled_Np.deltaFymax
+            self.delta_tau = self.coupled_Np.delta_tau
 
             self.spinup_days = self.coupled_Np.spinup_days
 
@@ -200,6 +248,8 @@ class Flocs(BaseStateVar):
             self.sinking_leak = self.coupled_Nf.sinking_leak
             self.resuspension_rate = self.coupled_Nf.resuspension_rate
             self.tau_cr_base = self.coupled_Nf.tau_cr_base
+            self.delta_tau_cr = self.coupled_Nf.delta_tau_cr
+            # Legacy parameter
             self.delta_tau = self.coupled_Nf.delta_tau
             self.apply_settling = self.coupled_Nf.apply_settling
 
@@ -259,24 +309,25 @@ class Flocs(BaseStateVar):
             original_resuspension_rate = None
 
         if use_tep_coupling:
-
             mm_TEP = self.coupled_glue.C / (self.K_glue + self.coupled_glue.C)
 
-            self.alpha_FF = self.alpha_FF_ref * mm_TEP
-
-            # Optionally modify alpha_PP if reference value exists
-            if hasattr(self, 'alpha_PP_ref') and self.alpha_PP_ref is not None:
-                self.alpha_PP = self.alpha_PP_ref * mm_TEP
-
-            # Optionally modify alpha_PF if reference value exists
-            if hasattr(self, 'alpha_PF_ref') and self.alpha_PF_ref is not None:
-                self.alpha_PF = self.alpha_PF_ref * mm_TEP
-
+            # New unified additive formulation: variable = base + delta * mm_TEP
+            self.alpha_FF = self.alpha_FF_base + self.delta_alpha_FF * mm_TEP
+            self.alpha_PP = self.alpha_PP_base + self.delta_alpha_PP * mm_TEP
+            self.alpha_PF = self.alpha_PF_base + self.delta_alpha_PF * mm_TEP
             self.fyflocstrength = self.fyflocstrength_base + self.deltaFymax * mm_TEP
 
-
+            # Apply tau_cr modification only for settling flocs
             if self.name == 'Macroflocs' or self.name == 'Micro_in_Macro':
-                self.tau_cr = self.tau_cr_base * (1 + self.delta_tau * mm_TEP)
+                self.tau_cr = self.tau_cr_base + self.delta_tau_cr * mm_TEP
+        else:
+            # No TEP coupling: use base values
+            self.alpha_FF = self.alpha_FF_base
+            self.alpha_PP = self.alpha_PP_base
+            self.alpha_PF = self.alpha_PF_base
+            self.fyflocstrength = self.fyflocstrength_base
+            if self.name == 'Macroflocs' or self.name == 'Micro_in_Macro':
+                self.tau_cr = self.tau_cr_base
 
 
 
