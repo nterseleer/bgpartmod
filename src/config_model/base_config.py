@@ -6,6 +6,7 @@ from src.components import heterotrophs as het
 from src.components import detritus
 from src.components import dom
 from src.config_model import varinfos
+from src.utils import functions as fns
 
 # Onur22 = Kerimoglu et al 2022
 # =============================
@@ -15,6 +16,45 @@ from src.config_model import varinfos
 #            there is an effective target-consumer relationship or not. The code should be standard enough to adapt.
 heterotrophs_list = ['BacF', 'BacA', 'Cil', 'HF']
 potential_targets = ['DOCS', 'DOCL', 'TEPC', 'DetS', 'DetL'] + heterotrophs_list
+
+# ===============================================================================
+# PHYTOPLANKTON DIAGNOSTICS CONFIGURATIONS - SEPARATE FOR PERFORMANCE CONTROL
+# ===============================================================================
+
+# Full phytoplankton diagnostics
+Phy_diagnostics_full = [
+    'lim_N', 'lim_P', 'lim_Si', 'QN', 'QP', 'QSi', 'thetaC',
+    'limNUT', 'limQUOTA.N', 'limQUOTA.P', 'limQUOTA.Si',
+    'limQUOTAmin.N', 'limQUOTAmin.P', 'limQUOTAmin.Si',
+    'mmNH4', 'mmNO3', 'mmDIP', 'mmDSi',
+    'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl', 'limI', 'limT',
+    'PAR_t', 'PAR_t_water_column',
+    'source_uptake.NH4', 'source_uptake.NO3', 'source_uptake.N',
+    'source_uptake.P', 'source_uptake.Si',
+    'source_Chlprod.Chl',
+    'sink_lysis.C', 'sink_lysis.N', 'sink_lysis.Chl', 'sink_lysis.P', 'sink_lysis.Si',
+    'sink_mortality.C', 'sink_mortality.N', 'sink_mortality.Chl', 'sink_mortality.P',
+    'sink_mortality.Si',
+    'sink_exudation.C', 'sink_exudation.N', 'sink_exudation.Chl', 'sink_exudation.P',
+    'sink_exudation.Si',
+    'frac_exud_small',
+    'sink_respiration.C', 'sink_respiration.N', 'sink_respiration.Chl', 'sink_respiration.P',
+    'sink_respiration.Si',
+    'sink_ingestion.C', 'sink_ingestion.N', 'sink_ingestion.Chl', 'sink_ingestion.P',
+    'sink_ingestion.Si',
+    'sink_aggregation.C', 'sink_aggregation.N', 'sink_aggregation.Chl', 'sink_aggregation.P',
+    'sink_aggregation.Si',
+]
+
+# Essential diagnostics only (for optimization performance)
+Phy_diagnostics_essential = [
+    # Keep only essential limitation and growth diagnostics
+    'lim_N', 'lim_P', 'lim_Si', 'limNUT', 'limI', 'limT',
+    'QN', 'QP', 'QSi', 'thetaC'
+]
+
+# Minimal diagnostics (absolute minimum for basic functionality)
+Phy_diagnostics_minimal = []  # No phytoplankton diagnostics for maximum performance
 
 Onur = {
     'formulation': 'Onur22',
@@ -253,29 +293,7 @@ Onur = {
                  'POP': 'P',
                  'Chl_tot': 'Chl',
                  'Cphy_tot': 'C'},
-            'diagnostics': ['lim_N', 'lim_P', 'lim_Si', 'QN', 'QP', 'QSi', 'thetaC',
-                            'limNUT', 'limQUOTA.N', 'limQUOTA.P', 'limQUOTA.Si',
-                            'limQUOTAmin.N', 'limQUOTAmin.P', 'limQUOTAmin.Si',
-                            'mmNH4', 'mmNO3', 'mmDIP', 'mmDSi',
-                            'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl', 'limI', 'limT',
-                            'PAR_t', 'PAR_t_water_column',
-                            'source_uptake.NH4', 'source_uptake.NO3', 'source_uptake.N',
-                            'source_uptake.P', 'source_uptake.Si',
-                            'source_Chlprod.Chl',
-                            'sink_lysis.C', 'sink_lysis.N', 'sink_lysis.Chl', 'sink_lysis.P', 'sink_lysis.Si',
-                            'sink_mortality.C', 'sink_mortality.N', 'sink_mortality.Chl', 'sink_mortality.P',
-                            'sink_mortality.Si',
-                            'sink_exudation.C', 'sink_exudation.N', 'sink_exudation.Chl', 'sink_exudation.P',
-                            'sink_exudation.Si',
-                            'frac_exud_small',
-                            'sink_respiration.C', 'sink_respiration.N', 'sink_respiration.Chl', 'sink_respiration.P',
-                            'sink_respiration.Si',
-                            'sink_ingestion.C', 'sink_ingestion.N', 'sink_ingestion.Chl', 'sink_ingestion.P',
-                            'sink_ingestion.Si',
-                            'sink_aggregation.C', 'sink_aggregation.N', 'sink_aggregation.Chl', 'sink_aggregation.P',
-                            'sink_aggregation.Si',
-
-                            ]
+            # 'diagnostics': Phy_diagnostics_full
             },
 
     'DOCS': {'class': dom.DOM,
@@ -451,4 +469,21 @@ Onur = {
             },
 
 }
+
+# ===============================================================================
+# CREATE OPTIMIZATION-OPTIMIZED CONFIGURATIONS WITH MINIMAL DIAGNOSTICS
+# ===============================================================================
+
+# Create optimization-optimized version with essential diagnostics only
+Onur_essential_diags = fns.deep_update(Onur, {
+    'Phy': {'diagnostics': Phy_diagnostics_essential}
+})
+
+# Create optimization-optimized version with minimal diagnostics
+Onur_minimal_diags = fns.deep_update(Onur, {
+    'Phy': {'diagnostics': Phy_diagnostics_minimal}
+})
+
+# Backward compatibility aliases
+Onur_full = Onur  # Full diagnostics version
 
