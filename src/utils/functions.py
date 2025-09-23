@@ -210,15 +210,206 @@ def get_dict_from_file(fname,
         loaded_dict = pickle.load(file)
     return loaded_dict
 
-def check_diff_two_dicts(d1, d2):
-    # Compare the original and imported dictionaries
-    diff = DeepDiff(d1, d2, ignore_order=True)
-    # Print the differences (if any)
-    if diff:
-        print("Differences found:")
-        print(diff)
+def compare_dicts(dict1: Dict, dict2: Dict,
+                  format_output: bool = True,
+                  config_mode: bool = False,
+                  print_result: bool = False) -> Union[str, Dict]:
+    """
+    Compare two dictionaries and return formatted differences.
+
+    Args:
+        dict1: First dictionary
+        dict2: Second dictionary
+        format_output: If True returns formatted string, if False returns DeepDiff object
+        config_mode: If True, uses config-specific formatting (for model configurations)
+        print_result: If True, prints the result to console
+
+    Returns:
+        Formatted differences string, DeepDiff object, or prints result
+    """
+    if dict1 is None or dict2 is None:
+        result = ""
+        if print_result:
+            print("One or both dictionaries are None")
+        return result
+
+    # Sanitize configs if in config mode
+    if config_mode:
+        dict1 = _sanitize_config_for_comparison(dict1)
+        dict2 = _sanitize_config_for_comparison(dict2)
+
+    # Use DeepDiff with appropriate settings
+    diff = DeepDiff(dict1, dict2,
+                    ignore_order=True,
+                    report_repetition=False,
+                    verbose_level=2)
+
+    if not diff:
+        result = "No differences found. The dictionaries are identical." if not config_mode else "Idem"
+        if print_result:
+            print(result)
+        return result
+
+    if not format_output:
+        if print_result:
+            print("Differences found:")
+            print(diff)
+        return diff
+
+    if config_mode:
+        result = _format_config_diff(diff, dict1, dict2)
     else:
-        print("No differences found. The dictionaries are identical.")
+        result = _format_general_diff(diff)
+
+    if print_result:
+        print("Differences found:")
+        print(result)
+
+    return result
+
+
+def _sanitize_config_for_comparison(config):
+    """Remove problematic keys from config for comparison"""
+    result = {}
+    for k, v in config.items():
+        if k == 'formulation':
+            result[k] = v
+            continue
+
+        result[k] = {}
+        for subk, subv in v.items():
+            if subk == 'class':
+                continue
+            elif subk == 'parameters' and isinstance(subv, dict):
+                result[k][subk] = {}
+                for paramk, paramv in subv.items():
+                    if hasattr(paramv, 'item') and callable(getattr(paramv, 'item')):
+                        result[k][subk][paramk] = paramv.item()
+                    else:
+                        result[k][subk][paramk] = paramv
+            else:
+                result[k][subk] = subv
+    return result
+
+
+def _format_config_diff(diff, config1, config2):
+    """Format differences for model configurations"""
+    import re
+
+    diff_by_component = {}
+
+    for change_type, changes in diff.items():
+        if change_type == 'values_changed':
+            for path, change in changes.items():
+                component, param = _extract_component_param_from_path(path)
+                if component and param:
+                    old_val = _format_value_for_display(change['old_value'])
+                    new_val = _format_value_for_display(change['new_value'])
+                    _add_change_to_component(diff_by_component, component, f"{param}: {old_val} → {new_val}")
+
+        elif change_type == 'dictionary_item_added':
+            for path in changes:
+                component, param = _extract_component_param_from_path(path)
+                if component and param:
+                    try:
+                        value = _get_value_from_diff_path(config2, path)
+                        value_str = _format_value_for_display(value)
+                        _add_change_to_component(diff_by_component, component, f"Added {param}={value_str}")
+                    except:
+                        _add_change_to_component(diff_by_component, component, f"Added {param}")
+
+        elif change_type == 'dictionary_item_removed':
+            for path in changes:
+                component, param = _extract_component_param_from_path(path)
+                if component and param:
+                    try:
+                        value = _get_value_from_diff_path(config1, path)
+                        value_str = _format_value_for_display(value)
+                        _add_change_to_component(diff_by_component, component, f"Removed {param}={value_str}")
+                    except:
+                        _add_change_to_component(diff_by_component, component, f"Removed {param}")
+
+        elif change_type == 'type_changes':
+            for path, change in changes.items():
+                component, param = _extract_component_param_from_path(path)
+                if component and param:
+                    old_val = _format_value_for_display(change['old_value'])
+                    new_val = _format_value_for_display(change['new_value'])
+                    _add_change_to_component(diff_by_component, component, f"{param} type: {old_val} → {new_val}")
+
+    # Construct the output string
+    result = []
+    for component, changes in diff_by_component.items():
+        result.append(f"Changes in {component}:\n  " + "\n  ".join(changes))
+
+    return "\n".join(result) if result else "Idem"
+
+
+def _format_general_diff(diff):
+    """Format differences for general dictionaries"""
+    result = []
+    for change_type, changes in diff.items():
+        result.append(f"{change_type}:")
+        if isinstance(changes, dict):
+            for path, change in changes.items():
+                if isinstance(change, dict) and 'old_value' in change:
+                    result.append(f"  {path}: {change['old_value']} → {change['new_value']}")
+                else:
+                    result.append(f"  {path}: {change}")
+        else:
+            result.append(f"  {changes}")
+    return "\n".join(result)
+
+
+def _extract_component_param_from_path(path):
+    """Extract component and parameter from a DeepDiff path"""
+    import re
+    pattern = r"root\['([^']+)'\](?:\['parameters'\])?\['([^']+)'\]"
+    match = re.search(pattern, path)
+    if match:
+        return match.group(1), match.group(2)
+    return None, None
+
+
+def _format_value_for_display(value):
+    """Format a value for display"""
+    if isinstance(value, float):
+        if abs(value) < 0.001 or abs(value) > 1000:
+            return f"{value:.3e}"
+        return f"{value:.4g}"
+    return str(value)
+
+
+def _add_change_to_component(diff_dict, component, change):
+    """Add a change to the component dictionary"""
+    if component not in diff_dict:
+        diff_dict[component] = []
+    diff_dict[component].append(change)
+
+
+def _get_value_from_diff_path(config, path):
+    """Get a value from a config using a DeepDiff path"""
+    import re
+    parts = re.findall(r"\['([^']+)'\]", path)
+    if not parts:
+        return None
+
+    value = config
+    for part in parts[1:]:  # Skip 'root'
+        value = value[part]
+    return value
+
+
+def check_diff_two_dicts(d1, d2):
+    """
+    Legacy function for backward compatibility.
+    Compare two dictionaries and print differences.
+
+    Args:
+        d1: First dictionary
+        d2: Second dictionary
+    """
+    compare_dicts(d1, d2, format_output=True, print_result=True)
 
 def update_config(dconf, parnames, parameters):
     newdict = {}

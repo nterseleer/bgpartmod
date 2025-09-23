@@ -17,6 +17,7 @@ from src.utils import functions as fns
 from src.utils import desolver
 from src.core import model
 from src.config_system import path_config as path_cfg
+from src.config_model import config
 from src.utils import simulation_manager as sim_manager
 
 # Constants
@@ -465,6 +466,8 @@ class Optimization:
             self.config['optimized_parameters'],
             self.summary['best_parameters'].values()
         )
+
+        best_config = fns.deep_update(best_config, config.full_dianostics)
 
         # Add additional diagnostics for best model
         model_kwargs = {
