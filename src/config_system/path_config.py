@@ -17,5 +17,5 @@ OPTIM_DIR = os.path.join(SIMULATION_DIR, 'Optimizations')
 LOG_FILE = os.path.join(SIMULATION_DIR, 'Simulations_log.csv')
 OPT_LOG_FILE = os.path.join(SIMULATION_DIR, 'Optimizations_log.csv')
 
-PRIVATE_PATH = os.path.join(ROOT_DIR, '_private')
+PRIVATE_PATH = os.path.join(ROOT_DIR, '_private_LOG')
 PRIVATE_OPT_LOG_FILE = os.path.join(PRIVATE_PATH, 'Optimizations_log.csv')
