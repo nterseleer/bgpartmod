@@ -467,7 +467,7 @@ class Optimization:
             self.summary['best_parameters'].values()
         )
 
-        best_config = fns.deep_update(best_config, config.full_dianostics)
+        best_config = fns.deep_update(best_config, config.full_diagnostics)
 
         # Add additional diagnostics for best model
         model_kwargs = {

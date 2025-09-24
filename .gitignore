@@ -4,6 +4,7 @@ Observations/
 Simulations/
 tests/
 _private/
+_private_LOG/
 Manual_Saves/
 src/bgc/
 src/config_model/_*config*.py
