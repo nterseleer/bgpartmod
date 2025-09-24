@@ -12,7 +12,7 @@ This is a **Python implementation framework** that enables users to:
 - Analyze and visualize results with comprehensive plotting utilities
 
 ## Note about the license
-This software is currently **under embargo** until scientific publication (submission planned for summer 2025). 
+This software is currently **under embargo** until scientific publication (submission planned for autumn 2025). 
 After publication, it will be released under the European Union Public Licence (EUPL). 
 For any inquiry, please contact @nterseleer.
 
