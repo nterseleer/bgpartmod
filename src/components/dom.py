@@ -25,6 +25,7 @@ class DOM(BaseOrg):
                  beta_TEPC=0.064,
                  # /varinfos.molmass_C * 1e3,   # [m3 gC-1 d-1] converted from m3 mmolC-1 d-1. C-specific collision kernel PCHO-TEPC
                  dt2=False,
+                 bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  # formulation='Sch07'
                  ):
 
@@ -45,6 +46,7 @@ class DOM(BaseOrg):
         self.beta_PCHO = beta_PCHO
         self.beta_TEPC = beta_TEPC
         self.dt2 = dt2
+        self.bound_temp_to_1 = bound_temp_to_1
 
         # Source and sink terms
         self.source_exudation = Elms()
@@ -273,7 +275,8 @@ class DOM(BaseOrg):
 
         else:  # Sch07
             if self.name == 'resDOC' or self.name == 'DON':
-                self.sink_remineralization.C = self.rho * fns.getlimT(self.setup.T.loc[t]['T']) * self.C
+                self.sink_remineralization.C = self.rho * fns.getlimT(self.setup.T.loc[t]['T'],
+                                                                      bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) * self.C
             else:
                 self.sink_remineralization.C = 0.
 
@@ -290,7 +293,8 @@ class DOM(BaseOrg):
             if self.name == 'resDOC' or self.name == 'DON' or self.name == 'PCHO':
                 self.sink_breakdown.C = 0.
             elif self.name == 'TEPC':
-                self.sink_breakdown.C = self.rho_TEP * fns.getlimT(self.setup.T.loc[t]['T']) * self.C
+                self.sink_breakdown.C = self.rho_TEP * fns.getlimT(self.setup.T.loc[t]['T'],
+                                                                   bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) * self.C
 
     def get_sink_aggregation(self):
         if self.formulation == 'Onur22':

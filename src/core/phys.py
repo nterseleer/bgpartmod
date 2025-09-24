@@ -211,6 +211,10 @@ class Setup:
         self.varyingTEMP = varyingTEMP
         self.T = self._initialize_TEMP(plotTEMP)
 
+        # Calculate temperature bounds once for efficient access
+        self.T_max = self.T['T'].max()  # Maximum temperature in setup [K]
+        self.T_min = self.T['T'].min()  # Minimum temperature in setup [K]
+
         # Initialize all tidal parameters using unified approach
         self.water_depth = self._create_tidal_parameter_dataframe(
             'WaterDepth', water_depth, vary_water_depth,

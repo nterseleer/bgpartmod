@@ -17,6 +17,7 @@ class Detritus(BaseOrg):
                  KA2=57.48,  # [mmolC m-3] Half saturation cst for TEP dependence of A2 (Onur22)
 
                  dt2=False,
+                 bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
 
         super().__init__()
@@ -46,6 +47,7 @@ class Detritus(BaseOrg):
         self.KA2 = KA2
 
         self.dt2 = dt2
+        self.bound_temp_to_1 = bound_temp_to_1
 
         # Source and sink terms
         self.source_aggregation = Elms()
@@ -249,8 +251,10 @@ class Detritus(BaseOrg):
             self.sink_breakdown.P = 0.
             self.sink_breakdown.Si = 0.
         else:
-            self.sink_breakdown.C = self.omega_C * fns.getlimT(self.setup.T.loc[t]['T']) * self.C
-            self.sink_breakdown.N = self.omega_N * fns.getlimT(self.setup.T.loc[t]['T']) * self.N
+            self.sink_breakdown.C = self.omega_C * fns.getlimT(self.setup.T.loc[t]['T'],
+                                                               bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) * self.C
+            self.sink_breakdown.N = self.omega_N * fns.getlimT(self.setup.T.loc[t]['T'],
+                                                               bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) * self.N
 
     def get_sink_aggregation(self):
         if self.formulation == "Onur22":
