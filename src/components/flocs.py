@@ -5,7 +5,88 @@ from src.config_model import varinfos
 from ..utils import functions as fns
 
 
+class SharedFlocTEPParameters:
+    """
+    Centralized computation of TEP-dependent parameters for flocculation.
+    Shared by all Flocs instances (Microflocs, Macroflocs, Micro_in_Macro) to avoid
+    redundant calculations and ensure consistency.
+    Includes: alphas (FF, PP, PF), fyflocstrength, tau_cr
+    """
+
+    def __init__(self, microfloc_instance, unified_alphas=True):
+        """
+        Initialize shared alpha parameters from the first Flocs instance (Microflocs).
+
+        Args:
+            microfloc_instance: Microflocs instance to extract configuration from
+            unified_alphas: If True, use single alpha for FF=PP=PF (optimized)
+        """
+        self.unified_alphas = unified_alphas
+
+        # Extract configuration from Microflocs instance
+        self.alpha_FF_base = microfloc_instance.alpha_FF_base
+        self.alpha_PP_base = microfloc_instance.alpha_PP_base
+        self.alpha_PF_base = microfloc_instance.alpha_PF_base
+        self.fyflocstrength_base = microfloc_instance.fyflocstrength_base
+        self.tau_cr_base = microfloc_instance.tau_cr_base
+
+        self.delta_alpha_FF = microfloc_instance.delta_alpha_FF
+        self.delta_alpha_PP = microfloc_instance.delta_alpha_PP
+        self.delta_alpha_PF = microfloc_instance.delta_alpha_PF
+        self.deltaFymax = microfloc_instance.deltaFymax
+        self.delta_tau_cr = microfloc_instance.delta_tau_cr
+
+        self.K_glue = getattr(microfloc_instance, 'K_glue', None)
+
+
+        if self.unified_alphas:
+            # Verify alphas are identical for unified mode
+            if not (self.alpha_FF_base == self.alpha_PP_base == self.alpha_PF_base and
+                    self.delta_alpha_FF == self.delta_alpha_PP == self.delta_alpha_PF):
+                print("Warning: unified_alphas=True but base/delta values differ. Using FF values.")
+
+    def get_tep_parameters(self, coupled_glue):
+        """
+        Calculate all TEP-dependent parameters in one go.
+        Returns: (alpha_FF, alpha_PP, alpha_PF), fyflocstrength, tau_cr, mm_TEP
+        """
+        # Determine TEP coupling status and calculate mm_TEP
+        use_tep_coupling = coupled_glue is not None and self.K_glue is not None
+
+        if use_tep_coupling:
+            mm_TEP = coupled_glue.C / (self.K_glue + coupled_glue.C)
+        else:
+            mm_TEP = 0.0
+
+        # Calculate alphas
+        if self.unified_alphas:
+            alpha = self.alpha_FF_base + (self.delta_alpha_FF * mm_TEP if use_tep_coupling else 0)
+            alphas = (alpha, alpha, alpha)
+        else:
+            alphas = (
+                self.alpha_FF_base + (self.delta_alpha_FF * mm_TEP if use_tep_coupling else 0),
+                self.alpha_PP_base + (self.delta_alpha_PP * mm_TEP if use_tep_coupling else 0),
+                self.alpha_PF_base + (self.delta_alpha_PF * mm_TEP if use_tep_coupling else 0)
+            )
+
+        # Calculate fyflocstrength
+        fyflocstrength = self.fyflocstrength_base + (self.deltaFymax * mm_TEP if use_tep_coupling else 0)
+
+        # Calculate tau_cr
+        tau_cr = self.tau_cr_base + (self.delta_tau_cr * mm_TEP if use_tep_coupling else 0)
+
+        # Store calculated values for reuse by other instances
+        self.current_alphas = alphas
+        self.current_fyflocstrength = fyflocstrength
+        self.current_tau_cr = tau_cr
+        self.current_mm_TEP = mm_TEP
+
+        return alphas, fyflocstrength, tau_cr, mm_TEP
+
+
 class Flocs(BaseStateVar):
+    # Class-level shared alpha instance for performance optimization
+    _shared_alphas_instance = None
     def __init__(self,
                  name,
                  alpha_PP=0.2,
@@ -35,6 +116,9 @@ class Flocs(BaseStateVar):
                  delta_alpha_PP = 0.03,    # [-] TEP increment for PP collision efficiency
                  delta_alpha_PF = 0.03,    # [-] TEP increment for PF collision efficiency
                  deltaFymax = 1e-9,        # [N] TEP increment for floc strength
+
+                 # Optimization parameter for alpha sharing
+                 unified_alphas = True,    # [-] Use single alpha for FF=PP=PF (performance optimization)
                  delta_tau_cr = 0.2,       # [Pa] TEP increment for critical shear stress
 
                  # TEP coupling parameters
@@ -83,6 +167,10 @@ class Flocs(BaseStateVar):
         self.delta_tau_cr = delta_tau_cr
 
         self.K_glue = K_glue
+        self.unified_alphas = unified_alphas
+
+        # SharedFlocAlphas instance (will be injected later)
+        self.shared_alphas = None
 
         # Legacy parameters (for backward compatibility)
         # self.alpha_FF_ref = alpha_FF_ref
@@ -212,9 +300,9 @@ class Flocs(BaseStateVar):
         if self.name != 'Microflocs':
             self.nf_fractal_dim = self.coupled_Np.nf_fractal_dim
             # Initialize with base values (will be updated by TEP coupling if active)
-            self.alpha_PP = self.coupled_Np.alpha_PP_base
-            self.alpha_PF = self.coupled_Np.alpha_PF_base
-            self.alpha_FF = self.coupled_Np.alpha_FF_base
+            # self.alpha_PP = self.coupled_Np.alpha_PP_base
+            # self.alpha_PF = self.coupled_Np.alpha_PF_base
+            # self.alpha_FF = self.coupled_Np.alpha_FF_base
             self.f_frac_floc_break = self.coupled_Np.f_frac_floc_break
             self.efficiency_break = self.coupled_Np.efficiency_break
             # Initialize with base value (will be updated by TEP coupling if active)
@@ -223,13 +311,13 @@ class Flocs(BaseStateVar):
             self.eps_kd = self.coupled_Np.eps_kd
 
             # Copy new additive formulation parameters
-            self.K_glue = self.coupled_Np.K_glue
-            self.alpha_FF_base = self.coupled_Np.alpha_FF_base
-            self.alpha_PP_base = self.coupled_Np.alpha_PP_base
-            self.alpha_PF_base = self.coupled_Np.alpha_PF_base
-            self.delta_alpha_FF = self.coupled_Np.delta_alpha_FF
-            self.delta_alpha_PP = self.coupled_Np.delta_alpha_PP
-            self.delta_alpha_PF = self.coupled_Np.delta_alpha_PF
+            # self.K_glue = self.coupled_Np.K_glue
+            # self.alpha_FF_base = self.coupled_Np.alpha_FF_base
+            # self.alpha_PP_base = self.coupled_Np.alpha_PP_base
+            # self.alpha_PF_base = self.coupled_Np.alpha_PF_base
+            # self.delta_alpha_FF = self.coupled_Np.delta_alpha_FF
+            # self.delta_alpha_PP = self.coupled_Np.delta_alpha_PP
+            # self.delta_alpha_PF = self.coupled_Np.delta_alpha_PF
             self.fyflocstrength_base = self.coupled_Np.fyflocstrength_base
             self.deltaFymax = self.coupled_Np.deltaFymax
             # self.tau_cr_base = self.coupled_Np.tau_cr_base
@@ -257,6 +345,19 @@ class Flocs(BaseStateVar):
         if self.name == 'Macroflocs':
             self.diam = self._calculate_macrofloc_diameter()
 
+        # Setup shared alpha computation (performance optimization)
+        self._setup_shared_alphas()
+
+    def _setup_shared_alphas(self):
+        """Setup shared alpha computation for Flocs instances (performance optimization)"""
+        # Only setup shared alphas if this is Microflocs and not already initialized
+        if self.name == 'Microflocs' and Flocs._shared_alphas_instance is None:
+            unified_alphas = getattr(self, 'unified_alphas', True)
+            Flocs._shared_alphas_instance = SharedFlocTEPParameters(self, unified_alphas)
+
+        # Assign shared alphas instance to all Flocs instances
+        if Flocs._shared_alphas_instance is not None:
+            self.shared_alphas = Flocs._shared_alphas_instance
 
     def update_val(self, numconc,
                    t=None,
@@ -285,9 +386,12 @@ class Flocs(BaseStateVar):
         """
 
         self.Ncnum = self.coupled_Nt.numconc / self.coupled_Nf.numconc
-        self.g_shear_rate_at_t = self.setup.g_shear_rate.loc[t]['ShearRate']
-        self.bed_shear_stress_at_t = self.setup.bed_shear_stress.loc[t]['BedShearStress']
-        self.water_depth_at_t = self.setup.water_depth.loc[t]['WaterDepth']
+
+        # Optimization: Use pre-computed arrays for faster access
+        time_idx = self.setup.dates_to_index[t]
+        self.g_shear_rate_at_t = self.setup.g_shear_rate_array[time_idx]
+        self.bed_shear_stress_at_t = self.setup.bed_shear_stress_array[time_idx]
+        self.water_depth_at_t = self.setup.water_depth_array[time_idx]
 
         # Check if we're in spin-up phase
         is_spinup = hasattr(self.setup, 'in_spinup_phase') and self.setup.in_spinup_phase
@@ -308,28 +412,31 @@ class Flocs(BaseStateVar):
             original_apply_settling = None
             original_resuspension_rate = None
 
-        if use_tep_coupling:
-            mm_TEP = self.coupled_glue.C / (self.K_glue + self.coupled_glue.C)
-
-            # New unified additive formulation: variable = base + delta * mm_TEP
-            self.alpha_FF = self.alpha_FF_base + self.delta_alpha_FF * mm_TEP
-            self.alpha_PP = self.alpha_PP_base + self.delta_alpha_PP * mm_TEP
-            self.alpha_PF = self.alpha_PF_base + self.delta_alpha_PF * mm_TEP
-            self.fyflocstrength = self.fyflocstrength_base + self.deltaFymax * mm_TEP
-
-            # Apply tau_cr modification only for settling flocs
-            if self.name == 'Macroflocs' or self.name == 'Micro_in_Macro':
-                self.tau_cr = self.tau_cr_base + self.delta_tau_cr * mm_TEP
+        # Get TEP-dependent parameters - only Microflocs triggers calculation, others reuse values
+        # NOTE: Microflocs instance MUST be defined first in model configuration
+        if self.name == 'Microflocs':
+            alphas, fyflocstrength, tau_cr, mm_TEP = self.shared_alphas.get_tep_parameters(
+                self.coupled_glue if use_tep_coupling else None
+            )
+            self.alpha_FF, self.alpha_PP, self.alpha_PF = alphas
+            self.fyflocstrength = fyflocstrength
         else:
-            # No TEP coupling: use base values
-            self.alpha_FF = self.alpha_FF_base
-            self.alpha_PP = self.alpha_PP_base
-            self.alpha_PF = self.alpha_PF_base
-            self.fyflocstrength = self.fyflocstrength_base
+            # Reuse already computed values from Microflocs calculation
+            self.alpha_FF, self.alpha_PP, self.alpha_PF = self.shared_alphas.current_alphas
+            self.fyflocstrength = self.shared_alphas.current_fyflocstrength
             if self.name == 'Macroflocs' or self.name == 'Micro_in_Macro':
-                self.tau_cr = self.tau_cr_base
+                self.tau_cr = self.shared_alphas.current_tau_cr
 
 
+        #
+        # print('DEBUG')
+        # print(self.name)
+        # print(self.shared_alphas.alpha_FF_base, self.shared_alphas.alpha_PF_base, self.shared_alphas.alpha_PP_base)
+        # print(self.shared_alphas.delta_alpha_FF, self.shared_alphas.delta_alpha_PF, self.shared_alphas.delta_alpha_FF)
+        # print(self.alpha_FF, self.alpha_PF, self.alpha_PP)
+        # print(self.alpha_FF, self.alpha_PF, self.alpha_PP)
+        # print(self.fyflocstrength)
+        # print(self.tau_cr)
 
         if self.name == 'Microflocs':
             self.SMS = (
@@ -366,7 +473,6 @@ class Flocs(BaseStateVar):
                 self.settling_vel = self.settling_vel_base * shear_factor
             else:
                 self.settling_vel = self.settling_vel_base
-            # print('BLA base vs countered', self.diam, self.settling_vel_base, self.settling_vel, self.settling_vel/self.settling_vel_base)
 
 
             if self.resuspension_rate > 0:
