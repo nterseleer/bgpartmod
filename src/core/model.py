@@ -237,8 +237,8 @@ class Model:
 
             component = self.components[key]
             couplings = self._process_couplings(cfg.get('coupling', {}))
-            component.set_coupling(**couplings)
             component.setup = self.setup
+            component.set_coupling(**couplings)
 
             # Register aggregates
             if 'aggregate' in cfg:

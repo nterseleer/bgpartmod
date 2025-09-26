@@ -12,6 +12,7 @@ class DIM(BaseStateVar):
                  T_ref=283.15,  # [K] Reference temperature (denitrification) (Onur22)
                  k_remin=0.0, # [d-1] "external" remineralization rate (i.e., not related to simulated processes and state variables)
                  dt2=False,
+                 bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
 
         super().__init__()
@@ -41,6 +42,7 @@ class DIM(BaseStateVar):
 
         self.name = name
         self.dt2 = dt2
+        self.bound_temp_to_1 = bound_temp_to_1
 
         # Source and sink terms
         self.source_remineralization = None
@@ -80,7 +82,8 @@ class DIM(BaseStateVar):
         self.concentration = concentration
         # Calculate remineralization rate (available for all subsequent steps)
         if self.formulation == "Onur22" and self.k_remin > 0 and t is not None:
-            f_temp = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref, boltz=True)
+            f_temp = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
+                                 boltz=True, bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max)
             self.remineralization_rate = self.k_remin * f_temp
         else:
             self.remineralization_rate = 0.
@@ -158,6 +161,7 @@ class DIM(BaseStateVar):
         # Onur22
         if self.name == 'NO3':
             self.source_redox = self.r_nit * fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
+                                                         bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max,
                                                          boltz=True) * self.coupled_NH4.concentration
         else:
             self.source_redox = 0.

@@ -508,18 +508,38 @@ def get_nested_attr(obj, attr):
         obj = getattr(obj, attribute)
     return obj
 
-def getlimT(T, A_E=4500, T_ref=288.15, boltz=False):
+def getlimT(T, A_E=4500, T_ref=288.15, boltz=False, bound_temp_to_1=True, T_max=None):
     """
     Get the temperature limitation factor from the temperature dependence
-    :param T: Temperature (K)
-    :param A_E: Slope of the Arrhenius relation (=4500 K)
-    :param T_ref: Reference temperature for A_E relation (Schartau et al 2007)
-    :return:
+
+    Args:
+        T: Temperature (K)
+        A_E: Slope of the Arrhenius relation (=4500 K)
+        T_ref: Reference temperature for A_E relation (Schartau et al 2007)
+        boltz: Use Boltzmann constant if True
+        bound_temp_to_1: If True, bound limitation between 0 and 1 (default: True)
+        T_max: Maximum temperature for normalization (from setup.T_max)
+
+    Returns:
+        Temperature limitation factor [0,1] if bounded, unlimited if not
     """
     if boltz:
-        return(np.exp(-A_E/varinfos.boltz * (1 / T - 1 / T_ref)))
+        factor = A_E / varinfos.boltz
     else:
-        return np.exp(-A_E * (1 / T - 1 / T_ref))
+        factor = A_E
+
+    limT_raw = np.exp(-factor * (1/T - 1/T_ref))
+
+    if not bound_temp_to_1:
+        return limT_raw
+
+    # Bounding requires T_max
+    if T_max is None:
+        raise ValueError("T_max required for temperature bounding (bound_temp_to_1=True)")
+
+    limT_max = np.exp(-factor * (1/T_max - 1/T_ref))
+
+    return np.minimum(limT_raw / limT_max, 1.0)
 
 def print_coupled_attrs(obj):
     """Print all attributes of an object that start with 'coupled_'"""

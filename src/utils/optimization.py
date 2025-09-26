@@ -467,6 +467,7 @@ class Optimization:
             self.summary['best_parameters'].values()
         )
 
+        # add all diagnostics for subsequent plots and post-processing
         best_config = fns.deep_update(best_config, config.full_diagnostics)
 
         # Add additional diagnostics for best model
