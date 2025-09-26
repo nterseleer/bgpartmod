@@ -244,6 +244,13 @@ class Setup:
             bed_shear_stress_phase_shift, bed_shear_stress_additive_mode, 2.0
         )
 
+        # Optimization: Pre-compute arrays for faster access during Flocs calculations
+        self.g_shear_rate_array = self.g_shear_rate['ShearRate'].values
+        self.bed_shear_stress_array = self.bed_shear_stress['BedShearStress'].values
+        self.water_depth_array = self.water_depth['WaterDepth'].values
+
+        # Create mapping for fast time index lookup
+        self.dates_to_index = {date: idx for idx, date in enumerate(self.dates)}
 
         # Initialize diagnostic variables
         for var in self.DIAGNOSTIC_VARIABLES:
