@@ -689,6 +689,11 @@ class Setup:
             for var in self.DIAGNOSTIC_VARIABLES
         }
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert setup to dictionary using existing serialization."""
+        from src.utils import functions as fns
+        return fns.serialize_for_json(self)
+
     def summarize(self) -> str:
         """
         Create a human-readable summary of the setup.
