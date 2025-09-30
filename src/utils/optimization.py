@@ -16,6 +16,7 @@ import numpy as np
 from src.utils import functions as fns
 from src.utils import desolver
 from src.core import model
+from src.core import phys  # Import nécessaire pour la désérialisation pickle des objets Setup
 from src.config_system import path_config as path_cfg
 from src.config_model import config
 from src.utils import simulation_manager as sim_manager
@@ -61,6 +62,7 @@ class Optimization:
                 obs: Any,
                 optimized_parameters: List[str],
                 bounds: Tuple[List[float], List[float]],
+                setup: Optional[Any] = None,
                 calibrated_vars: Optional[List[str]] = None,
                 name: Optional[str] = None,
                 population_size: int = 90,
@@ -70,7 +72,7 @@ class Optimization:
                 **solver_kwargs) -> 'Optimization':
         """Legacy single-configuration optimization method."""
         return cls.run_multi_config(
-            descriptions=[(dconf, modkwargs, obs)],
+            descriptions=[(dconf, modkwargs, obs, setup)],
             optimized_parameters=optimized_parameters,
             bounds=bounds,
             calibrated_vars=calibrated_vars,
@@ -84,10 +86,10 @@ class Optimization:
 
     @classmethod
     def run_multi_config(cls,
-                        descriptions: List[Tuple[Dict, Dict, Any]],
+                        descriptions: List[Tuple[Dict, Dict, Any, Dict]],
                         optimized_parameters: List[str],
                         bounds: Tuple[List[float], List[float]],
-                        calibrated_vars: Optional[List[str]] = None,
+                         calibrated_vars: Optional[List[str]] = None,
                         name: Optional[str] = None,
                         population_size: int = 90,
                         num_cpus: int = 30,
@@ -117,6 +119,17 @@ class Optimization:
         instance.descriptions = descriptions
         instance._setup_directories()
 
+        # Handle setup - extract from modkwargs if not provided explicitly
+
+        setup = descriptions[] #todo debug for setup
+        if setup is not None:
+            instance.setup = setup
+            modkwargs = {k: v for k, v in modkwargs.items() if k != 'setup'}
+        else:
+            instance.setup = modkwargs.pop('setup', None)
+            if instance.setup is None:
+                raise ValueError("setup must be provided either explicitly or in modkwargs")
+
         # Store calibrated variables
         instance.calibrated_vars = calibrated_vars or [
             'Phy_Chl', 'NH4_concentration', 'NO3_concentration',
@@ -143,6 +156,7 @@ class Optimization:
 
         # Save initial state
         instance._save_configuration()
+        instance._save_setup()
         instance._save_observations()
         instance._save_calibration_info()
 
@@ -177,7 +191,10 @@ class Optimization:
 
         instance.calibrated_vars = instance.config['calibrated_vars']
 
-        # Load Observations (handles both single and multi-description)
+        # Load setup
+        instance._load_setup()
+
+        # Load Observations
         obs_path = os.path.join(instance.optdir,
                                 f"{instance.name}_observations",
                                 f"{instance.name}_observations.pkl")
@@ -323,6 +340,37 @@ class Optimization:
         with open(calib_path, 'w') as f:
             json.dump(calib_info, f, indent=2)
 
+    def _save_setup(self):
+        """Save setup separately from modkwargs."""
+        setup_path = os.path.join(self.optdir, f"{self.name}_setup.pkl")
+        with open(setup_path, 'wb') as f:
+            pickle.dump(self.setup, f)
+
+        # Save human-readable version using Setup's to_dict method
+        try:
+            setup_dict = self.setup.to_dict()
+            fns.write_dict_to_file(setup_dict, f"{self.name}_setup_readable", fdir=self.optdir)
+        except Exception as e:
+            print(f"Could not save human-readable setup: {e}")
+
+        if self.verbose:
+            print(f'Setup saved to {setup_path}')
+
+    def _load_setup(self):
+        """Load setup separately with backward compatibility."""
+        setup_path = os.path.join(self.optdir, f"{self.name}_setup.pkl")
+        if os.path.exists(setup_path):
+            with open(setup_path, 'rb') as f:
+                self.setup = pickle.load(f)
+        else:
+            # Backward compatibility: extract from modkwargs
+            self.setup = self.config['modkwargs'].get('setup', None)
+            if self.setup is None:
+                print(f"Warning: Could not load setup for optimization {self.name}")
+            else:
+                print(f"Loaded setup from legacy modkwargs for optimization {self.name}")
+
+
     def _run_optimization(self):
         """Run the optimization using DESolver."""
         min_bounds, max_bounds = self.config['bounds']
@@ -361,8 +409,8 @@ class Optimization:
                         parameters
                     )
 
-                    # Run the model
-                    trial = model.Model(newconfig, **modkwargs)
+            # Run the model
+                    trial = model.Model(newconfig, **modkwargs, setup=self.setup)
 
                     # Calculate likelihood using calibrated_vars
                     lnl = trial.get_likelihood(
@@ -393,6 +441,7 @@ class Optimization:
             return total_score
 
         except (RuntimeWarning, FloatingPointError, ValueError, ZeroDivisionError) as e:
+            # If warnings are treated as errors, they'll be caught here
             if self.verbose:
                 print(f"Model evaluation failed with error: {e}")
             return self.config['badlnl']
@@ -523,7 +572,7 @@ class Optimization:
             }
         return param_stats
 
-    def get_best_model(self, force_rerun: bool = False) -> Any:
+    def get_best_model(self, force_rerun: bool = False, savemodel: bool = False) -> Any:
         """
         Get best model from optimization (backward compatibility - returns first description).
 
@@ -542,6 +591,7 @@ class Optimization:
         Args:
             desc_index: Index of the description to get model for
             force_rerun: Whether to rerun model even if saved version exists
+            savemodel: Whether to save (dill) the model to pkl object
 
         Returns:
             Best model instance for specified description
@@ -567,6 +617,7 @@ class Optimization:
             self.summary['best_parameters'].values()
         )
 
+        # add all diagnostics for subsequent plots and post-processing
         best_config = fns.deep_update(best_config, config.full_diagnostics)
 
         # Add additional diagnostics for best model
@@ -577,11 +628,12 @@ class Optimization:
             'full_diagnostics': False
         }
 
-        best_model = model.Model(best_config, name=self.name, **model_kwargs)
+        best_model = model.Model(best_config, setup=self.setup, name=self.name, **model_kwargs)
 
         # Save model
-        with open(model_file, 'wb') as f:
-            dill.dump(best_model, f)
+        if savemodel:
+            with open(model_file, 'wb') as f:
+                dill.dump(best_model, f)
 
         return best_model
 

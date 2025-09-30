@@ -211,6 +211,10 @@ class Setup:
         self.varyingTEMP = varyingTEMP
         self.T = self._initialize_TEMP(plotTEMP)
 
+        # Calculate temperature bounds once for efficient access
+        self.T_max = self.T['T'].max()  # Maximum temperature in setup [K]
+        self.T_min = self.T['T'].min()  # Minimum temperature in setup [K]
+
         # Initialize all tidal parameters using unified approach
         self.water_depth = self._create_tidal_parameter_dataframe(
             'WaterDepth', water_depth, vary_water_depth,
@@ -240,6 +244,13 @@ class Setup:
             bed_shear_stress_phase_shift, bed_shear_stress_additive_mode, 2.0
         )
 
+        # Optimization: Pre-compute arrays for faster access during Flocs calculations
+        self.g_shear_rate_array = self.g_shear_rate['ShearRate'].values
+        self.bed_shear_stress_array = self.bed_shear_stress['BedShearStress'].values
+        self.water_depth_array = self.water_depth['WaterDepth'].values
+
+        # Create mapping for fast time index lookup
+        self.dates_to_index = {date: idx for idx, date in enumerate(self.dates)}
 
         # Initialize diagnostic variables
         for var in self.DIAGNOSTIC_VARIABLES:
@@ -677,6 +688,11 @@ class Setup:
             var: getattr(self, var)
             for var in self.DIAGNOSTIC_VARIABLES
         }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert setup to dictionary using existing serialization."""
+        from src.utils import functions as fns
+        return fns.serialize_for_json(self)
 
     def summarize(self) -> str:
         """

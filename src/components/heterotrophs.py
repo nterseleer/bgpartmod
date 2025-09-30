@@ -24,6 +24,7 @@ class Heterotrophs(BaseOrg):
                  eps_kd=0.012,  # [m2 mmolC-1] Specific attenuation coefficient
 
                  dt2=False,
+                 bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  **kwargs,
                  ):
 
@@ -73,6 +74,7 @@ class Heterotrophs(BaseOrg):
             #     setattr(self, k, v)
 
         self.dt2 = dt2
+        self.bound_temp_to_1 = bound_temp_to_1
 
         # Source and sink terms
         self.source_ingestion = Elms(dict=True)
@@ -100,7 +102,8 @@ class Heterotrophs(BaseOrg):
 
     def get_sources(self, t=None):
         # Limitation functions
-        self.lim_T = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref, boltz=True)
+        self.lim_T = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
+                                 boltz=True, bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max)
 
         # SOURCES
         self.get_source_ingestion()

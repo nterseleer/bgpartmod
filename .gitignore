@@ -1,10 +1,11 @@
 data/
-Figs/
-Observations/
+Figs
+Observations
 Simulations/
 tests/
 _private/
 _private_LOG/
+.claude/
 Manual_Saves/
 src/bgc/
 src/config_model/_*config*.py
@@ -24,7 +25,7 @@ requirements (Copy).txt
 simulations_SAVE_20250612/
 old_config_20250613/
 DEVELOPMENT_NOTES.md
-
+AGENTS.md
 
 .venv
 .venv/
@@ -216,8 +217,4 @@ fabric.properties
 
 # idea folder, uncomment if you don't need it
 # .idea
-/AGENTS.md
-/Observations/
-/Figs/
-/Observations/
-/Figs/
+

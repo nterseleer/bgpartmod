@@ -70,6 +70,7 @@ class Phyto(BaseOrg):
 
                  dt2=False,
                  name='DefaultPhyto',
+                 bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
 
         super().__init__()
@@ -132,6 +133,7 @@ class Phyto(BaseOrg):
         self.divide_water_depth_ratio = divide_water_depth_ratio
         self.dt2 = dt2
         self.name = name
+        self.bound_temp_to_1 = bound_temp_to_1
 
         self.lim_N = None
         self.lim_P = None
@@ -197,9 +199,11 @@ class Phyto(BaseOrg):
         # Limitation functions
         self.get_limNUT()
         if self.formulation == 'Onur22':
-            self.limT = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref, boltz=True)
+            self.limT = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
+                                    boltz=True, bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max)
         else:
-            self.limT = fns.getlimT(self.setup.T.loc[t]['T'])
+            self.limT = fns.getlimT(self.setup.T.loc[t]['T'], bound_temp_to_1=self.bound_temp_to_1,
+                                    T_max=self.setup.T_max)
         if self.P is not None and self.Si is not None:
             self.fnut = min(self.QN, self.QP, self.QSi)
 
