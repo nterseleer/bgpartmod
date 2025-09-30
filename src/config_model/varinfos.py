@@ -100,6 +100,12 @@ ref_values = {
         'units': 'gChl gC-1',
         'complete_name': 'Maximum Chl:C ratio'
     },
+    'Phy+divide_water_depth_ratio': {
+        'reference_value': 1.,
+        'symbol': 'depth^{water}_{ratio}',
+        'units': '[-]',
+        'complete_name': 'Water Depth Reduction Ratio for Phytoplankton'
+    },
     'DOCS+alpha_TEPC': {
         'reference_value': 0.85,
         'symbol': '\\alpha^{A1}_{DOC_S-TEP}',
@@ -218,37 +224,61 @@ ref_values = {
         'reference_value': 0.43,
         'symbol': 'KD^{Si}_{Phy}',
         'units': '---',
-        'complete_name': "Self shading strength for Phy"
+        'complete_name': "Si half-saturation for Phy"
     },
     'Phy+eps_kd': {
         'reference_value': 0.024,
         'symbol': 'EPS^{K_d}_{Phy}',
         'units': '---',
-        'complete_name': "Si half-saturation for Phy"
+        'complete_name': "Phy extinction coefficient"
     },
     'DetL+eps_kd': {
         'reference_value': 0.012,
         'symbol': 'EPS^{K_d}_{DetL}',
         'units': '---',
-        'complete_name': "Self shading strength for DetL"
+        'complete_name': "DetL extinction coefficient"
     },
     'DetS+eps_kd': {
         'reference_value': 0.012,
         'symbol': 'EPS^{K_d}_{DetS}',
         'units': '---',
-        'complete_name': "Self shading strength for DetS"
+        'complete_name': "DetS extinction coefficient"
     },
     'BacF+eps_kd': {
         'reference_value': 0.012,
         'symbol': 'EPS^{K_d}_{BacF}',
         'units': '---',
-        'complete_name': "Self shading strength for BacF"
+        'complete_name': "BacF extinction coefficient"
     },
     'BacA+eps_kd': {
         'reference_value': 0.012,
         'symbol': 'EPS^{K_d}_{BacA}',
         'units': '---',
-        'complete_name': "Self shading strength for BacA"
+        'complete_name': "BacA extinction coefficient"
+    },
+    'Microflocs+eps_kd': {
+        'reference_value': 0.066 * 1e3,
+        'symbol': 'eps_{kd}',
+        'units': 'm-1 (mg l-1)-1',
+        'complete_name': "SPM extinction coefficient"
+    },
+    'NH4+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_remin^{NH_4}',
+        'units': '--',
+        'complete_name': "k_remin_NH4"
+    },
+    'DIP+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_remin^{DIP}',
+        'units': '--',
+        'complete_name': "k_remin_DIP"
+    },
+    'DSi+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_remin^{DSi}',
+        'units': '--',
+        'complete_name': "k_remin_DSi"
     }
 }
 
@@ -415,11 +445,17 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                       'cleanname': 'DOC_{large}',
                       'longname': 'Dissolved Organic C (large)'
                       },
-           "Macroflocs_settling_vel": {'units': 'm d-1',
-                                       'munits': 'm d-1',
+           "Macroflocs_settling_vel": {'units': 'm s-1',
+                                       'munits': 'm s-1',
                                        'cleanname': 'Settling velocity',
                                        'longname': 'Flocs settling velocity'
                                        },
+           "Macroflocs_settling_vel_base": {'units': 'mm s-1',
+                                            'munits': 'm s-1',
+                                            'trsfrm': 1e3,
+                                            'cleanname': 'Settling velocity',
+                                            'longname': 'Winterwerp\'s Flocs settling velocity'
+                                            },
 
            "DIM_DINconc": {'units': 'mmol N m-3',
                            'munits': 'mmol N m-3',
@@ -455,7 +491,7 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                               'longname': 'Residual Dissolved Carbon'},
 
            # "I_t": {'units': 'µmol quanta m-2 d-1',
-           #         'oprt': 'setup.PAR /3600./24 * np.exp(-setup.k_att * SUMALLmPhy_Chl * setup.z)',
+           #         'oprt': 'setup.PAR /3600./24 * np.exp(-setup.k_att * SUMALLmPhy_Chl * setup.water_depth)',
            #         'longname': 'Ambiant light level (during Light phases)\n'},
            "QN": {'units': 'molN molC-1',
                   'oprt': 'mPhy_N/mPhy_C',
@@ -667,6 +703,14 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                           'munits': 'd^{-1}',
                           'longname': 'Maximum photosynthetic rate',
                           'cleanname': 'P_C^{max}'},
+           "Phy_PAR_t": {'units': 'µE m-2 d^{-1}',
+                         'munits': 'µE m-2 d^{-1}',
+                         'longname': 'Incident PAR',
+                         'cleanname': 'PAR_{incident}'},
+           "Phy_PAR_t_water_column": {'units': 'µE m-2 d^{-1}',
+                                      'munits': 'µE m-2 d^{-1}',
+                                      'longname': 'PAR in the water column',
+                                      'cleanname': 'PAR_{water}'},
 
            "Phy_PC": {'units': 'd^{-1}',
                       'munits': 'd^{-1}',
@@ -728,6 +772,48 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                                 'munits': '-',
                                 'longname': 'Number of microflocs per macrofloc',
                                 'cleanname': 'N_c'},
+
+           # Resuspension diagnostics variables
+           "Macroflocs_g_shear_rate_at_t": {'units': 's^{-1}',
+                                            'munits': 's^{-1}',
+                                            'longname': 'Shear rate at time t',
+                                            'cleanname': 'g_{shear}'},
+
+           "Macroflocs_tau_cr": {'units': 'Pa',
+                                 'munits': 'Pa',
+                                 'longname': 'Critical shear stress',
+                                 'cleanname': '\\tau_{cr}'},
+
+           "Macroflocs_sedimentation": {'units': ' m^{-3} d^{-1}',
+                                        'munits': ' m^{-3} d^{-1}',
+                                        'longname': 'Sedimentation rate',
+                                        'cleanname': 'Sedimentation'},
+
+           "Macroflocs_resuspension": {'units': ' m^{-3} d^{-1}',
+                                       'munits': ' m^{-3} d^{-1}',
+                                       'longname': 'Resuspension rate',
+                                       'cleanname': 'Resuspension'},
+
+           # Micro_in_Macro resuspension diagnostics
+           "Micro_in_Macro_g_shear_rate_at_t": {'units': 's^{-1}',
+                                                'munits': 's^{-1}',
+                                                'longname': 'Shear rate at time t (micro in macro)',
+                                                'cleanname': 'g_{shear}'},
+
+           "Micro_in_Macro_tau_cr": {'units': 'Pa',
+                                     'munits': 'Pa',
+                                     'longname': 'Critical shear stress (micro in macro)',
+                                     'cleanname': '\\tau_{cr}'},
+
+           "Micro_in_Macro_sedimentation": {'units': ' m^{-3} d^{-1}',
+                                            'munits': ' m^{-3} d^{-1}',
+                                            'longname': 'Sedimentation rate (micro in macro)',
+                                            'cleanname': 'Sedimentation'},
+
+           "Micro_in_Macro_resuspension": {'units': ' m^{-3} d^{-1}',
+                                           'munits': ' m^{-3} d^{-1}',
+                                           'longname': 'Resuspension rate (micro in macro)',
+                                           'cleanname': 'Resuspension'},
 
            }
 
@@ -806,7 +892,7 @@ doutput_MASS = {"Phy_C": {'units': 'µM',
                                    'longname': 'Residual Dissolved Carbon'},
 
                 "I_t": {'units': 'µmol quanta m-2 d-1',
-                        'oprt': 'setup.I /3600./24 * np.exp(-setup.k_att * SUMALLmPhy_Chl * setup.z)',
+                        'oprt': 'setup.I /3600./24 * np.exp(-setup.k_att * SUMALLmPhy_Chl * setup.water_depth)',
                         'longname': 'Ambiant light level (during Light phases)\n'},
                 "QN": {'units': 'gN gC-1',
                        'oprt': 'mPhy_N/mPhy_C',

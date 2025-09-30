@@ -40,10 +40,10 @@ OPTIM_FILENAMES = {
     'solver_results': 'solver_results.pkl'
 }
 
-# Description-specific subdirectories 
+# Description-specific subdirectories
 DESC_SUBDIRS = {
     'config': 'config',
-    'modkwargs': 'modkwargs', 
+    'modkwargs': 'modkwargs',
     'observations': 'observations'
 }
 
@@ -56,3 +56,6 @@ DESC_FILENAMES = {
     'modkwargs_json': 'modkwargs.json',
     'modkwargs_pkl': 'modkwargs.pkl'
 }
+
+PRIVATE_PATH = os.path.join(ROOT_DIR, '_private_LOG')
+PRIVATE_OPT_LOG_FILE = os.path.join(PRIVATE_PATH, 'Optimizations_log.csv')

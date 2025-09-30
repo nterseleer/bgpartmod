@@ -20,7 +20,12 @@ from src.config_system import path_config as path_cfg
 
 # Constants
 
-
+# Optimization log columns
+OPTIMIZATION_LOG_COLUMNS = [
+    'optimization_id', 'date', 'environment', 'param_count', 
+    'reference_opt', 'user_note_pre', 'user_note_post', 
+    'likelihood_score', 'runtime_minutes'
+]
 
 class SimulationTypes(Enum):
     MODEL_RUN = 1
@@ -134,6 +139,102 @@ def _get_interactive_yes_no_answer(question : str)-> bool:
             print("Invalid input. Please enter yes/no.")
 
 
+# Optimization Log Management Functions
+
+def get_optimization_log() -> pd.DataFrame:
+    """Load or create optimization log."""
+    if not os.path.exists(path_cfg.PRIVATE_OPT_LOG_FILE):
+        # Create with header only
+        df = pd.DataFrame(columns=OPTIMIZATION_LOG_COLUMNS)
+        df.to_csv(path_cfg.PRIVATE_OPT_LOG_FILE, index=False)
+        return df
+    return pd.read_csv(path_cfg.PRIVATE_OPT_LOG_FILE)
+
+
+def save_optimization_log(df: pd.DataFrame):
+    """Save optimization log."""
+    df.to_csv(path_cfg.PRIVATE_OPT_LOG_FILE, index=False)
+
+
+def get_next_optimization_id() -> str:
+    """Get next available optimization ID from the shared log."""
+    log_df = get_optimization_log()
+    if len(log_df) == 0:
+        return 'OPT000'
+    
+    # Extract numbers from existing IDs
+    ids = log_df['optimization_id'].tolist()
+    numbers = [int(id_str[3:]) for id_str in ids if id_str.startswith('OPT')]
+    next_num = max(numbers + [-1]) + 1
+    return f'OPT{next_num:03d}'
+
+
+def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, reference_opt: str = None):
+    """Add new optimization entry to log."""
+    log_df = get_optimization_log()
+    
+    # Detect environment
+    environment = "ecmwf" if "ecmwf" in os.getcwd().lower() or "copernicus" in os.getcwd().lower() else "local"
+    
+    new_entry = pd.DataFrame([{
+        'optimization_id': opt_id,
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'environment': environment,
+        'param_count': param_count,
+        'reference_opt': reference_opt,
+        'user_note_pre': user_note,
+        'user_note_post': '',
+        'likelihood_score': '',
+        'runtime_minutes': ''
+    }])
+    
+    log_df = pd.concat([log_df, new_entry], ignore_index=True)
+    save_optimization_log(log_df)
+
+
+def update_optimization_log_results(opt_id: str, likelihood_score: float, runtime_minutes: float):
+    """Update optimization log with results."""
+    log_df = get_optimization_log()
+    mask = log_df['optimization_id'] == opt_id
+    if mask.any():
+        log_df.loc[mask, 'likelihood_score'] = likelihood_score
+        log_df.loc[mask, 'runtime_minutes'] = runtime_minutes
+        save_optimization_log(log_df)
+
+
+def add_post_note(item_id: str, item_type: str, post_note: str = None):
+    """Unified post-note function for simulations and optimizations."""
+    if item_type.lower() == 'optimization':
+        _add_optimization_post_note(item_id, post_note)
+    elif item_type.lower() == 'simulation':
+        interactive_log_additional_note_modification(item_id)
+    else:
+        raise ValueError(f"Unknown item_type: {item_type}. Use 'optimization' or 'simulation'")
+
+
+def _add_optimization_post_note(opt_id: str, post_note: str = None):
+    """Add or update post-optimization note."""
+    if post_note is None:
+        print(f"\n{'='*60}")
+        print(f"OPTIMIZATION {opt_id} - Post Analysis Note")
+        print("="*60)
+        post_note = input("Please add conclusions/observations after analyzing this optimization:\n> ")
+        post_note = post_note.strip()
+    
+    log_df = get_optimization_log()
+    mask = log_df['optimization_id'] == opt_id
+    if mask.any():
+        log_df.loc[mask, 'user_note_post'] = post_note
+        save_optimization_log(log_df)
+        print(f"✓ Post-analysis note added for {opt_id}")
+    else:
+        print(f"✗ Optimization {opt_id} not found in log")
+
+
+# Legacy function for backward compatibility
+add_optimization_post_note = _add_optimization_post_note
+
+
 def _generate_name(base_name: str = None) -> str:
     """Generate unique simulation name with timestamp"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -245,183 +346,12 @@ def _get_config_diff(config1: Dict, config2: Dict) -> str:
     Returns:
         String with formatted parameter changes
     """
-    if config1 is None or config2 is None:
-        return ""
-
-    # Don't compare 'class' keys as they cause issues with DeepDiff
-    sanitized_config1 = _sanitize_config(config1)
-    sanitized_config2 = _sanitize_config(config2)
-
-    # Use DeepDiff with appropriate settings
-    diff = DeepDiff(sanitized_config1, sanitized_config2,
-                    ignore_order=True,
-                    report_repetition=False,
-                    verbose_level=2)
-
-    if not diff:
-        return "Idem"
-
-    # Process the differences by component
-    diff_by_component = {}
-
-    # Process parameter changes
-    for change_type, changes in diff.items():
-        if change_type == 'values_changed':
-            for path, change in changes.items():
-                component, param = _extract_component_param(path)
-                if component and param:
-                    old_val = _format_value(change['old_value'])
-                    new_val = _format_value(change['new_value'])
-                    _add_change(diff_by_component, component, f"{param}: {old_val} → {new_val}")
-
-        elif change_type == 'dictionary_item_added':
-            for path in changes:
-                component, param = _extract_component_param(path)
-                if component and param:
-                    # Try to get the value
-                    try:
-                        value = _get_value_from_path(config2, path)
-                        value_str = _format_value(value)
-                        _add_change(diff_by_component, component, f"Added {param}={value_str}")
-                    except:
-                        _add_change(diff_by_component, component, f"Added {param}")
-
-        elif change_type == 'dictionary_item_removed':
-            for path in changes:
-                component, param = _extract_component_param(path)
-                if component and param:
-                    # Try to get the value
-                    try:
-                        value = _get_value_from_path(config1, path)
-                        value_str = _format_value(value)
-                        _add_change(diff_by_component, component, f"Removed {param}={value_str}")
-                    except:
-                        _add_change(diff_by_component, component, f"Removed {param}")
-
-        elif change_type == 'type_changes':
-            for path, change in changes.items():
-                component, param = _extract_component_param(path)
-                if component and param:
-                    old_val = _format_value(change['old_value'])
-                    new_val = _format_value(change['new_value'])
-                    _add_change(diff_by_component, component, f"{param} type: {old_val} → {new_val}")
-
-    # Construct the output string
-    result = []
-    for component, changes in diff_by_component.items():
-        result.append(f"Changes in {component}:\n  " + "\n  ".join(changes))
-
-    # Manual parameter comparison if DeepDiff misses something
-    if not result:
-        result = _manual_param_comparison(config1, config2)
-
-    return "\n".join(result) if result else "Idem"
+    return fns.compare_dicts(config1, config2,
+                            format_output=True,
+                            config_mode=True,
+                            print_result=False)
 
 
-def _sanitize_config(config):
-    """Remove problematic keys from the config"""
-    result = {}
-    for k, v in config.items():
-        if k == 'formulation':
-            result[k] = v
-            continue
-
-        result[k] = {}
-        for subk, subv in v.items():
-            if subk == 'class':
-                # Skip class objects
-                continue
-            elif subk == 'parameters' and isinstance(subv, dict):
-                # Deep copy parameters
-                result[k][subk] = {}
-                for paramk, paramv in subv.items():
-                    # Convert numpy types to Python native types
-                    if hasattr(paramv, 'item') and callable(getattr(paramv, 'item')):
-                        result[k][subk][paramk] = paramv.item()
-                    else:
-                        result[k][subk][paramk] = paramv
-            else:
-                result[k][subk] = subv
-    return result
-
-
-def _extract_component_param(path):
-    """Extract component and parameter from a DeepDiff path"""
-    # Handle bracket notation: root['component']['parameters']['param']
-    pattern = r"root\['([^']+)'\](?:\['parameters'\])?\['([^']+)'\]"
-    match = re.search(pattern, path)
-    if match:
-        return match.group(1), match.group(2)
-    return None, None
-
-
-def _format_value(value):
-    """Format a value for display"""
-    if isinstance(value, float):
-        if abs(value) < 0.001 or abs(value) > 1000:
-            return f"{value:.3e}"
-        return f"{value:.4g}"
-    return str(value)
-
-
-def _add_change(diff_dict, component, change):
-    """Add a change to the component dictionary"""
-    if component not in diff_dict:
-        diff_dict[component] = []
-    diff_dict[component].append(change)
-
-
-def _get_value_from_path(config, path):
-    """Get a value from a config using a DeepDiff path"""
-    # Convert path like "root['component']['parameters']['param']" to value
-    parts = re.findall(r"\['([^']+)'\]", path)
-    if not parts or parts[0] != 'root':
-        return None
-
-    value = config
-    for part in parts[1:]:
-        value = value[part]
-    return value
-
-
-def _manual_param_comparison(config1, config2):
-    """Manually compare parameters if DeepDiff didn't find anything"""
-    result = []
-
-    # Compare parameters for each component
-    for component in set(config1.keys()) | set(config2.keys()):
-        component_changes = []
-
-        # Skip if component doesn't exist in both configs
-        if component not in config1 or component not in config2:
-            continue
-
-        # Get parameters dictionaries
-        params1 = config1[component].get('parameters', {})
-        params2 = config2[component].get('parameters', {})
-
-        # Compare parameters
-        for param in set(params1.keys()) | set(params2.keys()):
-            if param not in params1:
-                value_str = _format_value(params2[param])
-                component_changes.append(f"Added {param}={value_str}")
-            elif param not in params2:
-                value_str = _format_value(params1[param])
-                component_changes.append(f"Removed {param}={value_str}")
-            elif params1[param] != params2[param]:
-                # Convert numpy values for comparison
-                val1 = params1[param].item() if hasattr(params1[param], 'item') else params1[param]
-                val2 = params2[param].item() if hasattr(params2[param], 'item') else params2[param]
-
-                if val1 != val2:
-                    old_val = _format_value(val1)
-                    new_val = _format_value(val2)
-                    component_changes.append(f"{param}: {old_val} → {new_val}")
-
-        if component_changes:
-            result.append(f"Changes in {component}:\n  " + "\n  ".join(component_changes))
-
-    return result
 
 
 def save_simulation(
@@ -742,9 +672,10 @@ def run_sensitivity(base_simulation: 'Model',
             'I': base_simulation.setup.I,
             'light_prop': base_simulation.setup.light_prop,
             'lightfirst': base_simulation.setup.lightfirst,
-            'T': base_simulation.setup.T - 273.15,  # Convert back to Celsius for initialization
+            'T': base_simulation.setup.base_T,  # Use the original Celsius value stored
+            'varyingTEMP': base_simulation.setup.varyingTEMP,
             'k_att': base_simulation.setup.k_att,
-            'z': base_simulation.setup.z,
+            'water_depth': base_simulation.setup.water_depth,
             'pCO2': base_simulation.setup.pCO2,
             'g_shear_rate': base_simulation.setup.g_shear_rate.iloc[0, 0] / (1 + base_simulation.setup.gshearfact) if
             hasattr(base_simulation.setup, 'gshearfact') else

@@ -9,9 +9,9 @@ class Phyto(BaseOrg):
     def __init__(self,
                  mu_max=3.,  # [d-1]
                  v_max=0.5,  # [gN gC-1 d-1]
-                 v_max_N=0.78,  # [molN mmolC-1 d-1] # Onur22
-                 v_max_P=0.075,  # [molP mmolC-1 d-1] # Onur22
-                 v_max_Si=1.2,  # [molSi mmolC-1 d-1] # Onur22
+                 v_max_N=0.78,  # [molN molC-1 d-1] # Onur22
+                 v_max_P=0.075,  # [molP molC-1 d-1] # Onur22
+                 v_max_Si=1.2,  # [molSi molC-1 d-1] # Onur22
                  alpha=0.46 * 1e-5,  # [gC m-2 (g Chla µmol quanta)-1
                  QN_min=0.04,  # [gN gC-1]
                  QN_max=0.167,  # [gN gC-1]
@@ -27,7 +27,7 @@ class Phyto(BaseOrg):
                  KDSi=0.43,
                  thetaN_max=0.3,  # [gChla gN-1]
 
-                 theta_max=0.07,  # [gChl gC -1] (Onur22)
+                 theta_max=0.07 * varinfos.molmass_C,  # [gChl molC-1] from [gChl gC-1] (Onur22)
 
                  T_ref=18. + varinfos.degCtoK,  # [K]
                  A_E=0.32,  # [-] Activation energy for T° scaling (Onur22)
@@ -64,12 +64,16 @@ class Phyto(BaseOrg):
 
                  kdvar=False,  # Whether to apply an extinction coefficient in the water column to incident light
                  eps_kd=8e-4 * varinfos.molmass_C,  # Diffuse attenuation cross section of phytoplankton [m2 mgC-1]
+                 divide_water_depth_ratio=1., # ratio to divide water depth to restrain light attenuation (e.g.,
+                                         # assuming they benefit from time period at surface in mixed area,
+                                         # otherwise the light attenuation is too penalizing for the average PAR_water)
 
                  dt2=False,
                  name='DefaultPhyto',
                  ):
 
         super().__init__()
+
 
         self.frac_exud_small = None
         self.rho_Chl = None
@@ -125,6 +129,7 @@ class Phyto(BaseOrg):
         self.r_ref_tweakGMK = r_ref_tweakGMK
         self.kdvar = kdvar
         self.eps_kd = eps_kd
+        self.divide_water_depth_ratio = divide_water_depth_ratio
         self.dt2 = dt2
         self.name = name
 
@@ -141,6 +146,8 @@ class Phyto(BaseOrg):
         self.mmDIP = None
         self.mmDSi = None
         self.limI = None
+        self.PAR_t = None
+        self.PAR_t_water_column = None
 
 
         self.limQUOTA = Elms()
@@ -329,15 +336,16 @@ class Phyto(BaseOrg):
                            self.eps_kd * self.setup.Cphy_tot)
 
     def get_source_PP(self, t):
-        I_t = self.setup.PAR.loc[t]['PAR']
+        self.PAR_t = self.setup.PAR.loc[t]['PAR']
         if self.kdvar:
             self.get_kd()
-            I_t = I_t * np.exp(-self.kd * self.setup.z)
-            pass
+            self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth.loc[t]['WaterDepth'] /
+                                                          self.divide_water_depth_ratio)
 
         if not self.fixedstoichiometry:
             self.PC_max = self.mu_max * self.limNUT * self.limT  # OK
-            self.limI = 1 - np.exp((-self.alpha * self.thetaC * I_t) / (self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0  # Eq. 4
+            self.limI = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column) / (
+                self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0  # Eq. 4
             self.PC = self.PC_max * self.limI
             self.source_PP.C = self.PC * self.C
 
@@ -345,14 +353,22 @@ class Phyto(BaseOrg):
             if self.boundrhoChl:
                 self.rho_Chl = 0. if not light else self.thetaN_max * self.PC / (self.alpha * self.thetaC * I_t_LD)
             else:
-                # TODO check this
                 if self.formulation == "Onur22":
-                    self.rho_Chl = 0. if I_t<0.01 else self.theta_max / self.QN_max * self.PC * varinfos.molmass_C / (
-                            self.alpha * self.thetaC * I_t)
+                    """
+                    rho_chl must be in [mgChl mmolN-1] (see source_Chlprod.Chl)
+                    Hence (self.PC / (self.alpha * self.thetaC * PAR_t_water_column)) must be [-] dimensionless (see limI)
+                    and self.theta_max / self.QN_max must be in [mgChl mmolN-1]
+                    Hence: 
+                    - QN_max is in [molN:molC]
+                    - theta_max must be in [mgChl molC-1] and NOT in [mgChl gC-1]! The conversion must be done 
+                        at the parameter definition (instanciation), already in the config file. 
+                    """
 
+                    self.rho_Chl = 0. if self.PAR_t_water_column<0.01 else self.theta_max / self.QN_max * (
+                            self.PC * varinfos.molmass_C / (self.alpha * self.thetaC * self.PAR_t_water_column))
                 else:
                     self.rho_Chl = self.thetaN_max * self.PC / (
-                            self.alpha * self.thetaC * I_t)  # TBC HERE I_t_LD or I ?? # TROUBLE
+                            self.alpha * self.thetaC * I_t)  # TBC HERE I_t_LD or I ?? #
         else:
             self.limI = 1 - np.exp((-self.alpha * self.thetaC * I_t_LD) / self.mu_max)
             self.source_PP.C = self.mu_max * self.lim_N * self.limI * self.C
@@ -391,6 +407,9 @@ class Phyto(BaseOrg):
                 """
                 20240702 - dPhyChl = VN*rho_chl - Without self.C
                 Indeed, rho_Chl is expressed as gChl/molN!
+                Hence, dimensional analysis: 
+                [mgChl m-3 d-1] = [mgChl mmolN-1] * [mmolN m-3 d-1]
+                Confirming that rho_chl must be in [mgChl mmolN-1]
                 """
                 self.source_Chlprod.Chl = self.rho_Chl * self.source_uptake.N
             else:

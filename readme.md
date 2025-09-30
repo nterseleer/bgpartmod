@@ -12,7 +12,7 @@ This is a **Python implementation framework** that enables users to:
 - Analyze and visualize results with comprehensive plotting utilities
 
 ## Note about the license
-This software is currently **under embargo** until scientific publication (submission planned for summer 2025). 
+This software is currently **under embargo** until scientific publication (submission planned for autumn 2025). 
 After publication, it will be released under the European Union Public Licence (EUPL). 
 For any inquiry, please contact @nterseleer.
 
@@ -45,12 +45,12 @@ The framework is built around the concept of **components** - self-contained mod
 - **Phytoplankton (`Phyto`)**: Primary producers with multi-nutrient (N, P, Si) limitation, variable stoichiometry, and growth-dependent DOM exudation
 - **Heterotrophs**: Multiple bacterial types (free-living bacteria, particle-attached bacteria), heterotrophic flagellates, and ciliates with distinct feeding preferences and metabolic pathways
 
-#### Chemical Components  
+#### Organic Components  
 - **Dissolved Inorganic Matter (`DIM`)**: Individual nutrient pools (NH4, NO3, DIP, DSi) with competitive uptake dynamics
 - **Dissolved Organic Matter (`DOM`)**: Size-structured pools with different bioavailability and aggregation properties
 - **Detritus**: Particulate organic matter with size-dependent bacterial processing and settling
 
-#### Physical Components
+#### Mineral Components
 - **Flocculation (`Flocs`)**: Bimodal population balance model representing microflocs and macroflocs with TEP-mediated aggregation processes
 
 ### Key Processes
@@ -58,6 +58,7 @@ The framework is built around the concept of **components** - self-contained mod
 - **DOM Dynamics**: Phytoplankton exudation shifts from small to large molecules under nutrient stress
 - **TEP Formation**: DOC coagulation creates sticky particles that enhance flocculation
 - **Bimodal Flocculation**: Efficient representation of natural particle size distributions
+- **Organo-mineral interactions**: TEP of biological origin affect mineral flocculation dynamics
 - **Bacterial Processing**: Distinct communities handle dissolved vs. particulate substrates
 
 ## Installation
@@ -96,7 +97,8 @@ The framework is built around the concept of **components** - self-contained mod
 
 ```python
 from src.Config_model import base_config
-from src.utils import phys, simulation_manager, plotting
+from src.utils import simulation_manager, plotting
+from core import phys
 
 # Use base configuration (available in repository)
 model_config = base_config.Onur
@@ -104,8 +106,8 @@ model_config = base_config.Onur
 # Set up physical environment
 setup = phys.Setup(
     **phys.DEFAULT_SETUPS['onur22'],
-    tmax=20,           # Simulation duration (days)
-    PARfromfile=True   # Use light data if available
+    tmax=20,  # Simulation duration (days)
+    PARfromfile=True  # Use light data if available
 )
 
 # Run simulation

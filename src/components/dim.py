@@ -9,7 +9,8 @@ class DIM(BaseStateVar):
                  name,
                  r_nit=0.2,  # [d-1] Specific nitrification rate (Onur22)
                  A_E=0.65,  # [-] Activation Energy for temperature scaling (denitrification) (Onur22)
-                 T_ref=283.,  # [K] Reference temperature (denitrification) (Onur22)
+                 T_ref=283.15,  # [K] Reference temperature (denitrification) (Onur22)
+                 k_remin=0.0, # [d-1] "external" remineralization rate (i.e., not related to simulated processes and state variables)
                  dt2=False,
                  ):
 
@@ -34,6 +35,9 @@ class DIM(BaseStateVar):
         self.r_nit = r_nit
         self.A_E = A_E
         self.T_ref = T_ref
+
+        self.k_remin = k_remin
+        self.remineralization_rate = 0
 
         self.name = name
         self.dt2 = dt2
@@ -71,12 +75,19 @@ class DIM(BaseStateVar):
         self.coupled_sloppy_feeding_sources = coupled_sloppy_feeding_sources
 
     def update_val(self, concentration,
+                   t=None,
                    debugverbose=False):
         self.concentration = concentration
+        # Calculate remineralization rate (available for all subsequent steps)
+        if self.formulation == "Onur22" and self.k_remin > 0 and t is not None:
+            f_temp = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref, boltz=True)
+            self.remineralization_rate = self.k_remin * f_temp
+        else:
+            self.remineralization_rate = 0.
 
     def get_sources(self, t=None):
         # SOURCES
-        self.get_source_remineralization()
+        self.get_source_remineralization(t)
         self.get_source_respiration()
         self.get_source_airseaexchange()
         self.get_source_redox(t)
@@ -106,9 +117,18 @@ class DIM(BaseStateVar):
 
         return np.array(self.sinks)
 
-    def get_source_remineralization(self):
+    def get_source_remineralization(self, t=None):
+        # Onur22
+        if self.formulation == "Onur22":
+            if self.coupled_remin_sources is not None:
+                nutrient_map = {'NH4': 'N', 'DIP': 'P', 'DSi': 'Si'}
+                self.source_remineralization = fns.get_all_contributors(
+                    self.coupled_remin_sources, 'sink_remineralization', nutrient_map[self.name])
+            else:
+                self.source_remineralization = 0.
+
         # Sch07
-        if self.coupled_remin_sources is not None:
+        elif self.formulation == "Sch07" and self.coupled_remin_sources is not None:
             if self.name == 'DIC' or self.name == 'DIN':
                 self.source_remineralization = fns.get_all_contributors(self.coupled_remin_sources,
                                                                         'sink_remineralization')

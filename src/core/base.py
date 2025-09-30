@@ -1,12 +1,16 @@
 import numpy as np
 from ..utils import functions as fns
 
+from src.config_model import varinfos
+
+
 class BaseStateVar:
     def __init__(self):
         self.setup = None
         self.time_conversion_factor = 1
         self.default_diagnostics = True
         self.diagnostics = None
+        self.spinup_days = 0
 
     def get_all_diagnostics(self):
         """Get all numeric non-private attributes as diagnostics."""
@@ -103,7 +107,7 @@ class BaseOrg(BaseStateVar):
         if self.P is not None and self.Si is not None:
             self.fnut = min(self.QN, self.QP, self.QSi)
         if self.Chl is not None:
-            self.thetaC = self.Chl / self.C
+            self.thetaC = self.Chl / self.C #
 
         self.ICs = [pool for pool in [self.C, self.N, self.Chl, self.P, self.Si] if pool is not None]
 
@@ -112,6 +116,7 @@ class BaseOrg(BaseStateVar):
                    Chl=None,
                    P=None,
                    Si=None,
+                   t=None,
                    debugverbose=False):
 
         if debugverbose:

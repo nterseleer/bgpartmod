@@ -1,14 +1,13 @@
 import time
 from functools import wraps
 from collections import defaultdict
-import concurrent.futures
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Set, Any, Tuple
+from typing import Dict, List, Optional, Any
 from scipy import integrate
 
 from src.utils import functions as fns
-from src.utils import phys
+from core import phys
 from src.utils import evaluation
 from src.components import phytoplankton as phyto
 from src.config_model import varinfos
@@ -51,6 +50,16 @@ class Model:
         self.full_diagnostics = full_diagnostics
         self.error = False
         self.euler = euler
+
+        # Default calibrated variables (typically used in optimization)
+        self.calibrated_vars = [
+            'Phy_C',
+            'Phy_Chl',
+            'DIN_concentration',
+            'DIP_concentration',
+            'DSi_concentration',
+            'SPMC'
+        ]
         self.output_config = output_config or varinfos.doutput
         self.output_vars = output_vars or list(self.output_config.keys())
         self.toutputoffset = output_time_offset
@@ -65,6 +74,10 @@ class Model:
 
         # Initialize all components
         self._initialize_all()
+
+        # Optional spin-up phase before main simulation
+        if self._has_spinup_components():
+            self._run_spinup_phase()
 
         # Run model and process results
         self._run_model()
@@ -305,6 +318,7 @@ class Model:
         for key, component in self.components.items():
             update_map = self.component_update_maps[key]
             component.update_val(
+                t=t,
                 debugverbose=self.debug_budgets,
                 **{name: y[idx] for name, idx in update_map.items()}
             )
@@ -379,6 +393,86 @@ class Model:
 
         return (sources - sinks) * self.dt_factors
 
+    def _has_spinup_components(self) -> bool:
+        """Check if any components require spin-up"""
+        spinup_found = any(getattr(comp, 'spinup_days', 0) > 0 for comp in self.components.values())
+        if self.verbose and spinup_found:
+            spinup_components = [comp.name for comp in self.components.values()
+                               if getattr(comp, 'spinup_days', 0) > 0]
+            print(f'Found components requiring spin-up: {spinup_components}')
+        return spinup_found
+
+    @_track_time
+    def _run_spinup_phase(self) -> None:
+        """Run spin-up phase for components that require it"""
+        spinup_components = [comp for comp in self.components.values()
+                            if getattr(comp, 'spinup_days', 0) > 0]
+
+        if not spinup_components:
+            return
+
+        max_spinup_days = max(comp.spinup_days for comp in spinup_components)
+
+        if self.verbose:
+            print(f'Running spin-up phase for {max_spinup_days} days for components: {[comp.name for comp in spinup_components]}')
+
+        # Set spin-up flag
+        self.setup.in_spinup_phase = True
+
+        # Create spin-up time array
+        spinup_steps = int(max_spinup_days / self.used_dt)
+        spinup_dates = np.linspace(0, max_spinup_days, spinup_steps + 1)
+
+        # Run spin-up using existing integration machinery
+        y_spinup = self.initial_state.copy()
+
+        for t_spinup in spinup_dates[1:]:
+            # Map spin-up time to setup time index (use first setup time for all spin-up)
+            t_setup = self.setup.dates[0]
+
+            # Update ONLY spin-up component states
+            for component in spinup_components:
+                key = component.name
+                update_map = self.component_update_maps[key]
+                component.update_val(
+                    t=t_setup,  # Use setup time instead of spinup time
+                    debugverbose=False,
+                    **{name: y_spinup[idx] for name, idx in update_map.items()}
+                )
+
+            # Update totals (only if needed by spinup components)
+            self.setup.Chl_tot = y_spinup[self.chl_tot_indices].sum()
+            self.setup.Cphy_tot = y_spinup[self.cphy_tot_indices].sum()
+
+            # Compute derivatives ONLY for spin-up components
+            derivatives = np.zeros_like(y_spinup)
+            for component in spinup_components:
+                key = component.name
+                component_indices = self.ipools[key]
+                component_sources = component.get_sources(t_setup)
+                component_sinks = component.get_sinks(t_setup)
+
+                # Apply time conversion factors for this component
+                if self.two_dt:
+                    factor = (1 if hasattr(component, 'dt2') and component.dt2 else self.dt_ratio)
+                    factor *= component.time_conversion_factor
+                    derivatives[component_indices] = (component_sources - component_sinks) * factor
+                else:
+                    derivatives[component_indices] = component_sources - component_sinks
+
+            y_spinup = y_spinup + self.used_dt * derivatives
+
+            if self.verbose and t_spinup in spinup_dates[::int(1 / self.used_dt)]:
+                print(f'Spin-up integration for t = {t_spinup:.1f} days')
+
+        self.initial_state = y_spinup
+
+        # Reset spin-up flag
+        self.setup.in_spinup_phase = False
+
+        if self.verbose:
+            print(f'Spin-up phase completed. Starting main simulation.')
+
     @_track_time
     def _compute_diagnostics(self, t: float) -> np.ndarray:
         """Compute diagnostic variables"""
@@ -421,10 +515,13 @@ class Model:
     def _run_euler_integration(self) -> None:
         """Run model using Euler integration"""
         y = self.initial_state
+
+
         states = [y]
 
         if self.do_diagnostics:
             diagnostics = [self._compute_diagnostics(self.setup.dates[0])]
+
 
         for t in self.dates[1:]:
             derivatives = self._compute_derivatives(t, y)

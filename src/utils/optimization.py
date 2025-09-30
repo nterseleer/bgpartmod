@@ -17,6 +17,8 @@ from src.utils import functions as fns
 from src.utils import desolver
 from src.core import model
 from src.config_system import path_config as path_cfg
+from src.config_model import config
+from src.utils import simulation_manager as sim_manager
 
 # Constants
 OPTIMIZATIONS_DIR = path_cfg.OPTIM_DIR
@@ -25,7 +27,7 @@ LOG_FILE = path_cfg.OPT_LOG_FILE
 
 
 class Optimization:
-    """Manages model optimization including running, saving, and analyzing results."""
+    """Manages model optimization including running, saves, and analyzing results."""
 
     def __init__(self, verbose=True):
         """Initialize optimization container."""
@@ -37,6 +39,20 @@ class Optimization:
         self.obs = None
         self.calibrated_vars = None
         self.verbose = verbose
+
+    @classmethod
+    def _get_next_id(cls) -> str:
+        """Get next available optimization ID from the shared log."""
+        return sim_manager.get_next_optimization_id()
+
+    @classmethod
+    def _prompt_user_note(cls) -> str:
+        """Prompt user for optimization note."""
+        print("\n" + "="*60)
+        print("OPTIMIZATION SETUP - User Note")
+        print("="*60)
+        note = input("Please describe this optimization (purpose, approach, expectations):\n> ")
+        return note.strip()
 
     @classmethod
     def run_new(cls,
@@ -94,7 +110,10 @@ class Optimization:
             **solver_kwargs: Additional solver parameters
         """
         instance = cls()
-        instance.name = name or instance._get_next_name()
+        instance.name = name or instance._get_next_id()
+        user_note = instance._prompt_user_note()
+        sim_manager.add_optimization_to_log(instance.name, len(optimized_parameters), user_note)
+
         instance.descriptions = descriptions
         instance._setup_directories()
 
@@ -117,7 +136,7 @@ class Optimization:
             'solver_kwargs': solver_kwargs,
             'calibrated_vars': instance.calibrated_vars,
             'observation_info': [
-                {'station': obs.station, 'name': obs.name} 
+                {'station': obs.station, 'name': obs.name}
                 for _, _, obs in descriptions
             ]
         }
@@ -149,13 +168,13 @@ class Optimization:
             raise FileNotFoundError(f"Configuration file not found: {instance.files['config']}")
 
         instance.config = instance._load_pickle(instance.files['config'])
-        
+
         # Backward compatibility: convert old 'configs' to 'descriptions'
         if 'configs' in instance.config and 'descriptions' not in instance.config:
             instance.config['descriptions'] = instance.config['configs']
             if 'num_configs' in instance.config:
                 instance.config['num_descriptions'] = instance.config['num_configs']
-        
+
         instance.calibrated_vars = instance.config['calibrated_vars']
 
         # Load Observations (handles both single and multi-description)
@@ -241,8 +260,8 @@ class Optimization:
                                    serialize_objects=False)
 
         # Write readme - backward compatibility for count
-        num_descriptions = self.config.get('num_descriptions', 
-                                         self.config.get('num_configs', 
+        num_descriptions = self.config.get('num_descriptions',
+                                         self.config.get('num_configs',
                                                         1 if 'dconf' in self.config else 0))
         readme = (f"Optimization: {self.name}\n"
                   f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -274,7 +293,7 @@ class Optimization:
         # Save as single obs if only one, otherwise as list
         obs_data = all_obs[0] if len(all_obs) == 1 else all_obs
         self._save_pickle(obs_data, obs_pkl_path)
-        
+
         # Save individual observation summaries
         for i, obs in enumerate(all_obs):
             suffix = self._get_description_suffix(i)
@@ -282,7 +301,7 @@ class Optimization:
             summary_path = os.path.join(obs_dir, f"{self.name}_observations{suffix}_summary.json")
             with open(summary_path, 'w') as f:
                 json.dump(summary, f, indent=2)
-                
+
             # Try to create symbolic links to original data
             try:
                 source_path = os.path.abspath(os.path.join(obs.datadir, f"{obs.station}.feather"))
@@ -330,7 +349,7 @@ class Optimization:
         """Evaluate a parameter set across all descriptions (called by solver)."""
         total_score = 0.0
         num_valid_descriptions = 0
-        
+
         try:
             # Evaluate all descriptions
             for dconf, modkwargs, obs in self.config['descriptions']:
@@ -358,19 +377,19 @@ class Optimization:
                         if self.verbose:
                             print(f"Description failed with invalid likelihood: {lnl}")
                         continue  # Skip this description but try others
-                    
+
                     total_score += lnl
                     num_valid_descriptions += 1
-                    
+
                 except (RuntimeWarning, FloatingPointError, ValueError, ZeroDivisionError) as e:
                     if self.verbose:
                         print(f"Description evaluation failed with error: {e}")
                     continue  # Skip this description but try others
-                    
+
             # Return bad score if no descriptions succeeded
             if num_valid_descriptions == 0:
                 return self.config['badlnl']
-                
+
             return total_score
 
         except (RuntimeWarning, FloatingPointError, ValueError, ZeroDivisionError) as e:
@@ -392,7 +411,7 @@ class Optimization:
 
         # Process results to get best parameters first
         self.process_results()
-        
+
         # Now save winning configuration(s) using best parameters
         winner = self.summary['best_parameters']
         for i, (dconf, modkwargs, obs) in enumerate(self.config['descriptions']):
@@ -437,15 +456,33 @@ class Optimization:
             'parameter_ranges': self._analyze_parameter_ranges()
         }
 
-        # Winning configurations are now created in _save_results() 
-        # to avoid recreation on every process_results() call
+        # Save winning configuration (only if it doesn't exist)
+        winning_config_path = os.path.join(self.optdir, f"{self.name}_WINNING_CONFIG.json")
+        if not os.path.exists(winning_config_path):
+            winning_config = fns.update_config(
+                self.config['dconf'],
+                self.config['optimized_parameters'],
+                self.summary['best_parameters'].values()
+            )
+            fns.write_dict_to_file(
+                winning_config,
+                f"{self.name}_WINNING_CONFIG",
+                fdir=self.optdir
+            )
 
-        # Save summary stats
-        fns.write_dict_to_file(
-            self.summary,
-            f"{self.name}_SUMMARY",
-            fdir=self.optdir
-        )
+        # Save summary stats (only if it doesn't exist)
+        summary_path = os.path.join(self.optdir, f"{self.name}_SUMMARY.json")
+        if not os.path.exists(summary_path):
+            fns.write_dict_to_file(
+                self.summary,
+                f"{self.name}_SUMMARY",
+                fdir=self.optdir
+            )
+
+        # Update optimization log with results
+        if hasattr(self, 'runtime'):
+            runtime_minutes = self.runtime / 60.0
+            sim_manager.update_optimization_log_results(self.name, self.summary['best_score'], runtime_minutes)
 
         return self.summary
 
@@ -523,13 +560,16 @@ class Optimization:
 
         # Create and run best model for specified description
         dconf, modkwargs, obs = self.config['descriptions'][desc_index]
-        
+
         best_config = fns.update_config(
             dconf,
             self.config['optimized_parameters'],
             self.summary['best_parameters'].values()
         )
 
+        best_config = fns.deep_update(best_config, config.full_diagnostics)
+
+        # Add additional diagnostics for best model
         model_kwargs = {
             **modkwargs,
             'verbose': True,

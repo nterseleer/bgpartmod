@@ -1,16 +1,19 @@
 data/
-Figs
-Observations
+Figs/
+Observations/
 Simulations/
 tests/
-bgpartmod_private/
+_private/
+_private_LOG/
 Manual_Saves/
 src/bgc/
 src/config_model/_*config*.py
 src/config_model/config.py
 src/config_model/strains_config.py
+src/config_model/config_sensitivity.py
 src/config_model/obsinfos.py
 src/config_model/vars_to_plot.py
+src/config_model/phys_setup.py
 src/utils/observations.py
 src/utils/*_additional_predefined_plot_variables.py
 src/_*main*
@@ -20,6 +23,8 @@ requirementsBGPARTMOD.txt
 requirements (Copy).txt
 simulations_SAVE_20250612/
 old_config_20250613/
+DEVELOPMENT_NOTES.md
+
 
 .venv
 .venv/
@@ -211,3 +216,8 @@ fabric.properties
 
 # idea folder, uncomment if you don't need it
 # .idea
+/AGENTS.md
+/Observations/
+/Figs/
+/Observations/
+/Figs/
