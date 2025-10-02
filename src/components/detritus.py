@@ -58,6 +58,7 @@ class Detritus(BaseOrg):
         self.sink_aggregation = Elms()
         self.sink_leakage_out = Elms()
         self.sink_remineralization = Elms()
+        self.sink_vertical_loss = Elms()  # Vertical loss coupled to mineral flocs
 
 
         # Coupling links
@@ -137,6 +138,7 @@ class Detritus(BaseOrg):
         self.get_sink_aggregation()
         self.get_sink_leakage_out()
         self.get_sink_ingestion()
+        self.get_sink_vertical_loss()
         # self.get_sink_remineralization()
 
         # SINK terms of the state equation
@@ -144,27 +146,31 @@ class Detritus(BaseOrg):
                         self.sink_aggregation.C +
                         self.sink_leakage_out.C +
                         self.sink_ingestion.C +
-                        self.sink_remineralization.C)
+                        self.sink_remineralization.C +
+                        self.sink_vertical_loss.C)
 
         self.N_sinks = (self.sink_breakdown.N +
                         self.sink_aggregation.N +
                         self.sink_leakage_out.N +
                         self.sink_ingestion.N +
-                        self.sink_remineralization.N)
+                        self.sink_remineralization.N +
+                        self.sink_vertical_loss.N)
 
         if self.P is not None:
             self.P_sinks = (self.sink_breakdown.P +
                             self.sink_aggregation.P +
                             self.sink_leakage_out.P +
                             self.sink_ingestion.P +
-                            self.sink_remineralization.P)
+                            self.sink_remineralization.P +
+                            self.sink_vertical_loss.P)
 
         if self.Si is not None:
             self.Si_sinks = (self.sink_breakdown.Si +
                              self.sink_aggregation.Si +
                              self.sink_leakage_out.Si +
                              self.sink_ingestion.Si +
-                             self.sink_remineralization.Si)
+                             self.sink_remineralization.Si +
+                             self.sink_vertical_loss.Si)
 
         return np.array(
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks, self.Si_sinks) if sinks is not None])
@@ -272,8 +278,7 @@ class Detritus(BaseOrg):
     def get_sink_leakage_out(self):
         if self.formulation == "Onur22":
             if self.name == 'DetL':
-                if self.coupled_aggregate:
-                    self.kleak = self.coupled_aggregate.sinking_leak * self.coupled_aggregate.settling_vel
+                # Mesocosm-specific leakage process (independent of floc dynamics)
                 self.sink_leakage_out.C = self.kleak * self.C
                 self.sink_leakage_out.N = self.kleak * self.N
                 self.sink_leakage_out.P = self.kleak * self.P
@@ -321,3 +326,25 @@ class Detritus(BaseOrg):
             self.sink_remineralization.N = 0.
             self.sink_remineralization.P = 0.
             self.sink_remineralization.Si = 0.
+
+    def get_sink_vertical_loss(self):
+        """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)"""
+        if self.coupled_aggregate is not None:
+            # Convert s-1 to d-1 when coupling to biogeochemistry
+            rate = (self.coupled_aggregate.net_vertical_loss_rate *
+                    self.coupled_aggregate.time_conversion_factor)
+            self.sink_vertical_loss.C = rate * self.C
+            self.sink_vertical_loss.N = rate * self.N
+            if self.P is not None:
+                self.sink_vertical_loss.P = rate * self.P
+            else:
+                self.sink_vertical_loss.P = 0.
+            if self.Si is not None:
+                self.sink_vertical_loss.Si = rate * self.Si
+            else:
+                self.sink_vertical_loss.Si = 0.
+        else:
+            self.sink_vertical_loss.C = 0.
+            self.sink_vertical_loss.N = 0.
+            self.sink_vertical_loss.P = 0.
+            self.sink_vertical_loss.Si = 0.

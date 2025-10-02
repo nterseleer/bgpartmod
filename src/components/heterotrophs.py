@@ -82,6 +82,10 @@ class Heterotrophs(BaseOrg):
         self.sink_respiration = Elms()
         self.sink_lysis = Elms()
         self.sink_mortality = Elms()
+        self.sink_vertical_loss = Elms()  # Vertical loss coupled to mineral flocs
+
+        # Coupling links
+        self.coupled_aggregate = None  # Link to Macroflocs for vertical dynamics
 
         # Initialize SMS terms
         self.C_SMS = 0.
@@ -89,10 +93,12 @@ class Heterotrophs(BaseOrg):
         self.P_SMS = 0.
 
     def set_coupling(self, coupled_targets,
-                     coupled_consumers=None):
+                     coupled_consumers=None,
+                     coupled_aggregate=None):
         # Coupling links
         self.coupled_targets = coupled_targets  # preys (for zooplankton), but can also be OM
         self.coupled_consumers = coupled_consumers
+        self.coupled_aggregate = coupled_aggregate
         for t in self.coupled_targets:
             if t.name not in self.pref.keys():
                 self.pref[t.name] = 0.
@@ -164,6 +170,7 @@ class Heterotrophs(BaseOrg):
     def get_sinks(self, t=None):
         # SINKS
         self.get_sink_ingestion()
+        self.get_sink_vertical_loss()
         # self.get_sink_respiration()
         # self.get_sink_lysis()
         # self.get_sink_mortality()
@@ -172,17 +179,20 @@ class Heterotrophs(BaseOrg):
         self.C_sinks = (self.sink_ingestion.C +
                         # self.sink_respiration.C + # commented out because it is already removed from ingestion (conserved QN and QP)
                         self.sink_lysis.C +
-                        self.sink_mortality.C)
+                        self.sink_mortality.C +
+                        self.sink_vertical_loss.C)
 
         self.N_sinks = (self.sink_ingestion.N +
                         self.sink_respiration.N +
                         self.sink_lysis.N +
-                        self.sink_mortality.N)
+                        self.sink_mortality.N +
+                        self.sink_vertical_loss.N)
 
         self.P_sinks = (self.sink_ingestion.P +
                         self.sink_respiration.P +
                         self.sink_lysis.P +
-                        self.sink_mortality.P)
+                        self.sink_mortality.P +
+                        self.sink_vertical_loss.P)
 
         return np.array((self.C_sinks, self.N_sinks, self.P_sinks))
 
@@ -228,3 +238,17 @@ class Heterotrophs(BaseOrg):
         self.sink_mortality.C = self.C * (self.mortrate_lin + self.C * self.mortrate_quad) * self.lim_T
         self.sink_mortality.N = self.sink_mortality.C * self.QN
         self.sink_mortality.P = self.sink_mortality.C * self.QP
+
+    def get_sink_vertical_loss(self):
+        """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)"""
+        if self.coupled_aggregate is not None:
+            # Convert s-1 to d-1 when coupling to biogeochemistry
+            rate = (self.coupled_aggregate.net_vertical_loss_rate *
+                    self.coupled_aggregate.time_conversion_factor)
+            self.sink_vertical_loss.C = rate * self.C
+            self.sink_vertical_loss.N = rate * self.N
+            self.sink_vertical_loss.P = rate * self.P
+        else:
+            self.sink_vertical_loss.C = 0.
+            self.sink_vertical_loss.N = 0.
+            self.sink_vertical_loss.P = 0.

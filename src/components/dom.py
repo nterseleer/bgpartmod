@@ -57,8 +57,10 @@ class DOM(BaseOrg):
         self.sink_remineralization = Elms()
         self.sink_breakdown = Elms()
         self.sink_aggregation = Elms()
+        self.sink_vertical_loss = Elms()  # Vertical loss coupled to mineral flocs
 
         # Coupling links
+        self.coupled_aggregate = None  # Link to Macroflocs for vertical dynamics
         self.coupled_exud_sources_phyto = None
         self.coupled_exud_sources_zoo = None
         self.coupled_breakdown_sources = None
@@ -78,7 +80,8 @@ class DOM(BaseOrg):
                      coupled_TEPC=None,
                      coupled_sloppy_feeding_sources=None,
                      coupled_consumers=None,
-                     coupled_remin_products=None
+                     coupled_remin_products=None,
+                     coupled_aggregate=None
                      ):
         self.coupled_exud_sources_phyto = coupled_exud_sources_phyto
         self.coupled_exud_sources_zoo = coupled_exud_sources_zoo
@@ -95,6 +98,7 @@ class DOM(BaseOrg):
         else:
             self.coupled_consumers = coupled_consumers
         self.coupled_remin_products = coupled_remin_products
+        self.coupled_aggregate = coupled_aggregate
 
 
     def get_coupled_processes_indepent_sinks_sources(self, t=None):
@@ -142,6 +146,7 @@ class DOM(BaseOrg):
     def get_sinks(self, t=None):
         # SINKS
         self.get_sink_ingestion()
+        self.get_sink_vertical_loss()
         # self.get_sink_remineralization()
         # self.get_sink_breakdown()
         # self.get_sink_aggregation()
@@ -150,17 +155,20 @@ class DOM(BaseOrg):
         self.C_sinks = (self.sink_ingestion.C +
                         self.sink_remineralization.C +
                         self.sink_breakdown.C +
-                        self.sink_aggregation.C)
+                        self.sink_aggregation.C +
+                        self.sink_vertical_loss.C)
         if self.N is not None:
             self.N_sinks = (self.sink_ingestion.N +
                             self.sink_remineralization.N +
                             self.sink_breakdown.N +
-                            self.sink_aggregation.N)
+                            self.sink_aggregation.N +
+                            self.sink_vertical_loss.N)
         if self.P is not None:
             self.P_sinks = (self.sink_ingestion.P +
                             self.sink_remineralization.P +
                             self.sink_breakdown.P +
-                            self.sink_aggregation.P)
+                            self.sink_aggregation.P +
+                            self.sink_vertical_loss.P)
 
         return np.array(
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks) if sinks is not None])
@@ -316,3 +324,24 @@ class DOM(BaseOrg):
             elif self.name == 'PCHO':
                 self.sink_aggregation.C = self.phi_PCHO * self.alpha_PCHO * self.beta_PCHO * self.C ** 2 + \
                                           self.phi_TEPC * self.alpha_TEPC * self.beta_TEPC * self.C * self.coupled_TEPC.C
+
+    def get_sink_vertical_loss(self):
+        """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)"""
+        if self.coupled_aggregate is not None:
+            # Convert s-1 to d-1 when coupling to biogeochemistry
+            rate = (self.coupled_aggregate.net_vertical_loss_rate *
+                    self.coupled_aggregate.time_conversion_factor)
+            self.sink_vertical_loss.C = rate * self.C
+            # DOM components (TEPC, DOCS, DOCL) are C-only
+            if self.N is not None:
+                self.sink_vertical_loss.N = rate * self.N
+            else:
+                self.sink_vertical_loss.N = 0.
+            if self.P is not None:
+                self.sink_vertical_loss.P = rate * self.P
+            else:
+                self.sink_vertical_loss.P = 0.
+        else:
+            self.sink_vertical_loss.C = 0.
+            self.sink_vertical_loss.N = 0.
+            self.sink_vertical_loss.P = 0.
