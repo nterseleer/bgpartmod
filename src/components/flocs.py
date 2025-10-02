@@ -168,6 +168,7 @@ class Flocs(BaseStateVar):
         self.ffloss = None
         self.ppsource = None
         self.settling_loss = None
+        self.net_vertical_loss_rate = None  # [s-1] Net vertical loss rate for organic coupling
         self.g_shear_rate_at_t = None
         self.bed_shear_stress_at_t = None
         self.erosion_factor = None
@@ -486,6 +487,12 @@ class Flocs(BaseStateVar):
             else:
                 # Fallback to original formulation
                 self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
+
+            # Compute net vertical loss rate for organic component coupling
+            if self.numconc > 0:
+                self.net_vertical_loss_rate = self.settling_loss / self.numconc  # [s-1]
+            else:
+                self.net_vertical_loss_rate = 0.0
 
 
             # Formation from microfloc-microfloc collisions
