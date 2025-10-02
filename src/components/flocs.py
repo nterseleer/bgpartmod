@@ -25,25 +25,25 @@ class SharedFlocTEPParameters:
 
         # Extract configuration from Microflocs instance
         self.alpha_FF_base = microfloc_instance.alpha_FF_base
-        self.alpha_PP_base = microfloc_instance.alpha_PP_base
-        self.alpha_PF_base = microfloc_instance.alpha_PF_base
-        self.fyflocstrength_base = microfloc_instance.fyflocstrength_base
-        self.tau_cr_base = microfloc_instance.tau_cr_base
-
         self.delta_alpha_FF = microfloc_instance.delta_alpha_FF
-        self.delta_alpha_PP = microfloc_instance.delta_alpha_PP
-        self.delta_alpha_PF = microfloc_instance.delta_alpha_PF
+        if self.unified_alphas:
+            self.alpha_PP_base = self.alpha_FF_base
+            self.alpha_PF_base = self.alpha_FF_base
+            self.delta_alpha_PP = self.delta_alpha_FF
+            self.delta_alpha_PF = self.delta_alpha_FF
+        else:
+            self.alpha_PP_base = microfloc_instance.alpha_PP_base
+            self.alpha_PF_base = microfloc_instance.alpha_PF_base
+            self.delta_alpha_PP = microfloc_instance.delta_alpha_PP
+            self.delta_alpha_PF = microfloc_instance.delta_alpha_PF
+
+        self.fyflocstrength_base = microfloc_instance.fyflocstrength_base
         self.deltaFymax = microfloc_instance.deltaFymax
+
+        self.tau_cr_base = microfloc_instance.tau_cr_base
         self.delta_tau_cr = microfloc_instance.delta_tau_cr
 
         self.K_glue = getattr(microfloc_instance, 'K_glue', None)
-
-
-        if self.unified_alphas:
-            # Verify alphas are identical for unified mode
-            if not (self.alpha_FF_base == self.alpha_PP_base == self.alpha_PF_base and
-                    self.delta_alpha_FF == self.delta_alpha_PP == self.delta_alpha_PF):
-                print("Warning: unified_alphas=True but base/delta values differ. Using FF values.")
 
     def get_tep_parameters(self, coupled_glue):
         """
