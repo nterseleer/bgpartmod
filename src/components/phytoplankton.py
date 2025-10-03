@@ -33,8 +33,8 @@ class Phyto(BaseOrg):
                  A_E=0.32,  # [-] Activation energy for T° scaling (Onur22)
                  r_ref=0.025,  # [d-1]
 
-                 QratioIC = None, # Ratio to correct for the ICs internal pools vs Q_max (in BaseOrg.set_ICs)
-                 checkQmax = True, # Boolean: whether to check that IC are OK wrt Q_max
+                 QratioIC=None,  # Ratio to correct for the ICs internal pools vs Q_max (in BaseOrg.set_ICs)
+                 checkQmax=True,  # Boolean: whether to check that IC are OK wrt Q_max
 
                  sigmaN_C=1000 * varinfos.molmass_N ** 2 / varinfos.molmass_C ** 2,
                  # [mmolN2 mmolC-2] Slope parameter for DIN-uptake regulation (Sch07)
@@ -58,15 +58,21 @@ class Phyto(BaseOrg):
                  lysrate=0.1,  # [d-1] Onur22
                  mortrate=0.05,  # [d-1] Onur22
 
+                 # Implicit copepod grazing closure term
+                 A_E_grazing=0.65,  # [-] Activation energy for temperature scaling of grazing
+                 T_ref_grazing=283.15,  # [K] Reference temperature for grazing (10°C)
+                 K_grazing=20.0,  # [mmol C m-3] Half-saturation constant for grazing (Michaelis-Menten)
+                 grazing_loss_max=0.0,  # [mmol C m-3 d-1] Maximum grazing loss rate (default: disabled)
+
                  fixedstoichiometry=False,  # [Boolean]
                  boundrhoChl=False,  # [Boolean]
                  r_ref_tweakGMK=False,
 
                  kdvar=False,  # Whether to apply an extinction coefficient in the water column to incident light
                  eps_kd=8e-4 * varinfos.molmass_C,  # Diffuse attenuation cross section of phytoplankton [m2 mgC-1]
-                 divide_water_depth_ratio=1., # ratio to divide water depth to restrain light attenuation (e.g., 
-                                         # assuming they benefit from time period at surface in mixed area, 
-                                         # otherwise the light attenuation is too penalizing for the average PAR_water)
+                 divide_water_depth_ratio=1.,  # ratio to divide water depth to restrain light attenuation (e.g.,
+                 # assuming they benefit from time period at surface in mixed area,
+                 # otherwise the light attenuation is too penalizing for the average PAR_water)
 
                  dt2=False,
                  name='DefaultPhyto',
@@ -75,7 +81,6 @@ class Phyto(BaseOrg):
 
         super().__init__()
 
-        
         self.frac_exud_small = None
         self.rho_Chl = None
         self.PC = None
@@ -124,6 +129,10 @@ class Phyto(BaseOrg):
         self.beta_fact = beta_fact
         self.lysrate = lysrate
         self.mortrate = mortrate
+        self.A_E_grazing = A_E_grazing
+        self.T_ref_grazing = T_ref_grazing
+        self.K_grazing = K_grazing
+        self.grazing_loss_max = grazing_loss_max
         self.k_beta = k_beta
         self.fixedstoichiometry = fixedstoichiometry
         self.boundrhoChl = boundrhoChl
@@ -150,7 +159,6 @@ class Phyto(BaseOrg):
         self.limI = None
         self.PAR_t = None
         self.PAR_t_water_column = None
-
 
         self.limQUOTA = Elms()
         self.limQUOTAmin = Elms()
@@ -214,7 +222,7 @@ class Phyto(BaseOrg):
 
         # SINKS
         self.get_sink_lysis()
-        self.get_sink_mortality()
+        self.get_sink_mortality(t)
         self.get_sink_exudation()
         self.get_sink_respiration()
 
@@ -289,7 +297,6 @@ class Phyto(BaseOrg):
     def get_diagnostic_variables(self):
         return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics])
 
-
     def get_limNUT(self, verbose=True):
         if self.formulation == 'Onur22':
             self.lim_N = 1 - self.QN_min / self.QN
@@ -335,7 +342,7 @@ class Phyto(BaseOrg):
 
             else:
                 self.kd = (self.setup.kb +
-                           self.coupled_SPM.eps_kd * np.sqrt(self.coupled_SPM.concentration) *1e9 +
+                           self.coupled_SPM.eps_kd * np.sqrt(self.coupled_SPM.concentration) * 1e9 +
                            self.coupled_Det.eps_kd * self.coupled_Det.C +
                            self.eps_kd * self.setup.Cphy_tot)
 
@@ -349,10 +356,9 @@ class Phyto(BaseOrg):
         if not self.fixedstoichiometry:
             self.PC_max = self.mu_max * self.limNUT * self.limT  # OK
             self.limI = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column) / (
-                self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0  # Eq. 4
+                    self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0  # Eq. 4
             self.PC = self.PC_max * self.limI
             self.source_PP.C = self.PC * self.C
-
 
             if self.boundrhoChl:
                 self.rho_Chl = 0. if not light else self.thetaN_max * self.PC / (self.alpha * self.thetaC * I_t_LD)
@@ -368,7 +374,7 @@ class Phyto(BaseOrg):
                         at the parameter definition (instanciation), already in the config file. 
                     """
 
-                    self.rho_Chl = 0. if self.PAR_t_water_column<0.01 else self.theta_max / self.QN_max * (
+                    self.rho_Chl = 0. if self.PAR_t_water_column < 0.01 else self.theta_max / self.QN_max * (
                             self.PC * varinfos.molmass_C / (self.alpha * self.thetaC * self.PAR_t_water_column))
                 else:
                     self.rho_Chl = self.thetaN_max * self.PC / (
@@ -436,9 +442,14 @@ class Phyto(BaseOrg):
             self.sink_lysis.P = 0
             self.sink_lysis.Si = 0
 
-    def get_sink_mortality(self):
+    def get_sink_mortality(self, t):
         if self.formulation == 'Onur22':
-            self.sink_mortality.C = self.C * self.mortrate
+            grazing_loss = (self.grazing_loss_max *
+                            fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E_grazing,
+                                        T_ref=self.T_ref_grazing, boltz=True,
+                                        bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) *
+                            self.C / (self.K_grazing + self.C))
+            self.sink_mortality.C = self.C * self.mortrate + grazing_loss
             self.sink_mortality.N = self.sink_mortality.C * self.QN
             self.sink_mortality.Chl = self.sink_mortality.C * self.thetaC
             self.sink_mortality.P = self.sink_mortality.C * self.QP
@@ -488,7 +499,8 @@ class Phyto(BaseOrg):
         if self.coupled_consumer is not None:
             self.sink_ingestion.C = fns.get_all_contributors(self.coupled_consumer, 'source_ingestion', 'C')
             self.sink_ingestion.N = fns.get_all_contributors(self.coupled_consumer, 'source_ingestion', 'N')
-            self.sink_ingestion.Chl = fns.get_all_contributors(self.coupled_consumer, 'source_ingestion', 'C') * self.thetaC
+            self.sink_ingestion.Chl = fns.get_all_contributors(self.coupled_consumer, 'source_ingestion',
+                                                               'C') * self.thetaC
 
         else:
             self.sink_ingestion.C = 0.
