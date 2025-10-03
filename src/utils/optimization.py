@@ -66,6 +66,7 @@ class Optimization:
                 setup: Optional[Any] = None,
                 calibrated_vars: Optional[List[str]] = None,
                 name: Optional[str] = None,
+                user_note: Optional[str] = None,
                 population_size: int = 90,
                 num_cpus: int = 30,
                 num_generations: int = 100,
@@ -82,6 +83,7 @@ class Optimization:
             bounds: (min_bounds, max_bounds) for parameters
             calibrated_vars: Variables to use in likelihood calculation
             name: Optional name (generated if None)
+            user_note: Optional user note (prompts if None)
             population_size: DE population size
             num_generations: Number of generations
             badlnl: Score for failed evaluations
@@ -89,9 +91,10 @@ class Optimization:
         """
         instance = cls()
 
-        # Always prompt user and setup optimization log
+        # Setup optimization log (prompt user if note not provided)
         instance.name = name or cls._get_next_id()
-        user_note = cls._prompt_user_note()
+        if user_note is None:
+            user_note = cls._prompt_user_note()
         sim_manager.add_optimization_to_log(instance.name, len(optimized_parameters), user_note)
 
         instance.obs = obs
