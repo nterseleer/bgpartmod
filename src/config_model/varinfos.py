@@ -106,6 +106,12 @@ ref_values = {
         'units': '[-]',
         'complete_name': 'Water Depth Reduction Ratio for Phytoplankton'
     },
+    'Phy+grazing_loss_max': {
+        'reference_value': 0.,
+        'symbol': 'grazing^{max}_{loss}',
+        'units': '[mmolC m-3 d-1]',
+        'complete_name': 'Max Grazing loss by zooplankton'
+    },
     'DOCS+alpha_TEPC': {
         'reference_value': 0.85,
         'symbol': '\\alpha^{A1}_{DOC_S-TEP}',
@@ -225,6 +231,26 @@ ref_values = {
         'symbol': 'eps_{kd}',
         'units': 'm-1 (mg l-1)-1',
         'complete_name': "SPM extinction coefficient"
+    },
+    'Microflocs+tau_cr_base': {
+        'reference_value': 0.5,
+        'symbol': '\\tau_{cr}^{base}',
+        'units': 'Pa',
+        'complete_name': "Base Critical shear stress"
+    },
+    'Microflocs+delta_tau_cr': {
+        'reference_value': 1.,
+        'symbol': 'Δ \\tau_{cr}^{base}',
+        'units': 'Pa',
+        'complete_name': "Max TEP-increased Critical shear stress"
+    },
+
+
+    'Macroflocs+resuspension_rate': {
+        'reference_value': 1e5,
+        'symbol': 'rate_{resusp}',
+        'units': '[]',
+        'complete_name': "Resuspension rate"
     },
     'NH4+k_remin': {
         'reference_value': 0,
@@ -748,6 +774,8 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                                  'munits': 'Pa',
                                  'longname': 'Critical shear stress',
                                  'cleanname': '\\tau_{cr}'},
+
+
 
            "Macroflocs_sedimentation": {'units': ' m^{-3} d^{-1}',
                                         'munits': ' m^{-3} d^{-1}',

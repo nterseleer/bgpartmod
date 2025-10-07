@@ -249,6 +249,9 @@ class Model:
         """Process coupling configurations"""
         couplings = {}
         for coupling_key, coupled_component in coupling_dict.items():
+            if coupled_component is None:
+                # Skip explicitly disabled couplings
+                continue
             if isinstance(coupled_component, list):
                 couplings[coupling_key] = [
                     self.components[name] for name in coupled_component

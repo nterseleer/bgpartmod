@@ -105,7 +105,7 @@ class Flocs(BaseStateVar):
                  alpha_PP_base = 0.02,     # [-] Base PP collision efficiency (mineral only)
                  alpha_PF_base = 0.02,     # [-] Base PF collision efficiency (mineral only)
                  fyflocstrength_base = 1e-10,  # [N] Base floc strength (mineral only)
-                 tau_cr_base = 0.1,        # [Pa] Base critical shear stress (mineral only)
+                 tau_cr_base = 0.5,        # [Pa] Base critical shear stress (mineral only)
 
                  # Delta values for TEP effect (additive increments)
                  delta_alpha_FF = 0.03,    # [-] TEP increment for FF collision efficiency
