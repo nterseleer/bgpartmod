@@ -336,12 +336,11 @@ class Optimization:
     def evaluate_model(self, parameters):
         """Evaluate a parameter set (called by solver)."""
         try:
+            # Create parameter dictionary from names and values
+            param_dict = dict(zip(self.config['optimized_parameters'], parameters))
+
             # Create new configuration with updated parameters
-            newconfig = fns.update_config(
-                self.config['dconf'],
-                self.config['optimized_parameters'],
-                parameters
-            )
+            newconfig = fns.update_config(self.config['dconf'], param_dict)
 
             # Run the model
             trial = model.Model(newconfig, setup=self.setup, **self.config['modkwargs'])
@@ -380,11 +379,10 @@ class Optimization:
 
         # Process and save winning configuration
         if hasattr(self, 'summary'):
-            winner = self.summary['best_parameters']
+            # self.summary['best_parameters'] is already a dict
             winning_config = fns.update_config(
                 self.config['dconf'],
-                self.config['optimized_parameters'],
-                winner
+                self.summary['best_parameters']
             )
             fns.write_dict_to_file(
                 winning_config,
@@ -424,10 +422,10 @@ class Optimization:
         # Save winning configuration (only if it doesn't exist)
         winning_config_path = os.path.join(self.optdir, f"{self.name}_WINNING_CONFIG.json")
         if not os.path.exists(winning_config_path):
+            # self.summary['best_parameters'] is already a dict
             winning_config = fns.update_config(
                 self.config['dconf'],
-                self.config['optimized_parameters'],
-                self.summary['best_parameters'].values()
+                self.summary['best_parameters']
             )
             fns.write_dict_to_file(
                 winning_config,
@@ -512,8 +510,7 @@ class Optimization:
         # Create and run best model
         best_config = fns.update_config(
             self.config['dconf'],
-            self.config['optimized_parameters'],
-            self.summary['best_parameters'].values()
+            self.summary['best_parameters']
         )
 
         # add all diagnostics for subsequent plots and post-processing

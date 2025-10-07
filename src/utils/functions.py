@@ -411,40 +411,43 @@ def check_diff_two_dicts(d1, d2):
     """
     compare_dicts(d1, d2, format_output=True, print_result=True)
 
-def update_config(dconf, parnames, parameters):
-    newdict = {}
-    for parname, parval in zip(parnames, parameters):
-        keymod, par = parname.split('+')
-        if keymod not in newdict:
-            newdict[keymod] = {'parameters': {}}
-        newdict[keymod]['parameters'][par] = parval
-    return deep_update(dconf, newdict)
-
-
-def update_config_from_optimization(base_config: Dict, best_parameters: Dict) -> Dict:
+def update_config(dconf: Dict, param_dict: Dict[str, float]) -> Dict:
     """
-    Update configuration with optimized parameters from an optimization result.
+    Update configuration with parameter values from a dictionary.
 
     Args:
-        base_config: Base configuration dictionary
-        best_parameters: Dictionary of optimized parameters (from optimization.summary['best_parameters'])
+        dconf: Base configuration dictionary
+        param_dict: Dictionary mapping 'Component+parameter' to value
+                   Example: {'Phy+mu_max': 1.37, 'Macroflocs+resuspension_rate': 75941.93}
 
     Returns:
-        Updated configuration dictionary
-    """
-    # Transform flat parameter dictionary into nested structure for deep_update
-    updates = {}
-    for param_key, value in best_parameters.items():
-        if '+' not in param_key:
-            continue  # Skip non-standard parameter keys
+        Updated configuration dictionary with parameters applied
 
-        component, param = param_key.split('+')
+    Raises:
+        ValueError: If parameter name format is invalid (missing '+')
+
+    Example:
+        >>> new_config = update_config(base_config, {
+        ...     'Phy+mu_max': 1.37,
+        ...     'Phy+mortrate': 0.01,
+        ...     'Macroflocs+resuspension_rate': 75941.93
+        ... })
+    """
+    # Build nested update dictionary
+    updates = {}
+    for param_key, value in param_dict.items():
+        if '+' not in param_key:
+            raise ValueError(
+                f"Invalid parameter name format: '{param_key}' "
+                f"(expected 'Component+parameter', e.g., 'Phy+mu_max')"
+            )
+
+        component, param = param_key.split('+', 1)  # maxsplit=1 to handle '+' in param names
         if component not in updates:
             updates[component] = {'parameters': {}}
         updates[component]['parameters'][param] = value
 
-    # Apply the updates to the base configuration
-    return deep_update(base_config.copy(), updates)
+    return deep_update(dconf, updates)
 
 
 # From https://github.com/samuelcolvin/pydantic/blob/fd2991fe6a73819b48c906e3c3274e8e47d0f761/pydantic/utils.py#L200
