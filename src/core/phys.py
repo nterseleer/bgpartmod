@@ -173,6 +173,11 @@ class Setup:
         self.mu_water = mu_water  # Dynamic viscosity of water
         self.rho_water = rho_water  # Density of water
 
+        # Store base values for tidal parameters (before DataFrame conversion)
+        self.base_water_depth = water_depth
+        self.base_g_shear_rate = g_shear_rate
+        self.base_bed_shear_stress = bed_shear_stress
+
         # Tidal settings (shared across all tidal parameters)
         self.vary_water_depth = vary_water_depth
         self.tidal_period_M2 = tidal_period_M2

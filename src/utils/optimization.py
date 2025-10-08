@@ -139,7 +139,6 @@ class Optimization:
         instance._save_configuration()
         instance._save_setup()
         instance._save_observations()
-        instance._save_calibration_info()
 
         # Run optimization
         instance._run_optimization(obs)
@@ -208,6 +207,60 @@ class Optimization:
             'summary': os.path.join(self.optdir, f"{self.name}_SUMMARY.pkl")
         }
 
+    def _save_overview(self):
+        """Save optimization overview file (replaces README and calibration_info)."""
+        # Detect environment
+        environment = "ecmwf" if "ecmwf" in os.getcwd().lower() or "copernicus" in os.getcwd().lower() else "local"
+
+        # Build parameter bounds dictionary (compact format)
+        parameter_bounds = {
+            param: {
+                "min": self.config['bounds'][0][i],
+                "max": self.config['bounds'][1][i]
+            }
+            for i, param in enumerate(self.config['optimized_parameters'])
+        }
+
+        # Extract essential setup info
+        setup_info = {
+            "tmin": self.setup.tmin,
+            "tmax": self.setup.tmax,
+            "dt": self.setup.dt,
+            "start_date": self.setup.start_date.strftime('%Y-%m-%d'),
+            "station": self.obs.station if hasattr(self.obs, 'station') else "unknown"
+        }
+
+        overview = {
+            "optimization_id": self.name,
+            "created": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "environment": environment,
+
+            "parameters": parameter_bounds,
+
+            "calibrated_variables": self.calibrated_vars,
+
+            "optimization_settings": {
+                "population_size": self.config['population_size'],
+                "generations_planned": self.config['num_generations'],
+                "num_cpus": self.config['num_cpus'],
+                "badlnl": self.config['badlnl']
+            },
+
+            "setup": setup_info,
+
+            "observations": self.config['observation_info'],
+
+            "user_notes": {
+                "pre": "",
+                "post": ""
+            }
+        }
+
+        # Save as JSON
+        overview_path = os.path.join(self.optdir, f"{self.name}_OVERVIEW.json")
+        with open(overview_path, 'w') as f:
+            json.dump(overview, f, indent=2)
+
     def _save_configuration(self):
         """Save all configuration information for reproducibility."""
         # Save main configuration
@@ -223,15 +276,8 @@ class Optimization:
                                fdir=self.optdir,
                                serialize_objects=False)
 
-        # Write readme
-        readme = (f"Optimization: {self.name}\n"
-                  f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                  f"Parameters: {', '.join(self.config['optimized_parameters'])}\n"
-                  f"Generations: {self.config['num_generations']}\n"
-                  f"Population: {self.config['population_size']}")
-
-        with open(os.path.join(self.optdir, f"{self.name}_README.txt"), 'w') as f:
-            f.write(readme)
+        # Save overview file
+        self._save_overview()
 
     def _load_configuration(self):
         """Load optimization configuration."""
@@ -268,17 +314,6 @@ class Optimization:
         except Exception as e:
             print(f"Could not create symbolic link to original data: {e}")
 
-    def _save_calibration_info(self):
-        """Save calibration variables information."""
-        calib_info = {
-            "calibrated_variables": self.calibrated_vars,
-            "datetime": datetime.now().isoformat()
-        }
-
-        # Save in optimization directory with optimization name prefix
-        calib_path = os.path.join(self.optdir, f"{self.name}_calibration_info.json")
-        with open(calib_path, 'w') as f:
-            json.dump(calib_info, f, indent=2)
 
     def _save_setup(self):
         """Save setup separately from modkwargs."""
@@ -404,6 +439,20 @@ class Optimization:
         self.df['cost_raw'] = self.df['cost']
         self.df.loc[self.df['cost'] == self.config['badlnl'], 'cost'] = np.nan
 
+        # Calculate runtime from timestamps in the file (robust to SCP transfers and manual edits)
+        if not hasattr(self, 'runtime') and 'timestamp' in self.df.columns:
+            try:
+                # Parse first and last timestamps
+                first_time = pd.to_datetime(self.df['timestamp'].iloc[0], format='%Y/%m/%d %H:%M:%S')
+                last_time = pd.to_datetime(self.df['timestamp'].iloc[-1], format='%Y/%m/%d %H:%M:%S')
+                # Calculate runtime in seconds
+                self.runtime = (last_time - first_time).total_seconds()
+            except Exception as e:
+                if self.verbose:
+                    print(f"Warning: Could not calculate runtime from timestamps: {e}")
+                # Fallback: set runtime to None so it won't be logged
+                self.runtime = None
+
         # Find best parameters
         best_idx = self.df['cost'].idxmax()
         self.winner = self.df.loc[best_idx]
@@ -442,16 +491,44 @@ class Optimization:
                 fdir=self.optdir
             )
         
-        # Update optimization log with results
-        if hasattr(self, 'runtime'):
-            runtime_minutes = self.runtime / 60.0
-            sim_manager.update_optimization_log_results(self.name, self.summary['best_score'], runtime_minutes)
+        # Check boundary hits
+        boundary_hits = self._check_boundary_hits(threshold_percent=5.0)
+
+        # Calculate runtime_minutes (None if not available - will appear as empty cell in CSV)
+        runtime_minutes = (self.runtime / 60.0) if (hasattr(self, 'runtime') and self.runtime is not None) else None
+
+        # Update optimization log with full convergence information
+        sim_manager.update_optimization_log_convergence(
+            opt_id=self.name,
+            likelihood_score=self.summary['best_score'],
+            runtime_minutes=runtime_minutes,
+            generations_completed=self.summary['convergence']['generations_completed'],
+            generations_planned=self.summary['convergence']['generations_planned'],
+            first_valid_score=self.summary['convergence']['first_valid_score'],
+            first_valid_gen=self.summary['convergence']['first_valid_gen'],
+            score_improvement=self.summary['convergence']['score_progression']['improvement'],
+            last_improvement_gen=self.summary['convergence']['last_improvement'],
+            params_at_lower_bound=boundary_hits['params_at_lower_bound'],
+            params_at_upper_bound=boundary_hits['params_at_upper_bound']
+        )
 
         return self.summary
 
     def _analyze_convergence(self) -> Dict:
-        """Analyze optimization convergence."""
+        """Analyze optimization convergence with first valid score handling."""
         generations = self.df['generation'].unique()
+
+        # Find first valid (non-badlnl) score using cost_raw (before NaN replacement)
+        valid_scores = self.df[self.df['cost_raw'] != self.config['badlnl']]
+        if len(valid_scores) > 0:
+            first_valid_score = float(valid_scores.iloc[0]['cost'])
+            first_valid_gen = int(valid_scores.iloc[0]['generation'])
+            score_improvement = float(self.df['cost'].max() - first_valid_score)
+        else:
+            # All scores are badlnl - should not happen in successful optimization
+            first_valid_score = self.config['badlnl']
+            first_valid_gen = None
+            score_improvement = 0.0
 
         return {
             'generations_completed': len(generations),
@@ -459,8 +536,10 @@ class Optimization:
             'score_progression': {
                 'initial': float(self.df.loc[self.df['generation'] == 1, 'cost'].max()),
                 'final': float(self.df.loc[self.df['generation'] == len(generations), 'cost'].max()),
-                'improvement': float(self.df['cost'].max() - self.df.loc[self.df['generation'] == 1, 'cost'].max())
+                'improvement': score_improvement
             },
+            'first_valid_score': first_valid_score,
+            'first_valid_gen': first_valid_gen,
             'last_improvement': int(self.df.loc[self.df['cost'] == self.df['cost'].max(), 'generation'].iloc[0])
         }
 
@@ -485,6 +564,38 @@ class Optimization:
                 }
             }
         return param_stats
+
+    def _check_boundary_hits(self, threshold_percent: float = 5.0) -> Dict[str, str]:
+        """
+        Check which parameters hit their boundaries.
+
+        Args:
+            threshold_percent: Percentage of range to consider as "at boundary" (default: 5%)
+
+        Returns:
+            Dict with 'params_at_lower_bound' and 'params_at_upper_bound' as comma-separated strings
+        """
+        lower_hits = []
+        upper_hits = []
+
+        for param in self.config['optimized_parameters']:
+            idx = self.config['optimized_parameters'].index(param)
+            min_bound = self.config['bounds'][0][idx]
+            max_bound = self.config['bounds'][1][idx]
+            best_val = self.summary['best_parameters'][param]
+
+            range_width = max_bound - min_bound
+            threshold = threshold_percent / 100.0 * range_width
+
+            if best_val < min_bound + threshold:
+                lower_hits.append(param)
+            if best_val > max_bound - threshold:
+                upper_hits.append(param)
+
+        return {
+            'params_at_lower_bound': ', '.join(lower_hits) if lower_hits else '',
+            'params_at_upper_bound': ', '.join(upper_hits) if upper_hits else ''
+        }
 
     def get_best_model(self, force_rerun: bool = False, savemodel: bool = False) -> Any:
         """
