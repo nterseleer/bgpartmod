@@ -20,11 +20,26 @@ from src.config_system import path_config as path_cfg
 
 # Constants
 
-# Optimization log columns
+# Optimization log columns (human-readable names)
 OPTIMIZATION_LOG_COLUMNS = [
-    'optimization_id', 'date', 'environment', 'param_count', 
-    'reference_opt', 'user_note_pre', 'user_note_post', 
-    'likelihood_score', 'runtime_minutes'
+    'ID',
+    'Date',
+    'Env',
+    '#pars',
+    'UserNote_PRE',
+    'UserNote_POST',
+    'lnl',
+    '#Gen',
+    'HittingLow',
+    'HittingHigh',
+    'Duration_h',
+    'LastImprovementGen',
+    'First_lnl',
+    'lnl_improvement',
+    'FirstValidGen',
+    'BoundHit%',
+    'Ref_Opt',
+    'PlannedGen'
 ]
 
 class SimulationTypes(Enum):
@@ -161,44 +176,97 @@ def get_next_optimization_id() -> str:
     log_df = get_optimization_log()
     if len(log_df) == 0:
         return 'OPT000'
-    
+
     # Extract numbers from existing IDs
-    ids = log_df['optimization_id'].tolist()
+    ids = log_df['ID'].tolist()
     numbers = [int(id_str[3:]) for id_str in ids if id_str.startswith('OPT')]
     next_num = max(numbers + [-1]) + 1
     return f'OPT{next_num:03d}'
 
 
-def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, reference_opt: str = None):
+def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, reference_opt: str = None,
+                           boundary_hit_threshold_percent: float = 5.0):
     """Add new optimization entry to log."""
     log_df = get_optimization_log()
-    
-    # Detect environment
-    environment = "ecmwf" if "ecmwf" in os.getcwd().lower() or "copernicus" in os.getcwd().lower() else "local"
-    
+
+    # Detect environment with SLURM differentiation
+    if "ecmwf" in os.getcwd().lower() or "copernicus" in os.getcwd().lower():
+        # On ECMWF - check if batch (SLURM) or interactive (JupyterHub)
+        if os.environ.get('SLURM_JOB_ID') or os.environ.get('SLURM_JOBID'):
+            environment = "ecmwf_sbatch"
+        else:
+            environment = "ecmwf_jupyt"
+    else:
+        environment = "local"
+
     new_entry = pd.DataFrame([{
-        'optimization_id': opt_id,
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'environment': environment,
-        'param_count': param_count,
-        'reference_opt': reference_opt,
-        'user_note_pre': user_note,
-        'user_note_post': '',
-        'likelihood_score': '',
-        'runtime_minutes': ''
+        'ID': opt_id,
+        'Date': datetime.now().strftime('%Y-%m-%d'),
+        'Env': environment,
+        '#pars': param_count,
+        'UserNote_PRE': user_note,
+        'UserNote_POST': '',
+        'lnl': '',
+        '#Gen': '',
+        'HittingLow': '',
+        'HittingHigh': '',
+        'Duration_h': '',
+        'LastImprovementGen': '',
+        'First_lnl': '',
+        'lnl_improvement': '',
+        'FirstValidGen': '',
+        'BoundHit%': boundary_hit_threshold_percent,
+        'Ref_Opt': reference_opt,
+        'PlannedGen': ''
     }])
-    
+
     log_df = pd.concat([log_df, new_entry], ignore_index=True)
     save_optimization_log(log_df)
 
 
-def update_optimization_log_results(opt_id: str, likelihood_score: float, runtime_minutes: float):
-    """Update optimization log with results."""
+def update_optimization_log_convergence(
+    opt_id: str,
+    likelihood_score: float,
+    runtime_minutes: Optional[float],
+    generations_completed: int,
+    generations_planned: int,
+    first_valid_score: float,
+    first_valid_gen: Optional[int],
+    score_improvement: float,
+    last_improvement_gen: int,
+    params_at_lower_bound: str,
+    params_at_upper_bound: str
+):
+    """
+    Update optimization log with complete results and convergence information.
+
+    Args:
+        opt_id: Optimization ID
+        likelihood_score: Final best likelihood score
+        runtime_minutes: Total runtime in minutes (will be converted to hours in log), None if not available
+        generations_completed: Number of generations completed
+        generations_planned: Number of generations planned
+        first_valid_score: First non-badlnl score
+        first_valid_gen: Generation of first valid score (or None)
+        score_improvement: Total improvement from first valid to final
+        last_improvement_gen: Generation where best score was found
+        params_at_lower_bound: Comma-separated list of parameters at lower bound
+        params_at_upper_bound: Comma-separated list of parameters at upper bound
+    """
     log_df = get_optimization_log()
-    mask = log_df['optimization_id'] == opt_id
+    mask = log_df['ID'] == opt_id
+
     if mask.any():
-        log_df.loc[mask, 'likelihood_score'] = likelihood_score
-        log_df.loc[mask, 'runtime_minutes'] = runtime_minutes
+        log_df.loc[mask, 'lnl'] = likelihood_score
+        log_df.loc[mask, 'Duration_h'] = (runtime_minutes / 60.0) if runtime_minutes is not None else ''
+        log_df.loc[mask, '#Gen'] = generations_completed
+        log_df.loc[mask, 'PlannedGen'] = generations_planned
+        log_df.loc[mask, 'First_lnl'] = first_valid_score
+        log_df.loc[mask, 'FirstValidGen'] = first_valid_gen if first_valid_gen is not None else ''
+        log_df.loc[mask, 'lnl_improvement'] = score_improvement
+        log_df.loc[mask, 'LastImprovementGen'] = last_improvement_gen
+        log_df.loc[mask, 'HittingLow'] = params_at_lower_bound
+        log_df.loc[mask, 'HittingHigh'] = params_at_upper_bound
         save_optimization_log(log_df)
 
 
@@ -220,11 +288,11 @@ def _add_optimization_post_note(opt_id: str, post_note: str = None):
         print("="*60)
         post_note = input("Please add conclusions/observations after analyzing this optimization:\n> ")
         post_note = post_note.strip()
-    
+
     log_df = get_optimization_log()
-    mask = log_df['optimization_id'] == opt_id
+    mask = log_df['ID'] == opt_id
     if mask.any():
-        log_df.loc[mask, 'user_note_post'] = post_note
+        log_df.loc[mask, 'UserNote_POST'] = post_note
         save_optimization_log(log_df)
         print(f"✓ Post-analysis note added for {opt_id}")
     else:
@@ -662,6 +730,7 @@ def run_sensitivity(base_simulation: 'Model',
     if setup_changes:
         # Get only the initialization parameters from the original setup
         setup_params = {
+            'name': base_simulation.setup.name,
             'tmin': base_simulation.setup.tmin,
             'tmax': base_simulation.setup.tmax,
             'dt': base_simulation.setup.dt,
@@ -675,17 +744,47 @@ def run_sensitivity(base_simulation: 'Model',
             'T': base_simulation.setup.base_T,  # Use the original Celsius value stored
             'varyingTEMP': base_simulation.setup.varyingTEMP,
             'k_att': base_simulation.setup.k_att,
-            'water_depth': base_simulation.setup.water_depth,
             'pCO2': base_simulation.setup.pCO2,
-            'g_shear_rate': base_simulation.setup.g_shear_rate.iloc[0, 0] / (1 + base_simulation.setup.gshearfact) if
-            hasattr(base_simulation.setup, 'gshearfact') else
-            base_simulation.setup.g_shear_rate.iloc[0, 0],
+            'kb': base_simulation.setup.kb,
+            # Water depth and tidal parameters
+            'water_depth': base_simulation.setup.base_water_depth,
+            'vary_water_depth': base_simulation.setup.vary_water_depth,
+            'water_depth_amplitude_spring': base_simulation.setup.water_depth_amplitude_spring,
+            'water_depth_amplitude_neap': base_simulation.setup.water_depth_amplitude_neap,
+            'water_depth_phase_shift': base_simulation.setup.water_depth_phase_shift,
+            # Shear rate and tidal parameters
+            'g_shear_rate': base_simulation.setup.base_g_shear_rate,
             'vary_g_shear': base_simulation.setup.vary_g_shear,
+            'shear_rate_amplitude_spring': base_simulation.setup.shear_rate_amplitude_spring,
+            'shear_rate_amplitude_neap': base_simulation.setup.shear_rate_amplitude_neap,
+            'shear_rate_phase_shift': base_simulation.setup.shear_rate_phase_shift,
+            'shear_rate_additive_mode': base_simulation.setup.shear_rate_additive_mode,
             'gshearfact': base_simulation.setup.gshearfact,
             'gshearper': base_simulation.setup.gshearper,
-            'kb': base_simulation.setup.kb,
+            # Bed shear stress and tidal parameters
+            'bed_shear_stress': base_simulation.setup.base_bed_shear_stress,
+            'vary_bed_shear': base_simulation.setup.vary_bed_shear,
+            'bed_shear_stress_amplitude_spring': base_simulation.setup.bed_shear_stress_amplitude_spring,
+            'bed_shear_stress_amplitude_neap': base_simulation.setup.bed_shear_stress_amplitude_neap,
+            'bed_shear_stress_phase_shift': base_simulation.setup.bed_shear_stress_phase_shift,
+            'bed_shear_stress_additive_mode': base_simulation.setup.bed_shear_stress_additive_mode,
+            'bed_shear_fact': base_simulation.setup.bed_shear_fact,
+            'bed_shear_per': base_simulation.setup.bed_shear_per,
+            # Global tidal settings
+            'tidal_period_M2': base_simulation.setup.tidal_period_M2,
+            'spring_neap_period': base_simulation.setup.spring_neap_period,
+            # Physical constants
+            'mu_water': base_simulation.setup.mu_water,
+            'rho_water': base_simulation.setup.rho_water,
+            # Riverine loads
+            'riverine_loads': base_simulation.setup.riverine_loads,
+            'riverine_loads_file': base_simulation.setup.riverine_loads_file,
+            # Plotting and verbosity
+            'plotPAR': False,  # Don't plot for sensitivity runs
+            'plotTEMP': False,  # Don't plot for sensitivity runs
             'verbose': base_simulation.setup.verbose
         }
+
         # Update with requested changes
         setup_params.update(setup_changes)
         modified_setup = type(base_simulation.setup)(**setup_params)
