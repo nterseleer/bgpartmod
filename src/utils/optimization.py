@@ -365,8 +365,6 @@ class Optimization:
         start_time = time.time()
         self.solver_results = solver.Solve()
         self.runtime = time.time() - start_time
-        # Save final results including runtime
-        self._save_results()
 
     def evaluate_model(self, parameters):
         """Evaluate a parameter set (called by solver)."""
@@ -400,30 +398,6 @@ class Optimization:
                 print(f"Model evaluation failed with error: {e}")
             return self.config['badlnl']
 
-
-    def _save_results(self):
-        """Save optimization results and winning configuration."""
-        # Save solver results
-        results_dict = {
-            'solver_results': self.solver_results,
-            'runtime': self.runtime,
-            'timestamp': datetime.now()
-        }
-        with open(os.path.join(self.optdir, 'solver_results.pkl'), 'wb') as f:
-            pickle.dump(results_dict, f)
-
-        # Process and save winning configuration
-        if hasattr(self, 'summary'):
-            # self.summary['best_parameters'] is already a dict
-            winning_config = fns.update_config(
-                self.config['dconf'],
-                self.summary['best_parameters']
-            )
-            fns.write_dict_to_file(
-                winning_config,
-                f"{self.name}_WINNING_CONFIG",
-                fdir=self.optdir
-            )
 
     def process_results(self, rerun_best: bool = False):
         """Process optimization results to get best parameters and statistics."""
