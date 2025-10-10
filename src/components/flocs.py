@@ -24,17 +24,17 @@ class SharedFlocTEPParameters:
         self.unified_alphas = unified_alphas
 
         # Extract configuration from Microflocs instance
-        self.alpha_FF_base = microfloc_instance.alpha_FF_base
-        self.delta_alpha_FF = microfloc_instance.delta_alpha_FF
+        self.alpha_PP_base = microfloc_instance.alpha_PP_base
+        self.delta_alpha_PP = microfloc_instance.delta_alpha_PP
         if self.unified_alphas:
-            self.alpha_PP_base = self.alpha_FF_base
-            self.alpha_PF_base = self.alpha_FF_base
-            self.delta_alpha_PP = self.delta_alpha_FF
-            self.delta_alpha_PF = self.delta_alpha_FF
+            self.alpha_FF_base = self.alpha_PP_base
+            self.alpha_PF_base = self.alpha_PP_base
+            self.delta_alpha_FF = self.delta_alpha_PP
+            self.delta_alpha_PF = self.delta_alpha_PP
         else:
-            self.alpha_PP_base = microfloc_instance.alpha_PP_base
+            self.alpha_FF_base = microfloc_instance.alpha_FF_base
             self.alpha_PF_base = microfloc_instance.alpha_PF_base
-            self.delta_alpha_PP = microfloc_instance.delta_alpha_PP
+            self.delta_alpha_FF = microfloc_instance.delta_alpha_FF
             self.delta_alpha_PF = microfloc_instance.delta_alpha_PF
 
         self.fyflocstrength_base = microfloc_instance.fyflocstrength_base
@@ -60,7 +60,7 @@ class SharedFlocTEPParameters:
 
         # Calculate alphas
         if self.unified_alphas:
-            alpha = self.alpha_FF_base + (self.delta_alpha_FF * mm_TEP if use_tep_coupling else 0)
+            alpha = self.alpha_PP_base + (self.delta_alpha_PP * mm_TEP if use_tep_coupling else 0)
             alphas = (alpha, alpha, alpha)
         else:
             alphas = (
@@ -86,7 +86,9 @@ class SharedFlocTEPParameters:
 
 class Flocs(BaseStateVar):
     # Class-level shared alpha instance for performance optimization
+    # Recreated for each new simulation to ensure fresh parameters
     _shared_alphas_instance = None
+
     def __init__(self,
                  name,
                  p_exp=0.4,
@@ -307,13 +309,23 @@ class Flocs(BaseStateVar):
             self._precompute_settling_constants()
 
     def _setup_shared_alphas(self):
-        """Setup shared alpha computation for Flocs instances (performance optimization)"""
-        # Only setup shared alphas if this is Microflocs and not already initialized
-        if self.name == 'Microflocs' and Flocs._shared_alphas_instance is None:
+        """
+        Setup shared alpha computation for Flocs instances (performance optimization).
+
+        SharedFlocTEPParameters is shared across Microflocs, Macroflocs, and Micro_in_Macro
+        within a single simulation to avoid redundant calculations.
+
+        This method is called during set_coupling(), which occurs once per Flocs instance
+        during model initialization. Microflocs (first to be created) initializes the shared
+        instance, and Macroflocs/Micro_in_Macro reuse it.
+        """
+        # Only Microflocs creates the shared instance
+        # Always recreate to ensure each new simulation has fresh parameters
+        if self.name == 'Microflocs':
             unified_alphas = getattr(self, 'unified_alphas', True)
             Flocs._shared_alphas_instance = SharedFlocTEPParameters(self, unified_alphas)
 
-        # Assign shared alphas instance to all Flocs instances
+        # All Flocs instances (including Microflocs) get a reference to the shared instance
         if Flocs._shared_alphas_instance is not None:
             self.shared_alphas = Flocs._shared_alphas_instance
 

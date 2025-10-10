@@ -701,7 +701,7 @@ def run_sensitivity(base_simulation: 'Model',
                     name: Optional[str] = None,
                     user_notes: Optional[str] = None,
                     save: bool = True,
-                    setup_changes: Optional[Dict] = None,
+                    setup: Optional[Any] = None,
                     **kwargs) -> Union['Model', List['Model']]:
     """
     Run sensitivity analysis based on an existing simulation.
@@ -715,7 +715,7 @@ def run_sensitivity(base_simulation: 'Model',
         name: Base name for the simulation(s)
         user_notes: Notes about the sensitivity run(s)
         save: Whether to save the simulation(s)
-        setup_changes: Optional dict of setup parameters to modify
+        setup: Optional Setup instance. If None, uses base_simulation.setup
         **kwargs: Additional arguments for Model constructor
 
     Returns:
@@ -724,70 +724,8 @@ def run_sensitivity(base_simulation: 'Model',
     # Check if any parameter has multiple values
     has_multiple = any(isinstance(v, (list, np.ndarray)) for v in parameter_changes.values())
 
-    # Create modified setup if needed
-    modified_setup = base_simulation.setup
-
-    if setup_changes:
-        # Get only the initialization parameters from the original setup
-        setup_params = {
-            'name': base_simulation.setup.name,
-            'tmin': base_simulation.setup.tmin,
-            'tmax': base_simulation.setup.tmax,
-            'dt': base_simulation.setup.dt,
-            'dt2': base_simulation.setup.dt2,
-            'dt2_s_to_d_ratio': base_simulation.setup.dt2_s_to_d_ratio,
-            'start_date': base_simulation.setup.start_date,
-            'PARfromfile': base_simulation.setup.PARfromfile,
-            'I': base_simulation.setup.I,
-            'light_prop': base_simulation.setup.light_prop,
-            'lightfirst': base_simulation.setup.lightfirst,
-            'T': base_simulation.setup.base_T,  # Use the original Celsius value stored
-            'varyingTEMP': base_simulation.setup.varyingTEMP,
-            'k_att': base_simulation.setup.k_att,
-            'pCO2': base_simulation.setup.pCO2,
-            'kb': base_simulation.setup.kb,
-            # Water depth and tidal parameters
-            'water_depth': base_simulation.setup.base_water_depth,
-            'vary_water_depth': base_simulation.setup.vary_water_depth,
-            'water_depth_amplitude_spring': base_simulation.setup.water_depth_amplitude_spring,
-            'water_depth_amplitude_neap': base_simulation.setup.water_depth_amplitude_neap,
-            'water_depth_phase_shift': base_simulation.setup.water_depth_phase_shift,
-            # Shear rate and tidal parameters
-            'g_shear_rate': base_simulation.setup.base_g_shear_rate,
-            'vary_g_shear': base_simulation.setup.vary_g_shear,
-            'shear_rate_amplitude_spring': base_simulation.setup.shear_rate_amplitude_spring,
-            'shear_rate_amplitude_neap': base_simulation.setup.shear_rate_amplitude_neap,
-            'shear_rate_phase_shift': base_simulation.setup.shear_rate_phase_shift,
-            'shear_rate_additive_mode': base_simulation.setup.shear_rate_additive_mode,
-            'gshearfact': base_simulation.setup.gshearfact,
-            'gshearper': base_simulation.setup.gshearper,
-            # Bed shear stress and tidal parameters
-            'bed_shear_stress': base_simulation.setup.base_bed_shear_stress,
-            'vary_bed_shear': base_simulation.setup.vary_bed_shear,
-            'bed_shear_stress_amplitude_spring': base_simulation.setup.bed_shear_stress_amplitude_spring,
-            'bed_shear_stress_amplitude_neap': base_simulation.setup.bed_shear_stress_amplitude_neap,
-            'bed_shear_stress_phase_shift': base_simulation.setup.bed_shear_stress_phase_shift,
-            'bed_shear_stress_additive_mode': base_simulation.setup.bed_shear_stress_additive_mode,
-            'bed_shear_fact': base_simulation.setup.bed_shear_fact,
-            'bed_shear_per': base_simulation.setup.bed_shear_per,
-            # Global tidal settings
-            'tidal_period_M2': base_simulation.setup.tidal_period_M2,
-            'spring_neap_period': base_simulation.setup.spring_neap_period,
-            # Physical constants
-            'mu_water': base_simulation.setup.mu_water,
-            'rho_water': base_simulation.setup.rho_water,
-            # Riverine loads
-            'riverine_loads': base_simulation.setup.riverine_loads,
-            'riverine_loads_file': base_simulation.setup.riverine_loads_file,
-            # Plotting and verbosity
-            'plotPAR': False,  # Don't plot for sensitivity runs
-            'plotTEMP': False,  # Don't plot for sensitivity runs
-            'verbose': base_simulation.setup.verbose
-        }
-
-        # Update with requested changes
-        setup_params.update(setup_changes)
-        modified_setup = type(base_simulation.setup)(**setup_params)
+    # Use provided setup or fall back to base simulation setup
+    modified_setup = setup if setup is not None else base_simulation.setup
 
     if not has_multiple:
         # Single sensitivity run
@@ -849,8 +787,7 @@ def run_sensitivity(base_simulation: 'Model',
             current_changes,
             name=sim_name,
             user_notes=sim_notes,
-            setup_changes=setup_changes,
-            # save=save,
+            setup=setup,
             **kwargs
         ))
 

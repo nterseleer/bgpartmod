@@ -217,8 +217,8 @@ class Setup:
         self.T = self._initialize_TEMP(plotTEMP)
 
         # Calculate temperature bounds once for efficient access
-        self.T_max = self.T['T'].max()  # Maximum temperature in setup [K]
-        self.T_min = self.T['T'].min()  # Minimum temperature in setup [K]
+        # self.T_max = self.T['T'].max()  # Maximum temperature in setup [K]
+        # self.T_min = self.T['T'].min()  # Minimum temperature in setup [K]
 
         # Initialize all tidal parameters using unified approach
         self.water_depth = self._create_tidal_parameter_dataframe(
@@ -388,6 +388,8 @@ class Setup:
 
         # Cosine function parameters fitted to observations
         # T_min = 5.5°C at day 37.5, T_max = 21.5°C at day 220 (MOW1 observations)
+        self.T_min = 5.5 + self.constants.degCtoK
+        self.T_max = 21.5 + self.constants.degCtoK
         T_mean = (5.5 + 21.5) / 2.0  # 13.5°C
         T_amplitude = (21.5 - 5.5) / 2.0  # 8.0°C
         phase_offset = 210  # Day of maximum temperature
