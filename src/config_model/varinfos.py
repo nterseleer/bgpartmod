@@ -190,6 +190,42 @@ ref_values = {
         'units': '-',
         'complete_name': "FF collision efficiency [-]"
     },
+    'Microflocs+alpha_PP_base': {
+        'reference_value': 0.002,
+        'symbol': '\\alpha_{PP}^{base}',
+        'units': '-',
+        'complete_name': "Base PP collision efficiency (mineral only) [-]"
+    },
+    'Microflocs+delta_alpha_PP': {
+        'reference_value': 0.028,
+        'symbol': '\\Delta\\alpha_{PP}',
+        'units': '-',
+        'complete_name': "TEP increment for PP collision efficiency [-]"
+    },
+    'Microflocs+alpha_FF_base': {
+        'reference_value': 0.002,
+        'symbol': '\\alpha_{FF}^{base}',
+        'units': '-',
+        'complete_name': "Base FF collision efficiency (mineral only) [-]"
+    },
+    'Microflocs+delta_alpha_FF': {
+        'reference_value': 0.028,
+        'symbol': '\\Delta\\alpha_{FF}',
+        'units': '-',
+        'complete_name': "TEP increment for FF collision efficiency [-]"
+    },
+    'Microflocs+alpha_PF_base': {
+        'reference_value': 0.002,
+        'symbol': '\\alpha_{PF}^{base}',
+        'units': '-',
+        'complete_name': "Base PF collision efficiency (mineral only) [-]"
+    },
+    'Microflocs+delta_alpha_PF': {
+        'reference_value': 0.028,
+        'symbol': '\\Delta\\alpha_{PF}',
+        'units': '-',
+        'complete_name': "TEP increment for PF collision efficiency [-]"
+    },
     'Macroflocs+sinking_leak': {
         'reference_value': 0.,
         'symbol': 'sinking_{leak}',
@@ -213,6 +249,12 @@ ref_values = {
         'symbol': 'F_y',
         'units': 'Pa',
         'complete_name': "Yield strength of flocs [Pa]"
+    },
+    'Microflocs+fyflocstrength_base': {
+        'reference_value': 1e-10,
+        'symbol': 'F_y^{base}',
+        'units': 'N',
+        'complete_name': "Base yield strength of flocs (mineral only) [N]"
     },
     'Microflocs+K_glue': {
         'reference_value': 15,
@@ -604,6 +646,9 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                                'cleanname': 'Floc_{diam}',
                                'trsfrm': 1e6,
                                'longname': 'Floc diameter'},
+            "Macroflocs_nf_fractal_dim": {'units': '-',
+                               'cleanname': 'n_f',
+                               'longname': 'Fractal dimension'},
 
            "Phy_limNUT": {'units': '-',
                           'munits': '-',
