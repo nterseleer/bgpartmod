@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Any
 from scipy import integrate
 
 from src.utils import functions as fns
-from core import phys
+from src.core import phys
 from src.utils import evaluation
 from src.components import phytoplankton as phyto
 from src.config_model import varinfos

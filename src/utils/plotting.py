@@ -268,7 +268,7 @@ def plot_variable(
 def plot_results(
         models: Union[Any, List[Any]],
         variables: Union[List[str], PlottedVariablesSet],
-        observations: Optional[Any] = observations.Obs(station='MOW1_biweekly_202509_noPhaeo'),
+        observations: Optional[Any] = None,
         calibrated_vars: Optional[List[str]] = None,
         daily_mean: bool = True,
         ncols: Optional[int] = None,

@@ -1,13 +1,19 @@
-from typing import Optional, Any
+from __future__ import annotations
+
+import warnings
+
+from typing import Optional, Any, TYPE_CHECKING
 
 from src.core.model import Model
 from src.core import phys
-from src.optimizations.optimization_metastructure import OptimizationMetaStructure as MetaStructure
-from src.utils.functions import load_pkl, load_json, write_dict_to_file, save_to_pkl
+from src.utils.functions import load_pkl, load_json, write_dict_to_file, save_to_pkl, load_feather
 from src.utils.observations import Obs
 
+if TYPE_CHECKING:
+    from src.optimizations.optimization_metastructure import OptimizationMetaStructure as MetaStructure
 
-class OptimizationDescription:
+
+class Description:
 
     def __init__(self, name: str, setup: phys.Setup, config: dict, observation: Obs,
                  winning_config: dict = None, best_model: Model = None):
@@ -23,7 +29,11 @@ class OptimizationDescription:
         name = meta_description["name"]
         setup = load_pkl(meta_description["setup"]["path"])
         config = load_json(meta_description["config"]["path"])
-        observation = load_pkl(meta_description["observation"]["path"])
+        try:
+            observation = load_pkl(meta_description["observation"]["file"])
+        except FileNotFoundError:
+            warnings.warn("observation file.pkl did not exist, try to load origin file.feather")
+            observation = load_feather(meta_description["observation"]["origin"])
         winning_config = None if meta_description.get("winning_config") is None else load_pkl(
             meta_description["winning_config"]["path"])
         best_model = None if meta_description.get("best_model") is None else load_pkl(
@@ -43,7 +53,7 @@ class OptimizationDescription:
             },
             "observation": {
                 "name": self.observation.name,
-                "path": self.observation.datadir
+                "origin": self.observation.data_file
             },
             "winning_config": {
                 "name": self.winning_config_name,
@@ -69,11 +79,11 @@ class OptimizationDescription:
         # Save setup as pickle to preserve phys.Setup object
         if self.setup:
             self._check_if_name_is_none(self.setup_name)
-            save_to_pkl(self.setup, meta_structure.setup_file(self.setup_name))
+            write_dict_to_file(self.setup, meta_structure.setup_file(self.setup_name))
 
         self.observation.save(meta_structure.observation_file(self.observation_name), is_save_summary=True)
 
-        if isinstance(self.winning_config, dict):
+        if isinstance(self.winning_config, dict) and len(self.winning_config) > 0:
             self._check_if_name_is_none(self.winning_config_name)
             write_dict_to_file(self.winning_config,meta_structure.winning_config_file(self.winning_config_name))
         if isinstance(self.best_model, Model):
@@ -86,7 +96,7 @@ class OptimizationDescription:
 
     @config_name.setter
     def config_name(self, name: str):
-        self.config.update({"name": name})
+        self.config = {"name": name} | self.config
 
     @property
     def setup_name(self):
@@ -114,8 +124,8 @@ class OptimizationDescription:
     def winning_config_name(self, name: str):
         if self.winning_config is None:
             self.winning_config = {}
-        if isinstance(self.winning_config, dict):
-            self.winning_config.update({"name": name})
+        if isinstance(self.winning_config, dict) and len(self.winning_config) > 0:
+            self.winning_config = {"name": name} | self.winning_config
 
     @property
     def best_model_name(self) -> Optional[str]:

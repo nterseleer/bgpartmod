@@ -2,9 +2,10 @@
 Manages model optimization including running, saving, and analyzing results.
 """
 
+from __future__ import annotations
+
 import os
 import warnings
-from _typeshed import DataclassInstance
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -14,7 +15,7 @@ from typing import Optional, Any
 
 from src.core import model
 from src.optimizations import desolver
-from src.optimizations.optimization_description import OptimizationDescription as Description
+from src.optimizations.description import Description
 from src.optimizations.optimization_metadata import OptimizationMetadata as MetaData
 from src.optimizations.optimization_metastructure import OptimizationMetaStructure as MetaStructure
 from src.utils import functions as fns
@@ -22,8 +23,10 @@ from src.utils import simulation_manager as sim_manager
 from src.utils.functions import load_pkl, save_to_json
 
 
+
+
 @dataclass
-class OptimizationConfig(DataclassInstance):
+class OptimizationConfig:
     optimized_parameters: tuple[str, ...]
     bounds: tuple[list[str | float], list[str | float]]
     population_size: int
@@ -31,7 +34,7 @@ class OptimizationConfig(DataclassInstance):
     num_generations: int
     badlnl: float
     solver_kwargs: dict[str, Any] | None
-    calibrated_vars: tuple[str]
+    calibrated_vars: tuple[str, ...]
 
 
 class Optimization:

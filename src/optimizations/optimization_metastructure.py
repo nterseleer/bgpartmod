@@ -6,7 +6,7 @@ from itertools import zip_longest
 from typing import Any
 
 from src.config_system import path_config as pc
-from src.optimizations.optimization_description import OptimizationDescription as Description
+from src.optimizations.description import Description
 
 
 class OptimizationMetaStructure:
@@ -20,19 +20,17 @@ class OptimizationMetaStructure:
         self.log_file: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_LOG_SUB_FILE)
         self.calibration_file: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_CALIBRATION_SUB_FILE)
 
-        self._optimization_src_path: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_SRC_SUB_DIR)
-        self.observation_dir: str = os.path.join(self._optimization_src_path, pc.OPTIMIZATIONS_OBS_SUB_DIR)
-        self.config_dir: str = os.path.join(self._optimization_src_path, pc.OPTIMIZATIONS_CONFIG_SUB_DIR)
-        self.setup_dir: str = os.path.join(self._optimization_src_path, pc.OPTIMIZATIONS_SETUP_SUB_DIR)
-        self.modkwargs_file: str = os.path.join(self._optimization_src_path, pc.OPTIMIZATIONS_MOD_KWARGS_SUB_FILE)
+        self.current_observation_dir: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_OBS_SUB_DIR)
+        self.config_dir: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_CONFIG_SUB_DIR)
+        self.setup_dir: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_SETUP_SUB_DIR)
+        self.modkwargs_file: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_MOD_KWARGS_SUB_FILE)
         self._config_files: dict = {}
-        self._observation_files: dict = {}
+        self._original_observation_files: dict = {}
+        self._current_observation_files: dict = {}
         self._setup_files: dict = {}
 
-        self._optimization_out_path: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_OUT_SUB_DIR)
-        self.winning_config_dir: str = os.path.join(self._optimization_out_path,
-                                                    pc.OPTIMIZATIONS_WINNING_CONFIG_SUB_DIR)
-        self.best_model_dir: str = os.path.join(self._optimization_out_path, pc.OPTIMIZATIONS_BEST_MODEL_SUB_DIR)
+        self.winning_config_dir: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_WINNING_CONFIG_SUB_DIR)
+        self.best_model_dir: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_BEST_MODEL_SUB_DIR)
         self._winning_config_files: dict = {}
         self._best_model_files: dict = {}
 
@@ -42,7 +40,8 @@ class OptimizationMetaStructure:
 
         for meta_desc in meta_descriptions:
             self._config_files[meta_desc["config"]["name"]] = meta_desc["config"]["file"]
-            self._observation_files[meta_desc["observation"]["name"]] = meta_desc["observation"]["file"]
+            self._original_observation_files[meta_desc["observation"]["name"]] = meta_desc["observation"]["origin"]
+            self._current_observation_files[meta_desc["observation"]["name"]] = meta_desc["observation"]["file"]
             self._setup_files[meta_desc["setup"]["name"]] = meta_desc["setup"]["file"]
 
             if _is_optim_run:
@@ -79,7 +78,7 @@ class OptimizationMetaStructure:
 
     def _generate_missing_directory(self, is_optimization_processed: bool):
 
-        src_dirs = (self.observation_dir, self.config_dir, self.setup_dir)
+        src_dirs = (self.current_observation_dir, self.config_dir, self.setup_dir)
         for src_dir in src_dirs:
             os.makedirs(src_dir, exist_ok=True)
 
@@ -88,53 +87,22 @@ class OptimizationMetaStructure:
             for out_dir in out_dirs:
                 os.makedirs(out_dir, exist_ok=True)
 
-    @property
-    def config_files(self) -> dict:
-        return copy.copy(self._config_files)
-
-    def config_file(self, name) -> str:
-        return self._config_files.get(name)
-
-    @property
-    def setup_files(self) -> dict:
-        return copy.copy(self._setup_files)
-
-    def setup_file(self, name) -> str:
-        return self._setup_files.get(name)
-
-    @property
-    def observation_files(self) -> dict:
-        return copy.copy(self._observation_files)
-
-    def observation_file(self, name) -> str:
-        return self._observation_files.get(name)
-
-    @property
-    def winning_config_files(self) -> dict:
-        return copy.copy(self._winning_config_files)
-
-    def winning_config_file(self, name) -> str:
-        return self._winning_config_files.get(name)
-
-    @property
-    def best_model_files(self) -> dict:
-        return copy.copy(self._best_model_files)
-
-    def best_model_file(self, name) -> str:
-        return self._best_model_files.get(name)
-
-    def generate_files_path_from_optimization_descriptions(self, opt_descriptions: list[Description]):
+    def generate_files_path_from_optimization_descriptions(self, opt_descriptions: list[Description],
+                                                           is_optimization_processed: bool):
 
         for opt_description in opt_descriptions:
             self._config_files[opt_description.config_name] = os.path.join(self.config_dir, opt_description.config_name)
             self._setup_files[opt_description.setup_name] = os.path.join(self.setup_dir, opt_description.setup_name)
-            self._observation_files[opt_description.observation_name] = opt_description.observation.datadir
-            if opt_description.winning_config_name:
+            self._original_observation_files[opt_description.observation_name] = opt_description.observation.data_file
+            self._current_observation_files[opt_description.observation_name] = os.path.join(
+                self.current_observation_dir, opt_description.observation_name)
+            if is_optimization_processed:
                 self._winning_config_files[opt_description.winning_config_name] = os.path.join(
                     self.winning_config_dir, opt_description.winning_config_name)
-            if opt_description.best_model_name:
                 self._best_model_files[opt_description.best_model_name] = os.path.join(
                     self.best_model_dir, opt_description.best_model_name)
+
+        self._generate_missing_directory(is_optimization_processed)
 
     def generate_deep_update_path_dict_list(self) -> list[dict[str, str]]:
         path_dict_list = []
@@ -157,3 +125,46 @@ class OptimizationMetaStructure:
             path_dict_list.append(path_dict)
 
         return path_dict_list
+
+    @property
+    def config_files(self) -> dict:
+        return copy.copy(self._config_files)
+
+    def config_file(self, name) -> str:
+        return self._config_files.get(name)
+
+    @property
+    def setup_files(self) -> dict:
+        return copy.copy(self._setup_files)
+
+    def setup_file(self, name) -> str:
+        return self._setup_files.get(name)
+
+    @property
+    def observation_origins(self) -> dict:
+        return copy.copy(self._original_observation_files)
+
+    def observation_origin(self, name) -> str:
+        return self._original_observation_files.get(name)
+
+    @property
+    def observation_files(self) -> dict:
+        return copy.copy(self._current_observation_files)
+
+    def observation_file(self, name) -> str:
+        return self._current_observation_files.get(name)
+
+    @property
+    def winning_config_files(self) -> dict:
+        return copy.copy(self._winning_config_files)
+
+    def winning_config_file(self, name) -> str:
+        return self._winning_config_files.get(name)
+
+    @property
+    def best_model_files(self) -> dict:
+        return copy.copy(self._best_model_files)
+
+    def best_model_file(self, name) -> str:
+        return self._best_model_files.get(name)
+

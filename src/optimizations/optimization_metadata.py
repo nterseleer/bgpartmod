@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 import copy
+import os
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from src.optimizations.optimization import Optimization
-from src.optimizations.optimization_description import OptimizationDescription as Description
+if TYPE_CHECKING:
+    from src.optimizations.optimization import Optimization
+
+from src.optimizations.description import Description
 from src.optimizations.optimization_metastructure import OptimizationMetaStructure as MetaStructure
 from src.utils.functions import load_json, deep_update, save_to_json
 
@@ -17,7 +22,6 @@ class OptimizationMetadata:
         self._is_optimization_processed: bool = False
         self._is_optimization_run: bool = False
         self._is_override_enable: bool = False
-        self._is_new_meta_data: bool = True
         self._is_metadata_updated: bool = False
         self._optimization_name: str = ""
         self._meta_structure: MetaStructure | None = None
@@ -41,7 +45,8 @@ class OptimizationMetadata:
     def _from_optimizations_to_meta_descriptions(self,
                                                  optimization: Optimization):  # todo think about better implementation to catch "update case"
         self._meta_structure.correct_optimization_description_file_names(optimization.descriptions)
-        self._meta_structure.generate_files_path_from_optimization_descriptions(optimization.descriptions)
+        self._meta_structure.generate_files_path_from_optimization_descriptions(optimization.descriptions,
+                                                                                optimization.is_optimization_processed)
         path_description_dicts: list[dict[str, str]] = self._meta_structure.generate_deep_update_path_dict_list()
 
         for opt_description, path_description_dict in zip(optimization.descriptions, path_description_dicts):
@@ -58,11 +63,14 @@ class OptimizationMetadata:
         self._log_structure["descriptions"] = self._descriptions
 
     def _from_optimizations_to_log_structure(self):
-        self._update_log_structure()
+
         self._log_structure["name"] = self._optimization_name
+        self._log_structure["creation_date"] = datetime.strftime(self._creation_date,'%Y-%m-%d %H:%M:%S')
+        self._log_structure["user_note"] = self._user_note
+        self._update_log_structure()
         self._log_structure["modkwargs_path"] = self._modkwargs
         self._log_structure["optim_solver_config"] = self._optimization_config
-        self._log_structure["creation_date"] = datetime.strftime(self._creation_date,'%Y-%m-%d %H:%M:%S')
+
 
     @classmethod
     def from_optimization(cls, optimization: Optimization, is_optimization_override_enable: bool = False):
@@ -75,13 +83,12 @@ class OptimizationMetadata:
         meta_data._is_override_enable = is_optimization_override_enable
         meta_data._is_optimization_processed = optimization.is_optimization_processed
         meta_data._is_optimization_run = optimization.is_optimization_run
-        meta_data._is_new_meta_data = not Path.exists(
+        meta_data._is_metadata_updated = not os.path.exists(
             meta_data._meta_structure.optimization_path)  # todo check meta_data_integrity
 
         meta_data._from_optimizations_to_meta_descriptions(optimization)
-        meta_data._optimization_config = asdict(optimization.optimization_config)
+        meta_data._optimization_config = asdict(optimization.optimization_config)  # type: ignore[arg-type]
         meta_data._from_optimizations_to_log_structure()
-        meta_data._descriptions = meta_data._log_structure["descriptions"]
         meta_data._decompose_meta_descriptions()
         meta_data._modkwargs = meta_data._meta_structure.modkwargs_file
         meta_data._results_solver = meta_data.meta_structure.results_file
@@ -126,6 +133,7 @@ class OptimizationMetadata:
 
     def save(self):
         if self._is_metadata_updated:
+            self._update_log_structure()
             save_to_json(self._log_structure, self.meta_structure.log_file)
             self._is_metadata_updated = False
 

@@ -1,20 +1,23 @@
+from __future__ import annotations
+
 import concurrent.futures
 import numpy as np
 import pandas as pd
 import time
 import os
 from datetime import datetime
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 
-from src.optimizations.optimization import Optimization
-from src.optimizations.optimization_metastructure import OptimizationMetaStructure as MetaStructure
+if TYPE_CHECKING:
+    from src.optimizations.optimization import Optimization
+
 
 
 class DESolver:
     """Differential Evolution solver with parallel processing support."""
 
     def __init__(self,
-                 job: Any,
+                 job: Optimization,
                  populationSize: int,
                  maxGenerations: int,
                  minInitialValue: Union[List[float], np.ndarray],
@@ -28,7 +31,7 @@ class DESolver:
         Initialize the Differential Evolution solver.
 
         Args:
-            job: Object with evaluate_fitness method
+            job: Optimization instance with evaluate_model method
             populationSize: Size of population per generation
             maxGenerations: Maximum number of generations to run
             minInitialValue: Minimum parameter values

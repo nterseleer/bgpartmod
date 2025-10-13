@@ -163,7 +163,7 @@ def get_next_optimization_id() -> str:
         return 'OPT000'
     
     # Extract numbers from existing IDs
-    ids = log_df['optimization_id'].tolist()
+    ids = log_df['ID'].tolist()
     numbers = [int(id_str[3:]) for id_str in ids if id_str.startswith('OPT')]
     next_num = max(numbers + [-1]) + 1
     return f'OPT{next_num:03d}'

@@ -10,8 +10,8 @@ import pickle
 from deepdiff import DeepDiff
 from typing import Any, Dict, List, Union
 
-from core import phys
-from config_model import phys_setup
+from src.core import phys
+from src.config_model import phys_setup
 from src.config_model import varinfos
 
 
@@ -171,7 +171,7 @@ def correct_suffix(path: str, suffix: str) -> str:
     current_suffix = p.suffix
 
     # Liste d'extensions connues
-    valid_extensions = {'.json', '.txt', '.csv', '.xml', '.yaml', '.yml', '.log', '.pkl'}
+    valid_extensions = {'.json', '.txt', '.csv', '.xml', '.yaml', '.yml', '.log', '.pkl', '.feather'}
 
     if current_suffix.lower() in valid_extensions:
         return str(p.with_suffix(suffix))
@@ -184,9 +184,12 @@ def save_to_json(obj : Any, filepath: str, preserve_full_arrays: bool = False, c
     with open(correct_suffix(filepath, ".json"), 'w') as f:
         json.dump(serialized_obj, f, indent=2)
 
-def save_to_pkl(obj : Any, filepath: str, preserve_full_arrays: bool = False, circular_ref_check: bool = True) -> None:
+def save_to_pkl(obj : Any, filepath: str) -> None:
     with open(correct_suffix(filepath, ".pkl"), 'wb') as f:
-        json.dump(obj, f, indent=2)
+        pickle.dump(obj, f)
+
+def save_to_feather(obj : pd.DataFrame, filepath: str) -> None:
+    obj.to_feather(correct_suffix(filepath, ".feather"))
 
 def load_json(filepath: str) -> Any:
     with open(correct_suffix(filepath, ".json"), 'r') as f:
@@ -195,6 +198,9 @@ def load_json(filepath: str) -> Any:
 def load_pkl(filepath: str) -> Any:
     with open(correct_suffix(filepath, ".pkl"), 'rb') as f:
         return pickle.load(f)
+
+def load_feather(filepath: str) -> pd.DataFrame:
+    return pd.read_feather(correct_suffix(filepath, ".feather"))
 
 
 def load_serialized_config(filepath: str) -> Dict:
