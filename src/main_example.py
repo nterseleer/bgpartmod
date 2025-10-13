@@ -32,10 +32,10 @@ def sensitivity_analysis():
     plotres.plot_results(simus, plotres.flocsvar2, climatology=True, observations=obs)
 
 def process_optim():
-    import utils.optimization as optim
+    import src.optimizations.optimization as optim
     obs = observations.Obs(station='MOW1_202503')
     opt = optim.Optimization.load_existing('OPT060')
-    sim0 = opt.get_best_model()
+    sim0 = opt._generate_best_models()
 
     simus = [sim0, ]
     plotres.plot_results(simus, plotres.phy_nuts, climatology=True, observations=obs)

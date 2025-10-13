@@ -1,6 +1,8 @@
 import ast
 import operator as op
 import os
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import json
@@ -160,10 +162,39 @@ def save_human_readable_config(config: Dict, filepath: str) -> None:
         config: Configuration dictionary
         filepath: Output JSON file path
     """
-    serialized_config = serialize_for_json(config)
 
-    with open(filepath, 'w') as f:
-        json.dump(serialized_config, f, indent=2)
+    save_to_json(config, filepath)
+
+
+def correct_suffix(path: str, suffix: str) -> str:
+    p = Path(path)
+    current_suffix = p.suffix
+
+    # Liste d'extensions connues
+    valid_extensions = {'.json', '.txt', '.csv', '.xml', '.yaml', '.yml', '.log', '.pkl'}
+
+    if current_suffix.lower() in valid_extensions:
+        return str(p.with_suffix(suffix))
+    else:
+        return path + suffix
+
+def save_to_json(obj : Any, filepath: str, preserve_full_arrays: bool = False, circular_ref_check: bool = True) -> None:
+    serialized_obj = serialize_for_json(obj, preserve_full_arrays, circular_ref_check),
+
+    with open(correct_suffix(filepath, ".json"), 'w') as f:
+        json.dump(serialized_obj, f, indent=2)
+
+def save_to_pkl(obj : Any, filepath: str, preserve_full_arrays: bool = False, circular_ref_check: bool = True) -> None:
+    with open(correct_suffix(filepath, ".pkl"), 'wb') as f:
+        json.dump(obj, f, indent=2)
+
+def load_json(filepath: str) -> Any:
+    with open(correct_suffix(filepath, ".json"), 'r') as f:
+        return json.load(f)
+
+def load_pkl(filepath: str) -> Any:
+    with open(correct_suffix(filepath, ".pkl"), 'rb') as f:
+        return pickle.load(f)
 
 
 def load_serialized_config(filepath: str) -> Dict:
@@ -189,20 +220,20 @@ def load_serialized_config(filepath: str) -> Dict:
 def print_dict(dict):
     print(json.dumps(serialize_for_json(dict), indent=4))
 
-def write_dict_to_file(dict, fname,
+def write_dict_to_file(dict, fname = "",
                        fdir='optim_result/',
                        serialize_objects = True,
                        truncate = True):
     # serialized_dict = nserialize(dict, serialize_objects=serialize_objects, truncate = truncate)
     serialized_dict = serialize_for_json(dict)
-    fullname = os.path.join(fdir, fname)
-    with open(fullname+'.json', 'w') as file:
+    fullname = fdir if len(fname) == 0 else os.path.join(fdir, fname)
+    with open(correct_suffix(fullname, '.json'), 'w') as file:
         json.dump(serialized_dict, file, indent=4)
-    print('Dict written to ', fullname + '.json')
+    print('Dict written to ', correct_suffix(fullname, '.json'))
 
-    with open(fullname+'.pkl', 'wb') as file:
+    with open(correct_suffix(fullname, '.pkl'), 'wb') as file:
         pickle.dump(dict, file)
-    print('Dict written to ', fullname + '.pkl')
+    print('Dict written to ',correct_suffix(fullname, '.pkl'))
 
 def get_dict_from_file(fname,
                        fdir = 'optim_result/'):

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import warnings
 import numpy as np
 
-from utils import optimization as optim
+from src.optimizations import optimization as optim
 from Config_model import config
 from core import phys
 from utils import evaluation
@@ -46,7 +46,7 @@ def process_optimization(opt_name, savefig=False):
     print(f"Calibrated variables: {opt.calibrated_vars}")
 
     # Get best model
-    best_model = opt.get_best_model()
+    best_model = opt._generate_best_models()
     lnl = evaluation.calculate_likelihood(best_model.df,
                                           opt.obs,
                                           calibrated_vars=opt.calibrated_vars,

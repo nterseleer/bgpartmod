@@ -6,6 +6,9 @@ import os
 from datetime import datetime
 from typing import Any, Callable, List, Optional, Tuple, Union
 
+from src.optimizations.optimization import Optimization
+from src.optimizations.optimization_metastructure import OptimizationMetaStructure as MetaStructure
+
 
 class DESolver:
     """Differential Evolution solver with parallel processing support."""
@@ -134,7 +137,7 @@ class DESolver:
                             # Store parameters and actual likelihood
                             param_dict = {
                                 name: value
-                                for name, value in zip(self.job.config['optimized_parameters'], trial)
+                                for name, value in zip(self.job.optimization_config.optimized_parameters, trial)
                             }
                             param_dict['cost'] = likelihood  # Store actual likelihood
                             results.append(param_dict)
@@ -167,8 +170,9 @@ class DESolver:
                     resdf['timestamp'] = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
                     
                     # Append to results file
+
                     resdf.to_csv(
-                        self.job.files['results'],
+                        self.job.meta_data.meta_structure.results_file,
                         mode='a',
                         header=not file_exists,
                         index=False
