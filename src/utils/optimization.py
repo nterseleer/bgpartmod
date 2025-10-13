@@ -95,7 +95,19 @@ class Optimization:
         instance.name = name or cls._get_next_id()
         if user_note is None:
             user_note = cls._prompt_user_note()
-        sim_manager.add_optimization_to_log(instance.name, len(optimized_parameters), user_note)
+
+        # Store calibrated variables first to get the count
+        instance.calibrated_vars = calibrated_vars or [
+            'Phy_Chl', 'NH4_concentration', 'NO3_concentration',
+            'DIP_concentration', 'DSi_concentration', 'Phy_C', 'TEPC_C'
+        ]
+
+        sim_manager.add_optimization_to_log(
+            instance.name,
+            len(optimized_parameters),
+            user_note,
+            calibrated_vars_count=len(instance.calibrated_vars)
+        )
 
         instance.obs = obs
         instance._setup_directories()
@@ -108,12 +120,6 @@ class Optimization:
             instance.setup = modkwargs.pop('setup', None)
             if instance.setup is None:
                 raise ValueError("setup must be provided either explicitly or in modkwargs")
-
-        # Store calibrated variables
-        instance.calibrated_vars = calibrated_vars or [
-            'Phy_Chl', 'NH4_concentration', 'NO3_concentration',
-            'DIP_concentration', 'DSi_concentration', 'Phy_C', 'TEPC_C'
-        ]
 
         # Store configuration
         instance.config = {
