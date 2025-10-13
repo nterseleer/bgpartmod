@@ -40,6 +40,7 @@ class Model:
             aggregate_vars: Optional[List[str]] = None,
             do_diagnostics: bool = True,
             full_diagnostics: bool = False,
+            keep_model_units: bool = False,
     ):
         # Basic attributes
         self.setup = setup
@@ -48,6 +49,7 @@ class Model:
         self.debug_budgets = debug_budgets
         self.do_diagnostics = do_diagnostics
         self.full_diagnostics = full_diagnostics
+        self.keep_model_units = keep_model_units
         self.error = False
         self.euler = euler
 
@@ -582,7 +584,7 @@ class Model:
         # Create initial DataFrame
         self.df = pd.DataFrame(yvals, index=self.t, columns=self.pool_names)
 
-        # Store model units
+        # Store model units (temporarily needed for derived variable calculations)
         model_data = self.df.values
         self.df = pd.concat([
             self.df,
@@ -604,6 +606,9 @@ class Model:
         ])
         # self.df.iloc[:, :len(self.pool_names)] *= transform_factors
         self.df.iloc[:, :] *= transform_factors
+
+        # Remove model-unit columns to save memory if not needed
+        self._cleanup_dataframe()
 
 
 
@@ -662,6 +667,16 @@ class Model:
             diag_df = diag_df.bfill()
         self.df = pd.concat([self.df, diag_df], axis=1)
 
+    def _cleanup_dataframe(self) -> None:
+        """Remove model-unit columns (m-prefixed) to save memory if not needed."""
+        if not self.keep_model_units:
+            # Identify columns with 'm' prefix that have a corresponding non-prefixed column
+            m_cols = [col for col in self.df.columns
+                     if col.startswith('m') and col[1:] in self.df.columns]
+            if m_cols:
+                self.df.drop(columns=m_cols, inplace=True)
+                if self.verbose:
+                    print(f'Removed {len(m_cols)} model-unit columns to save memory')
 
     def get_model_summary(self) -> Dict[str, Any]:
         """Get comprehensive model summary for logging"""

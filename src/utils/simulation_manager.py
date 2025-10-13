@@ -26,6 +26,7 @@ OPTIMIZATION_LOG_COLUMNS = [
     'Date',
     'Env',
     '#pars',
+    '#vars',
     'UserNote_PRE',
     'UserNote_POST',
     'lnl',
@@ -185,7 +186,7 @@ def get_next_optimization_id() -> str:
 
 
 def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, reference_opt: str = None,
-                           boundary_hit_threshold_percent: float = 5.0):
+                           boundary_hit_threshold_percent: float = 5.0, calibrated_vars_count: int = None):
     """Add new optimization entry to log."""
     log_df = get_optimization_log()
 
@@ -204,6 +205,7 @@ def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, refer
         'Date': datetime.now().strftime('%Y-%m-%d'),
         'Env': environment,
         '#pars': param_count,
+        '#vars': calibrated_vars_count if calibrated_vars_count is not None else '',
         'UserNote_PRE': user_note,
         'UserNote_POST': '',
         'lnl': '',
