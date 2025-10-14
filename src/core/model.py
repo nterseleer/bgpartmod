@@ -667,6 +667,8 @@ class Model:
         diag_df = pd.DataFrame(ydiags, index=self.t, columns=self.diag_pool_names)
         with pd.option_context('future.no_silent_downcasting', True):
             diag_df = diag_df.bfill()
+        # Skip diagnostic columns that already exist in main df to avoid duplicates
+        diag_df = diag_df[[col for col in diag_df.columns if col not in self.df.columns]]
         self.df = pd.concat([self.df, diag_df], axis=1)
 
     def _cleanup_dataframe(self) -> None:
