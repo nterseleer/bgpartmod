@@ -41,6 +41,7 @@ class Model:
             do_diagnostics: bool = True,
             full_diagnostics: bool = False,
             keep_model_units: bool = False,
+            aggressive_cleanup: bool = True,
     ):
         # Basic attributes
         self.setup = setup
@@ -50,6 +51,7 @@ class Model:
         self.do_diagnostics = do_diagnostics
         self.full_diagnostics = full_diagnostics
         self.keep_model_units = keep_model_units
+        self.aggressive_cleanup = aggressive_cleanup
         self.error = False
         self.euler = euler
 
@@ -668,15 +670,39 @@ class Model:
         self.df = pd.concat([self.df, diag_df], axis=1)
 
     def _cleanup_dataframe(self) -> None:
-        """Remove model-unit columns (m-prefixed) to save memory if not needed."""
+        """
+        Remove model-unit columns (m-prefixed) and optionally raw solver results
+        to aggressively reduce memory footprint.
+        """
+        memory_saved = 0
+
+        # Step 1: Remove m-prefixed columns (model units)
         if not self.keep_model_units:
-            # Identify columns with 'm' prefix that have a corresponding non-prefixed column
             m_cols = [col for col in self.df.columns
                      if col.startswith('m') and col[1:] in self.df.columns]
             if m_cols:
                 self.df.drop(columns=m_cols, inplace=True)
+                memory_saved += len(m_cols) * self.df.shape[0] * 8  # 8 bytes per float64
                 if self.verbose:
-                    print(f'Removed {len(m_cols)} model-unit columns to save memory')
+                    print(f'Removed {len(m_cols)} model-unit columns')
+
+        # Step 2: Aggressive cleanup - remove raw solver results
+        if self.aggressive_cleanup:
+            # Delete raw solver output arrays (self.y, self.diagnostics)
+            # These are no longer needed after _process_results() completes
+            if hasattr(self, 'y'):
+                y_size = self.y.nbytes if hasattr(self.y, 'nbytes') else 0
+                memory_saved += y_size
+                del self.y
+
+            if hasattr(self, 'diagnostics'):
+                diag_size = self.diagnostics.nbytes if hasattr(self.diagnostics, 'nbytes') else 0
+                memory_saved += diag_size
+                del self.diagnostics
+
+            if self.verbose and memory_saved > 0:
+                memory_mb = memory_saved / (1024 ** 2)
+                print(f'Aggressive cleanup: freed ~{memory_mb:.1f} MB of memory')
 
     def get_model_summary(self) -> Dict[str, Any]:
         """Get comprehensive model summary for logging"""
