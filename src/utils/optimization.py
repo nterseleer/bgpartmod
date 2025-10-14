@@ -605,7 +605,7 @@ class Optimization:
         )
 
         # add all diagnostics for subsequent plots and post-processing
-        best_config = fns.deep_update(best_config, config.full_diagnostics)
+        best_config = fns.deep_update(best_config, config.plotting_diagnostics)
 
         # Add additional diagnostics for best model
         model_kwargs = {
