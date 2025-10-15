@@ -844,7 +844,7 @@ def plot_optimization_evolution(df: pd.DataFrame,
     cost_col = costname + rawcost * '_raw'
 
     # Plot all points
-    ax.scatter(df[generationname], df[cost_col], alpha=alpha)
+    ax.scatter(df[generationname], df[cost_col], alpha=alpha, edgecolors='none')
 
     # Highlight best point
     max_cost_idx = df[costname].idxmax()
@@ -866,61 +866,76 @@ def plot_optimization_evolution(df: pd.DataFrame,
     return ax
 
 
-def plot_parameter_vs_cost(df: pd.DataFrame,
-                           param: str,
-                           costname: str = 'cost',
-                           alpha: float = 0.2,
-                           rawcost: bool = False,
-                           ax: Optional[plt.Axes] = None) -> plt.Axes:
+def plot_parameter_vs_cost(
+        df: pd.DataFrame,
+        param: str,
+        ax: plt.Axes,
+        costname: str = 'cost',
+        alpha: float = 0.3,
+        color: Optional[str] = None,
+        label: Optional[str] = None,
+        highlight_best: bool = True,
+        show_reference: bool = True,
+        show_labels: bool = True,
+        filter_badlnl: Optional[float] = None
+) -> plt.Axes:
     """
     Plot parameter values against optimization cost.
+
+    Modern, flexible implementation for single or multi-optimization plots.
 
     Args:
         df: Optimization results DataFrame
         param: Parameter name to plot
-        costname: Name of cost column
+        ax: Matplotlib axes to plot on
+        costname: Name of cost column (default: 'cost')
         alpha: Scatter plot transparency
-        rawcost: Whether to plot raw cost
-        ax: Optional axes to plot on
-    """
-    if ax is None:
-        fig, ax = plt.subplots()
-    elif not isinstance(ax, plt.Axes):
-        raise TypeError("ax must be a matplotlib Axes object")
+        color: Point color (None = use default blue)
+        label: Label for legend (None = no label)
+        highlight_best: Whether to highlight best point with star
+        show_reference: Whether to show reference value line
+        show_labels: Whether to set title and axis labels
+        filter_badlnl: If provided, filter out rows where cost_raw == this value
 
-    cost_col = costname + rawcost * '_raw'
+    Returns:
+        Modified axes object
+    """
+    # Filter invalid scores if requested
+    if filter_badlnl is not None:
+        valid_mask = df[f'{costname}_raw'] != filter_badlnl
+        df = df.loc[valid_mask]
+
+    # Use provided color or default
+    scatter_color = color if color else '#1f77b4'
 
     # Main scatter plot
-    ax.scatter(df[param], df[cost_col], c='#1f77b4', alpha=alpha)
-
-    # Get parameter info from reference values
-    param_info = varinfos.ref_values[param]
-    complete_name = param_info['complete_name']
-    symbol = param_info.get('symbol', '')
-    reference_value = param_info['reference_value']
-
-    # Set title
-    ax.set_title(fns.cleantext(symbol) if symbol else complete_name)
-
-    # Labels
-    ax.set_xlabel(param)
-    ax.set_ylabel(cost_col)
+    ax.scatter(df[param], df[costname], c=scatter_color, alpha=alpha,
+               label=label, s=20, edgecolors='none')
 
     # Highlight best point
-    max_cost_idx = df[costname].idxmax()
-    best_value = df[param][max_cost_idx]
-    ax.plot(best_value, df[cost_col][max_cost_idx], 'ro')
+    if highlight_best:
+        best_idx = df[costname].idxmax()
+        best_value = df.loc[best_idx, param]
+        best_cost = df.loc[best_idx, costname]
+        ax.scatter(best_value, best_cost, marker='*', s=100,
+                  c=scatter_color, edgecolors='black',
+                  linewidths=0.5, zorder=4)
 
-    # Add value labels
-    rounded_value = f"{best_value:.3g}"
-    ax.text(best_value, df[cost_col][max_cost_idx],
-            rounded_value, color='red')
+    # Get parameter info for reference and labels
+    param_info = varinfos.ref_values.get(param, {})
+    ref_value = param_info.get('reference_value')
+    symbol = param_info.get('symbol', param)
 
-    # Add reference line and value
-    ax.axvline(x=reference_value, color='blue', linestyle='--')
-    ax.text(reference_value, ax.get_ylim()[0], f'{reference_value}',
-            color='blue', ha='center', va='bottom',
-            bbox=dict(facecolor='white', alpha=0.5, edgecolor='none'))
+    # Add reference line
+    if show_reference and ref_value is not None:
+        ax.axvline(ref_value, color='blue', linestyle='--',
+                  alpha=0.7, linewidth=1.5)
+
+    # Set labels if requested
+    if show_labels:
+        ax.set_title(fns.cleantext(symbol) if symbol else param, fontsize=10)
+        ax.set_xlabel(param, fontsize=8)
+        ax.set_ylabel(f'{costname} (log-likelihood)', fontsize=8)
 
     return ax
 
@@ -951,10 +966,12 @@ def plot_optimization_summary(df: pd.DataFrame,
         if i < len(parameters):
             plot_parameter_vs_cost(
                 df, param,
+                ax=axs[i],
                 costname=costname,
                 alpha=alpha,
-                rawcost=rawcost,
-                ax=axs[i]
+                show_labels=True,
+                highlight_best=True,
+                show_reference=True
             )
         else:
             axs[i].set_visible(False)
@@ -965,6 +982,203 @@ def plot_optimization_summary(df: pd.DataFrame,
         datestr = datetime.now().strftime('%Y%m%d_') if dateinname else ''
         filename = f'{datestr}{name}_pars_optim{rawcost * "_raw"}.png'
         save_figure(fig, filename=filename)
+
+    return fig
+
+
+def compare_optimizations(
+        optimizations: List[Union[Any, str]],
+        parameters: Optional[List[str]] = None,
+        figsize: Optional[tuple] = None,
+        alpha: float = 0.1,
+        savefig: bool = False,
+        name: str = 'optim_comparison'
+) -> plt.Figure:
+    """
+    Compare multiple optimizations with distribution and cost analysis.
+
+    Creates 2-row grid with one column per parameter:
+    - Row 1: Horizontal violin plots showing parameter distributions across optimizations
+    - Row 2: Parameter vs cost scatter plots (all optimizations overlaid)
+
+    Args:
+        optimizations: List of Optimization objects or optimization names to load
+        parameters: Parameters to compare (None = union of all optimized parameters)
+        figsize: Figure size (None = auto-calculated based on number of parameters)
+        alpha: Scatter plot transparency
+        savefig: Whether to save figure
+        name: Base filename for saving
+
+    Returns:
+        Matplotlib figure
+    """
+    from src.utils import optimization as optim
+
+    # Load optimizations if given as strings
+    opts = [
+        optim.Optimization.load_existing(opt) if isinstance(opt, str) else opt
+        for opt in optimizations
+    ]
+
+    # Ensure all have processed results
+    for opt in opts:
+        if not hasattr(opt, 'df') or opt.df is None:
+            opt.process_results()
+
+    # Get union of all optimized parameters
+    if parameters is None:
+        parameters = sorted(set().union(*[
+            set(opt.config['optimized_parameters']) for opt in opts
+        ]))
+
+    n_params = len(parameters)
+    n_opts = len(opts)
+
+    # Dynamic ncols = n_params (one column per parameter)
+    ncols = n_params
+    nrows = 2
+
+    # Auto-calculate figsize if not provided
+    if figsize is None:
+        figsize = (max(12, 3.5 * ncols), 8)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+
+    colors = DEFAULT_COLORS[:n_opts]
+
+    # Track which subplot has all optimizations (for legend placement)
+    legend_col = None
+
+    for col_idx, param in enumerate(parameters):
+        ax_violin = axes[0, col_idx]
+        ax_scatter = axes[1, col_idx]
+
+        # === ROW 1: HORIZONTAL Violin plot ===
+        violin_data = []
+        positions = []
+        opt_names = []
+
+        for i, opt in enumerate(opts):
+            if param in opt.df.columns:
+                # Filter out invalid scores (badlnl)
+                badlnl = opt.config.get('badlnl', -100000.)
+                valid_mask = opt.df['cost_raw'] != badlnl
+                values = opt.df.loc[valid_mask, param].values
+
+                if len(values) > 0:
+                    violin_data.append(values)
+                    positions.append(i)
+                    opt_names.append(opt.name)
+
+        if violin_data:
+            # Create HORIZONTAL violin plot (vert=False)
+            parts = ax_violin.violinplot(
+                violin_data,
+                positions=positions,
+                vert=False,
+                widths=0.7,
+                showmeans=True,
+                showextrema=True
+            )
+
+            # Color violin bodies
+            for i, pc in enumerate(parts['bodies']):
+                pc.set_facecolor(colors[positions[i]])
+                pc.set_alpha(0.6)
+
+            # Add jittered strip plot overlay
+            for i, values in enumerate(violin_data):
+                y_jitter = positions[i] + np.random.normal(0, 0.04, len(values))
+                ax_violin.scatter(values, y_jitter, alpha=alpha, s=10,
+                                c=colors[positions[i]], zorder=3, edgecolors='none')
+
+            # Add best value stars with annotations
+            for i, opt_idx in enumerate(positions):
+                opt = opts[opt_idx]
+                if param in opt.df.columns:
+                    best_idx = opt.df['cost'].idxmax()
+                    best_value = opt.df.loc[best_idx, param]
+                    ax_violin.scatter(best_value, opt_idx, marker='*', s=150,
+                                    c=colors[opt_idx], edgecolors='black',
+                                    linewidths=0.8, zorder=5)
+                    # Add value annotation above the star (smart formatting)
+                    # Use scientific notation if value is very small or very large
+                    if abs(best_value) < 0.01 or abs(best_value) > 1000:
+                        value_text = f'{best_value:.2e}'
+                    else:
+                        value_text = f'{best_value:.2f}'
+                    ax_violin.text(best_value, opt_idx - 0.2, value_text,
+                                 fontsize=9, ha='center', va='top',
+                                 color=colors[opt_idx], weight='bold',
+                                 bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                                          edgecolor='none', alpha=0.7))
+
+        # Get parameter info for labels and reference
+        param_info = varinfos.ref_values.get(param, {})
+        ref_value = param_info.get('reference_value')
+        symbol = param_info.get('symbol', param)
+
+        # Add reference line (vertical for horizontal violins)
+        if ref_value is not None:
+            ax_violin.axvline(ref_value, color='blue', linestyle='--',
+                            alpha=0.7, linewidth=1.5, label='Reference')
+
+        ax_violin.set_title(fns.cleantext(symbol) if symbol else param, fontsize=10)
+        ax_violin.set_yticks(range(n_opts))
+        ax_violin.set_yticklabels([opt.name for opt in opts], fontsize=7)
+        ax_violin.tick_params(labelsize=7)
+        ax_violin.grid(axis='x', alpha=0.3)
+        ax_violin.invert_yaxis()  # Invert to have first optimization at top
+
+        # Hide x tick labels for all violins (redundant with scatter plots below)
+        ax_violin.tick_params(labelbottom=False)
+
+        # Hide y tick labels except for first column
+        if col_idx > 0:
+            ax_violin.tick_params(labelleft=False)
+
+        # === ROW 2: Scatter plot (param vs cost) ===
+        for i, opt in enumerate(opts):
+            if param in opt.df.columns:
+                badlnl = opt.config.get('badlnl', -100000.)
+                plot_parameter_vs_cost(
+                    opt.df, param,
+                    ax=ax_scatter,
+                    costname='cost',
+                    alpha=alpha,
+                    color=colors[i],
+                    label=opt.name,
+                    highlight_best=True,
+                    show_reference=(i == 0),  # Only first opt shows reference
+                    show_labels=False,  # We set labels manually below
+                    filter_badlnl=badlnl
+                )
+
+        # Set labels manually (shared across all optimizations)
+        param_info = varinfos.ref_values.get(param, {})
+        symbol = param_info.get('symbol', param)
+        ax_scatter.set_xlabel(fns.cleantext(symbol) if symbol else param, fontsize=8)
+        ax_scatter.set_ylabel('Cost (log-likelihood)', fontsize=8)
+        ax_scatter.tick_params(labelsize=7)
+        ax_scatter.grid(alpha=0.3)
+
+        # Hide y tick labels except for first column
+        if col_idx > 0:
+            ax_scatter.set_ylabel('')
+            ax_scatter.tick_params(labelleft=False)
+
+        # Track if this column has all optimizations (for legend)
+        if legend_col is None and len(positions) == n_opts:
+            legend_col = col_idx
+
+        # Add legend only to first column that has ALL optimizations
+        if col_idx == legend_col:
+            ax_scatter.legend(fontsize=6, loc='best')
+
+    plt.tight_layout()
+
+    if savefig:
+        save_figure(fig, filename=f'{name}_comparison.png')
 
     return fig
 
