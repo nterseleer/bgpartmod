@@ -146,7 +146,7 @@ class Model:
         current_idx = 0
 
         for key, cfg in self.config.items():
-            if key == 'formulation':  # Skip the formulation key
+            if key == 'formulation' or  key == "name":  # Skip the formulation key
                 continue
 
             instance = cfg['class'](name=key, **cfg.get('parameters', {}))
@@ -232,7 +232,7 @@ class Model:
     def _setup_component_couplings(self):
         """Setup couplings between components"""
         for key, cfg in self.config.items():
-            if key == 'formulation':
+            if key == 'formulation' or key == "name":
                 continue
 
             component = self.components[key]

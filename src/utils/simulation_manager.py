@@ -177,7 +177,7 @@ def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, refer
     environment = "ecmwf" if "ecmwf" in os.getcwd().lower() or "copernicus" in os.getcwd().lower() else "local"
     
     new_entry = pd.DataFrame([{
-        'optimization_id': opt_id,
+        'ID': opt_id,
         'date': datetime.now().strftime('%Y-%m-%d'),
         'environment': environment,
         'param_count': param_count,
