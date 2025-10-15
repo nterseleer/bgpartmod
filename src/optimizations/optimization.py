@@ -50,6 +50,7 @@ class Optimization:
         self.is_optimization_processed: bool = False
         self.verbose = verbose
         self.user_note = ""
+        self.optimization_results: Optional[pd.DataFrame] = None
 
     @classmethod
     def _get_next_id(cls) -> str:
@@ -72,6 +73,8 @@ class Optimization:
         instance.name = meta_data.optimization_name
         instance.creation_date = instance.meta_data.creation_date
         user_note = meta_data.user_note
+        if meta_data.is_optimization_run:
+            instance.optimization_results = pd.read_csv(meta_data.meta_structure.results_file, sep=',')
 
         for meta_description in meta_data.descriptions:
             instance.descriptions.append(Description.from_meta_description(meta_description))
@@ -226,6 +229,10 @@ class Optimization:
         return True
 
     def _generate_best_params(self, metastructure: MetaStructure) -> None:
+        if not self.is_optimization_run:
+            warnings.warn("Please run optimization, before generating best parameters")
+            return
+
         if not os.path.exists(metastructure.results_file):
             raise FileNotFoundError(
                 f"Results file not found: {metastructure}\n"
@@ -233,14 +240,14 @@ class Optimization:
             )
 
         # Read as txt file with comma separator
-        self.df = pd.read_csv(metastructure.results_file, sep=',')
-        self.df['cost_raw'] = self.df['cost']
-        self.df.loc[self.df['cost'] == self.optimization_config.badlnl, 'cost'] = np.nan
+        self.optimization_results['cost_raw'] = self.optimization_results['cost']
+        self.optimization_results.loc[
+            self.optimization_results['cost'] == self.optimization_config.badlnl, 'cost'] = np.nan
 
         # Find best parameters
-        best_idx = self.df['cost'].idxmax()
+        best_idx = self.optimization_results['cost'].idxmax()
 
-        self.winner = self.df.loc[best_idx]
+        self.winner = self.optimization_results.loc[best_idx]
 
     def _generate_process_summary(self):
         self.summary = {

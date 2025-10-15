@@ -105,7 +105,8 @@ def calculate_likelihood(
         plot_size: Tuple[int, int] = (10, 6),
         verbose: bool = True,
         veryverbose: bool = False,
-        _cached_obs: Optional[pd.DataFrame] = None
+        _cached_obs: Optional[pd.DataFrame] = None,
+        file_name: str = 'likelihood_comparison'
 ) -> Optional[float]:
     """[docstring unchanged]"""
     if calibrated_vars is None:
@@ -131,7 +132,7 @@ def calculate_likelihood(
             daily_mean=daily_mean,
             figsize=plot_size,
             save=save_plots,
-            filename='likelihood_comparison'
+            filename=file_name
         )
 
     # Calculate likelihood

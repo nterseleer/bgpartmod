@@ -42,13 +42,13 @@ OBS_STYLES = {
     'calibrated': {
         'marker': '*',
         'color': 'gray',
-        'markersize': 6,
+        's': 60,  # size for scatter plots (matplotlib uses 's', not 'markersize')
         'alpha': 0.6
     },
     'non_calibrated': {
         'marker': 'o',
         'color': 'gray',
-        'markersize': 3,
+        's': 20,  # size for scatter plots (matplotlib uses 's', not 'markersize')
         'alpha': 0.4
     }
 }
