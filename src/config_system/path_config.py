@@ -15,7 +15,9 @@ MODEL_RUNS_DIR = os.path.join(SIMULATION_DIR, 'Model_runs')
 REFERENCES_SIMULATION_DIR = os.path.join(SIMULATION_DIR, 'Reference_simulations')
 LOG_FILE = os.path.join(SIMULATION_DIR, 'Simulations_log.csv')
 OPT_LOG_FILE = os.path.join(SIMULATION_DIR, 'Optimizations_log.csv')
-STRAINS_INIT_COND_FILE = os.path.join(OBSERVATION_DIR, 'init_condition.CSV')
+STRAINS_INIT_COND_FILE_MEDIUM = os.path.join(OBSERVATION_DIR, 'init_condition.CSV')
+STRAINS_INIT_COND_FILE_LOW = os.path.join(OBSERVATION_DIR, 'init_condition_low.CSV')
+STRAINS_INIT_COND_FILE_HIGH = os.path.join(OBSERVATION_DIR, 'init_condition_high.CSV')
 
 
 PRIVATE_PATH = os.path.join(ROOT_DIR, '_private_LOG')
