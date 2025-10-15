@@ -23,10 +23,11 @@ _*requirements.txt
 requirementsBGPARTMOD.txt
 requirements (Copy).txt
 simulations_SAVE_20250612/
+bgpart_yj_simulation/
 old_config_20250613/
 DEVELOPMENT_NOTES.md
 AGENTS.md
-
+CLAUDE.md
 .venv
 .venv/
 
