@@ -29,6 +29,7 @@ class OptimizationMetaStructure:
         self._current_observation_files: dict = {}
         self._setup_files: dict = {}
 
+        self._out_dir: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_OUT_SUB_DIR)
         self.winning_config_dir: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_WINNING_CONFIG_SUB_DIR)
         self.best_model_dir: str = os.path.join(self.optimization_path, pc.OPTIMIZATIONS_BEST_MODEL_SUB_DIR)
         self._winning_config_files: dict = {}
@@ -39,15 +40,14 @@ class OptimizationMetaStructure:
                                                    _is_optim_run: bool) -> None:
 
         for meta_desc in meta_descriptions:
-            self._config_files[meta_desc["config"]["name"]] = meta_desc["config"]["file"]
+            self._config_files[meta_desc["config"]["name"]] = meta_desc["config"]["path"]
             self._original_observation_files[meta_desc["observation"]["name"]] = meta_desc["observation"]["origin"]
-            self._current_observation_files[meta_desc["observation"]["name"]] = meta_desc["observation"]["file"]
-            self._setup_files[meta_desc["setup"]["name"]] = meta_desc["setup"]["file"]
+            self._current_observation_files[meta_desc["observation"]["name"]] = meta_desc["observation"]["path"]
+            self._setup_files[meta_desc["setup"]["name"]] = meta_desc["setup"]["path"]
 
-            if _is_optim_run:
-                self._winning_config_files[meta_desc["winning_config"]["name"]] = meta_desc["winning_config"]["file"]
             if _is_optim_processed:
-                self._best_model_files[meta_desc["best_model"]["name"]] = meta_desc["best_model"]["file"]
+                self._winning_config_files[meta_desc["winning_config"]["name"]] = meta_desc["winning_config"]["path"]
+                self._best_model_files[meta_desc["best_model"]["name"]] = meta_desc["best_model"]["path"]
 
         self._generate_missing_directory(_is_optim_processed)
 
@@ -78,7 +78,7 @@ class OptimizationMetaStructure:
 
     def _generate_missing_directory(self, is_optimization_processed: bool):
 
-        src_dirs = (self.current_observation_dir, self.config_dir, self.setup_dir)
+        src_dirs = (self.current_observation_dir, self.config_dir, self.setup_dir, self._out_dir)
         for src_dir in src_dirs:
             os.makedirs(src_dir, exist_ok=True)
 

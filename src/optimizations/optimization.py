@@ -20,9 +20,7 @@ from src.optimizations.optimization_metadata import OptimizationMetadata as Meta
 from src.optimizations.optimization_metastructure import OptimizationMetaStructure as MetaStructure
 from src.utils import functions as fns
 from src.utils import simulation_manager as sim_manager
-from src.utils.functions import load_pkl, save_to_json
-
-
+from src.utils.functions import load_pkl, save_to_json, write_dict_to_file
 
 
 @dataclass
@@ -51,6 +49,7 @@ class Optimization:
         self.is_optimization_run: bool = False
         self.is_optimization_processed: bool = False
         self.verbose = verbose
+        self.user_note = ""
 
     @classmethod
     def _get_next_id(cls) -> str:
@@ -67,12 +66,12 @@ class Optimization:
         return note.strip()
 
     @classmethod
-    def build_from_metadata(cls, meta_data: MetaData, is_force_run: bool):
+    def build_from_metadata(cls, meta_data: MetaData, is_force_run: bool = False):
         instance = cls()
         instance.meta_data = meta_data
         instance.name = meta_data.optimization_name
         instance.creation_date = instance.meta_data.creation_date
-        user_note = instance._prompt_user_note()  # todo include user notes in metadata
+        user_note = meta_data.user_note
 
         for meta_description in meta_data.descriptions:
             instance.descriptions.append(Description.from_meta_description(meta_description))
@@ -86,9 +85,9 @@ class Optimization:
         sim_manager.add_optimization_to_log(
             instance.name, len(instance.optimization_config.optimized_parameters), user_note)
 
-        instance.meta_data.is_optimization_run = True
-        instance._save()
-        instance._run_optimization()
+        if is_force_run:
+            instance.meta_data.is_optimization_run = True
+            instance._run_optimization()
 
         return instance
 
@@ -120,7 +119,7 @@ class Optimization:
         instance.is_optimization_processed = False
         instance.modkwargs = modkwargs
         instance.descriptions = descriptions
-        user_note = instance._prompt_user_note()
+        instance.user_note = instance._prompt_user_note()
 
         optimization_config.calibrated_vars = optimization_config.calibrated_vars or ['Phy_Chl', 'NH4_concentration',
                                                                                       'NO3_concentration',
@@ -130,7 +129,8 @@ class Optimization:
         instance.optimization_config = optimization_config
         instance.meta_data = MetaData.from_optimization(instance)
 
-        sim_manager.add_optimization_to_log(instance.name, len(optimization_config.optimized_parameters), user_note)
+        sim_manager.add_optimization_to_log(instance.name, len(optimization_config.optimized_parameters),
+                                            instance.user_note)
 
         # Run optimization
         instance.meta_data.is_optimization_run = True
@@ -145,6 +145,7 @@ class Optimization:
         self._save_readme(meta_structure)
         self._save_descriptions(meta_structure)
         self._save_meta_data()
+        self._save_modkwargs(meta_structure)
         self._save_calibration_info(meta_structure)
 
     def _save_readme(self, meta_structure: MetaStructure):
@@ -178,14 +179,25 @@ class Optimization:
             print("Metadata saved")
 
     def _save_calibration_info(self, meta_structure: MetaStructure):
-        """Save calibration variables information."""
-        calib_info = {
-            "calibrated_variables": self.optimization_config.calibrated_vars,
-            "datetime": datetime.now().isoformat()
-        }
-        # Save in optimization directory with optimization name prefix
-        calib_path = meta_structure.calibration_file
-        save_to_json(calib_info, calib_path)
+        if not self.is_optimization_processed:
+            """Save calibration variables information."""
+            calib_info = {
+                "calibrated_variables": self.optimization_config.calibrated_vars,
+                "datetime": datetime.now().isoformat()
+            }
+            # Save in optimization directory with optimization name prefix
+            calib_path = meta_structure.calibration_file
+            save_to_json(calib_info, calib_path)
+
+    def _save_modkwargs(self, meta_structure):
+        if not self.is_optimization_processed:
+            if self.verbose:
+                print("saving modkwargs")
+
+            write_dict_to_file(self.modkwargs, meta_structure.modkwargs_file)
+
+            if self.verbose:
+                print("modkwargs saved")
 
     def _run_optimization(self):
         """Run the optimization using DESolver."""

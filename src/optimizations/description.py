@@ -28,9 +28,9 @@ class Description:
     def from_meta_description(cls, meta_description: dict[str, Any]):
         name = meta_description["name"]
         setup = load_pkl(meta_description["setup"]["path"])
-        config = load_json(meta_description["config"]["path"])
+        config = load_pkl(meta_description["config"]["path"])
         try:
-            observation = load_pkl(meta_description["observation"]["file"])
+            observation = load_pkl(meta_description["observation"]["path"])
         except FileNotFoundError:
             warnings.warn("observation file.pkl did not exist, try to load origin file.feather")
             observation = load_feather(meta_description["observation"]["origin"])

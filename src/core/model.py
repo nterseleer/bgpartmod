@@ -148,7 +148,6 @@ class Model:
         for key, cfg in self.config.items():
             if key == 'formulation' or  key == "name":  # Skip the formulation key
                 continue
-
             instance = cfg['class'](name=key, **cfg.get('parameters', {}))
             instance.formulation = self.config.get('formulation', 'default')
             instance.set_ICs(**cfg.get('initialization', {}))
