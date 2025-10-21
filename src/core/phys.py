@@ -120,7 +120,7 @@ class Setup:
                  riverine_loads: bool = False,
                  riverine_loads_file: str = 'riverine_loads.feather',
                  mu_water: float = 1.002e-3,  # Pa·s at 20°C
-                 rho_water: float = 1000.,    # kg/m³
+                 rho_water: float = 1025.,    # kg/m³
                  plotPAR: bool = False,
                  plotTEMP: bool = False,
                  verbose: bool = False):
