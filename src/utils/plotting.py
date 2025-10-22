@@ -22,18 +22,44 @@ from src.utils.plotted_variables_sets import PlottedVariablesSet
 FIGURE_PATH = path_cfg.FIGURE_PATH
 
 # Plotting constants
-DEFAULT_COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
-DEFAULT_LINESTYLES = ['-', '--', ':', '-.', (0, (3, 1, 1, 1, 1, 1))]
+# Extended color palette with 14 distinct, colorblind-friendly colors
+# Optimized for scientific plots with good contrast and distinguishability
+DEFAULT_COLORS = [
+    '#1f77b4',  # Blue
+    '#ff7f0e',  # Orange
+    '#2ca02c',  # Green
+    '#d62728',  # Red
+    '#9467bd',  # Purple
+    '#8c564b',  # Brown
+    '#e377c2',  # Pink
+    '#17becf',  # Cyan
+    '#bcbd22',  # Yellow-green
+    '#7f7f7f',  # Gray
+    '#c49c94',  # Tan
+    '#f7b6d2',  # Light pink
+    '#c5b0d5',  # Lavender
+    '#9edae5',  # Light cyan
+]
+
+# Line styles: 3 distinct styles to combine with 14 colors
+# Avoiding dot-only ':' style as it becomes too discrete
+# Using solid, dashed, and dash-dot for good visibility
+DEFAULT_LINESTYLES = ['-', '--', '-.']
+
 DEFAULT_LEGEND_FONTSIZE = 8
 DEFAULT_FIGURE_DPI = 300
 
 # General plotting setup
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["mathtext.fontset"] = "stix"
+# Cycle through colors first (all 14 colors with solid line),
+# then repeat with different line styles
+# This ensures first 14 curves are maximally distinct
+# We use product of cyclers: 14 colors × 3 linestyles = 42 unique combinations
+from cycler import cycler
 plt.rcParams['axes.prop_cycle'] = (
-    f"cycler('linestyle', {DEFAULT_LINESTYLES * 2})+"
-    f"cycler('color', {DEFAULT_COLORS})"
+    cycler('color', DEFAULT_COLORS) *
+    cycler('linestyle', DEFAULT_LINESTYLES)
 )
 plt.rcParams.update({'font.size': 6})
 
@@ -800,6 +826,104 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
     return fig, ax
 
 
+def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, **kwargs):
+    """
+    Create a stacked area plot showing contributions to light attenuation coefficient (kd).
+
+    Parameters:
+    -----------
+    model_output : DataFrame
+        Model output containing the kd contribution variables
+    kd_contrib_vars : list, optional
+        List of kd contribution variables to plot. If None, uses default list.
+    **kwargs : dict
+        Additional plotting arguments (figsize, save, etc.)
+
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axis objects
+    """
+    import matplotlib.pyplot as plt
+    from src.config_model import vars_to_plot
+
+    # Use default list if not provided
+    if kd_contrib_vars is None:
+        kd_contrib_vars = vars_to_plot.kd_contributions_list
+
+    # Filter to available variables
+    available_vars = [var for var in kd_contrib_vars if var in model_output.columns]
+
+    if not available_vars:
+        print("Warning: No kd contribution variables found in model output")
+        return None, None
+
+    # Extract figsize from kwargs or use default
+    figsize = kwargs.get('figsize', (14, 8))
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Prepare data for stacking (each variable as a separate series)
+    # Ensure data is numeric and handle NaN values
+    data_to_stack = []
+    for var in available_vars:
+        # Convert to numeric, replacing any non-numeric with NaN
+        series = pd.to_numeric(model_output[var], errors='coerce')
+        # Fill NaN with 0 for stacking (or you could use interpolation)
+        series = series.fillna(0)
+        data_to_stack.append(series.values)
+
+    # Create clean labels (remove 'kd_contrib_' prefix and format nicely)
+    labels = []
+    for var in available_vars:
+        label = var.replace('kd_contrib_', '')
+        # Special formatting for certain components
+        if label == 'Micro_in_Macro':
+            label = 'Microflocs in Macroflocs'
+        labels.append(label)
+
+    # Ensure index is numeric/datetime (not object)
+    # Convert index to numeric if it's a DatetimeIndex
+    if isinstance(model_output.index, pd.DatetimeIndex):
+        x_values = mdates.date2num(model_output.index)
+    else:
+        # Assume it's already numeric (days)
+        x_values = model_output.index.values
+
+    # Create stacked area plot with distinct colors
+    colors = plt.cm.tab10.colors[:len(available_vars)]
+    if len(available_vars) > 10:
+        colors = plt.cm.tab20.colors[:len(available_vars)]
+
+    ax.stackplot(x_values,
+                 *data_to_stack,
+                 labels=labels,
+                 colors=colors,
+                 alpha=0.8)
+
+    # Add total kd line if available
+    if 'Phy_kd' in model_output.columns:
+        ax.plot(model_output.index, model_output['Phy_kd'],
+                'k--', linewidth=2, label='Total k$_d$', zorder=10)
+
+    # Formatting
+    ax.set_xlabel('Time [d]', fontsize=12)
+    ax.set_ylabel('Light attenuation coefficient [m$^{-1}$]', fontsize=12)
+    ax.set_title('Decomposition of Light Attenuation Coefficient (k$_d$)', fontsize=14)
+    ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1), fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    # Save if requested
+    if kwargs.get('save', False):
+        savepath = kwargs.get('savepath', 'kd_contributions_stacked.png')
+        fig.savefig(savepath, dpi=300, bbox_inches='tight')
+        print(f"Figure saved to {savepath}")
+
+    return fig, ax
+
+
 def add_subplot_label(ax: plt.Axes,
                       index: int,
                       position: str = 'top_left',
@@ -1040,7 +1164,7 @@ def compare_optimizations(
 
     # Auto-calculate figsize if not provided
     if figsize is None:
-        figsize = (max(12, 3.5 * ncols), 8)
+        figsize = (max(12, 3.5 * ncols), 16)
 
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
 
