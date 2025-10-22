@@ -651,7 +651,8 @@ class Model:
                         expression,
                         subdf=self.df,
                         fulldf=self.df,
-                        setup=self.setup
+                        setup=self.setup,
+                        model=self
                     )
                 except KeyError:
                     if self.verbose:
