@@ -724,11 +724,25 @@ class Setup:
 
 
 if __name__ == "__main__":
+
+    from config_model import phys_setup
+
+    setup1 = Setup(**phys_setup.MOW1_Jan1)
+    setup1.plot_setup(save_path="MOW1.png")
+    setup2 = Setup(**phys_setup.MOW1_Jan1_additive)
+    setup2.plot_setup(save_path="MOW1_additive.png")
+    plt.show()
+
+    input()
+
+
+
+
     """Test the tidal implementation with MOW1_STATION configuration."""
     print("Testing Tidal Implementation in BGC Physical Setup")
     print("=" * 60)
 
-    from config_model import phys_setup
+
     
     # Test 1: Create tidal setup
     print("\n1. Testing MOW1_STATION with Tidal Parameters")
