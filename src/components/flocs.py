@@ -10,7 +10,7 @@ class SharedFlocTEPParameters:
     Centralized computation of TEP-dependent parameters for flocculation.
     Shared by all Flocs instances (Microflocs, Macroflocs, Micro_in_Macro) to avoid
     redundant calculations and ensure consistency.
-    Includes: alphas (FF, PP, PF), fyflocstrength, tau_cr
+    Includes: alphas (FF, PP, PF), fyflocstrength, tau_cr, nf_fractal_dim
     """
 
     def __init__(self, microfloc_instance, unified_alphas=True):
@@ -43,12 +43,15 @@ class SharedFlocTEPParameters:
         self.tau_cr_base = microfloc_instance.tau_cr_base
         self.delta_tau_cr = microfloc_instance.delta_tau_cr
 
+        self.nf_fractal_dim_base = microfloc_instance.nf_fractal_dim
+        self.delta_nf_fractal_dim = microfloc_instance.delta_nf_fractal_dim
+
         self.K_glue = getattr(microfloc_instance, 'K_glue', None)
 
     def get_tep_parameters(self, coupled_glue):
         """
         Calculate all TEP-dependent parameters in one go.
-        Returns: (alpha_FF, alpha_PP, alpha_PF), fyflocstrength, tau_cr, mm_TEP
+        Returns: (alpha_FF, alpha_PP, alpha_PF), fyflocstrength, tau_cr, nf_fractal_dim, mm_TEP
         """
         # Determine TEP coupling status and calculate mm_TEP
         use_tep_coupling = coupled_glue is not None and self.K_glue is not None
@@ -75,13 +78,17 @@ class SharedFlocTEPParameters:
         # Calculate tau_cr
         tau_cr = self.tau_cr_base + (self.delta_tau_cr * mm_TEP if use_tep_coupling else 0)
 
+        # Calculate nf_fractal_dim
+        nf_fractal_dim = self.nf_fractal_dim_base + (self.delta_nf_fractal_dim * mm_TEP if use_tep_coupling else 0)
+
         # Store calculated values for reuse by other instances
         self.current_alphas = alphas
         self.current_fyflocstrength = fyflocstrength
         self.current_tau_cr = tau_cr
+        self.current_nf_fractal_dim = nf_fractal_dim
         self.current_mm_TEP = mm_TEP
 
-        return alphas, fyflocstrength, tau_cr, mm_TEP
+        return alphas, fyflocstrength, tau_cr, nf_fractal_dim, mm_TEP
 
 
 class Flocs(BaseStateVar):
@@ -118,6 +125,7 @@ class Flocs(BaseStateVar):
                  # Optimization parameter for alpha sharing
                  unified_alphas = True,    # [-] Use single alpha for FF=PP=PF (performance optimization)
                  delta_tau_cr = 0.2,       # [Pa] TEP increment for critical shear stress
+                 delta_nf_fractal_dim = 0.0,  # [-] TEP increment for fractal dimension
 
                  # TEP coupling parameters
                  K_glue = None,            # [mmol m-3] Half-saturation for TEP effect
@@ -156,6 +164,7 @@ class Flocs(BaseStateVar):
         self.delta_alpha_PF = delta_alpha_PF
         self.deltaFymax = deltaFymax
         self.delta_tau_cr = delta_tau_cr
+        self.delta_nf_fractal_dim = delta_nf_fractal_dim
 
         self.K_glue = K_glue
         self.unified_alphas = unified_alphas
@@ -435,17 +444,19 @@ class Flocs(BaseStateVar):
         # Get TEP-dependent parameters - only Microflocs triggers calculation, others reuse values
         # NOTE: Microflocs instance MUST be defined first in model configuration
         if self.name == 'Microflocs':
-            alphas, fyflocstrength, tau_cr, mm_TEP = self.shared_alphas.get_tep_parameters(
+            alphas, fyflocstrength, tau_cr, nf_fractal_dim, mm_TEP = self.shared_alphas.get_tep_parameters(
                 self.coupled_glue if use_tep_coupling else None
             )
             self.alpha_FF, self.alpha_PP, self.alpha_PF = alphas
             self.fyflocstrength = fyflocstrength
+            self.nf_fractal_dim = nf_fractal_dim
         else:
             # Reuse already computed values from Microflocs calculation
             self.alpha_FF, self.alpha_PP, self.alpha_PF = self.shared_alphas.current_alphas
             self.fyflocstrength = self.shared_alphas.current_fyflocstrength
             if self.name == 'Macroflocs' or self.name == 'Micro_in_Macro':
                 self.tau_cr = self.shared_alphas.current_tau_cr
+                self.nf_fractal_dim = self.shared_alphas.current_nf_fractal_dim
 
         if self.name == 'Microflocs':
             self.SMS = (
