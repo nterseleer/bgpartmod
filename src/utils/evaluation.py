@@ -18,6 +18,7 @@ def prepare_likelihood_data(
 ) -> pd.DataFrame:
     """
     Streamlined data preparation for likelihood calculation.
+    Supports multi-year simulations with DatetimeIndex.
 
     Args:
         model_results: Model results DataFrame
@@ -30,8 +31,11 @@ def prepare_likelihood_data(
     Returns:
         DataFrame with merged model and observation data
     """
-    # Prepare model data - direct operation on input
-    if daily_mean and model_results.index.name != 'julian_day':
+    # Prepare model data - use resample for DatetimeIndex (multi-year compatible)
+    if daily_mean and isinstance(model_results.index, pd.DatetimeIndex):
+        model_data = model_results.resample('D').mean()
+    elif daily_mean and model_results.index.name != 'julian_day':
+        # Fallback for non-datetime index (backward compatibility)
         model_data = model_results.copy()
         model_data['julian_day'] = model_data.index.dayofyear
         model_data = model_data.groupby('julian_day').mean()
@@ -43,10 +47,21 @@ def prepare_likelihood_data(
         obs_data = _cached_obs
     else:
         obs_data = observations.df
+
+        # print(obs_data.index)
+        # print(daily_mean, isinstance(obs_data.index, pd.DatetimeIndex))
+
+        # if daily_mean and isinstance(obs_data.index, pd.DatetimeIndex):
+        #     obs_data = obs_data.resample('D').mean()
+        # elif daily_mean and obs_data.index.name != 'julian_day':
         if daily_mean and obs_data.index.name != 'julian_day':
+            # Fallback for non-datetime index
             obs_data = obs_data.copy()
             obs_data['julian_day'] = obs_data.index.dayofyear
             obs_data = obs_data.groupby('julian_day').mean()
+
+        # print(obs_data.index)
+        # input('BLOBLO')
 
     # Handle different temporal resolutions
     if method == 'interpolate':
@@ -59,19 +74,38 @@ def prepare_likelihood_data(
         # Detect period_days from observation index spacing
         if len(obs_data) > 1:
             obs_spacing = np.diff(obs_data.index).mean()
-            period_days = int(round(obs_spacing))
+            # print(obs_data.index)
+            # print(np.diff(obs_data.index))
+            # print(np.diff(obs_data.index).mean())
+            # print('BLABLA')
+            # print(obs_spacing)
+            # print(obs_spacing.astype('timedelta64[D]').astype(int))
+            # input("BLABLA")
+            # period_days = int(round(obs_spacing))
+            # period_days = obs_spacing.astype('timedelta64[D]').astype(int)
         else:
             period_days = 1  # Fallback for single observation
 
         # Aggregate model data to observation periods
         aggregated_model = []
-        for obs_time in obs_data.index:
-            # Determine the period this observation represents
-            period_start = obs_time - period_days / 2 + 0.5
-            period_end = obs_time + period_days / 2 + 0.5
+        # for obs_time in obs_data.index:
+        #     # Determine the period this observation represents
+        #     period_start = obs_time - period_days / 2 + 0.5
+        #     period_end = obs_time + period_days / 2 + 0.5
+        #
+        #     # Find model days in this period
+        #     period_mask = (model_data.index >= period_start) & (model_data.index <= period_end)
+        #     period_model = model_data[period_mask]
+        #
+        #     if len(period_model) > 0:
+        #         # Compute mean over the period
+        #         period_mean = period_model.mean()
+        #         period_mean.name = obs_time
+        #         aggregated_model.append(period_mean)
 
+        for obs_time in obs_data.index:
             # Find model days in this period
-            period_mask = (model_data.index >= period_start) & (model_data.index <= period_end)
+            period_mask = (model_data.index >= obs_time) & (model_data.index <= obs_time+obs_spacing)
             period_model = model_data[period_mask]
 
             if len(period_model) > 0:
