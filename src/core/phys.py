@@ -269,8 +269,31 @@ class Setup:
         # Spin-up phase tracking
         self.in_spinup_phase: bool = False
 
+    def _cycle_yearly_dataframe(self, df: pd.DataFrame, years_needed: int) -> pd.DataFrame:
+        """
+        Cycle a yearly DataFrame for multi-year simulations.
+
+        Parameters:
+        - df: DataFrame with DatetimeIndex covering one year
+        - years_needed: Number of years to replicate
+
+        Returns:
+        - DataFrame with cycled data for multiple years
+        """
+        if years_needed <= 1:
+            return df
+
+        # Replicate the yearly cycle
+        cycled_dfs = []
+        for year_offset in range(years_needed):
+            year_df = df.copy()
+            year_df.index = year_df.index + pd.DateOffset(years=year_offset)
+            cycled_dfs.append(year_df)
+
+        return pd.concat(cycled_dfs)
+
     def _load_riverine_loads(self):
-        """Load riverine nutrient loads data."""
+        """Load riverine nutrient loads data and cycle for multi-year simulations."""
         import pandas as pd
 
         loads_file = os.path.join(path_cfg.DATA_DIR, self.riverine_loads_file)
@@ -283,8 +306,11 @@ class Setup:
 
         loads_df = pd.read_feather(loads_file)
 
-        # Handle time range and precision differences
-        # Filter to our simulation time window first
+        # Cycle for multi-year simulations if needed
+        years_needed = int(np.ceil(self.tmax / 365))
+        loads_df = self._cycle_yearly_dataframe(loads_df, years_needed)
+
+        # Filter to our simulation time window
         loads_df = loads_df[self.start_date:self.end_date]
 
         # Reindex to match setup.dates exactly, using nearest time interpolation
@@ -328,7 +354,7 @@ class Setup:
             return self._load_PAR_from_file(plotPAR)
 
     def _load_PAR_from_file(self, plotPAR: bool) -> pd.DataFrame:
-        """Load PAR data from file."""
+        """Load PAR data from file and cycle for multi-year simulations."""
         solrad_clim = pd.read_csv(os.path.join(path_cfg.DATA_DIR ,'solrad_clim.dat'), sep='\s+',
                                   header=None,
                                   names=['DOY', 'Hour', 'PAR1', 'PAR2', 'PAR3'])
@@ -346,6 +372,10 @@ class Setup:
                 pd.to_timedelta(solrad_clim['Hour'], unit='hours')
         )
         solrad_clim.set_index('Date', inplace=True)
+
+        # Cycle for multi-year simulations
+        years_needed = int(np.ceil(self.tmax / 365))
+        solrad_clim = self._cycle_yearly_dataframe(solrad_clim, years_needed)
 
         # Filter and interpolate
         filtered_df = solrad_clim[self.start_date:self.end_date]

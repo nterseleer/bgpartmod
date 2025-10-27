@@ -116,11 +116,12 @@ def prepare_model_obs_data(
     Prepare model and observation data for plotting.
 
     Performance optimization: Only copies necessary columns from potentially huge DataFrames.
+    Supports multi-year simulations with automatic observation cycling.
 
     Args:
         models: Single model/DataFrame or list of models/DataFrames
         observations: Observation data object
-        daily_mean: Whether to use daily means
+        daily_mean: Whether to use daily means (uses resample for multi-year compatibility)
         variables_to_plot: List of variables that will be plotted (for column standardization)
 
     Returns:
@@ -133,10 +134,6 @@ def prepare_model_obs_data(
     required_columns = set()
     if variables_to_plot:
         required_columns.update(variables_to_plot)
-
-    # Always include time-related columns for daily_mean functionality
-    if daily_mean:
-        required_columns.add('julian_day')
 
     # Extract DataFrames and names
     model_data_list = []
@@ -170,9 +167,14 @@ def prepare_model_obs_data(
             counter += 1
             name = f"{original_name} ({counter})"
 
-        if daily_mean and model_data.index.name != 'julian_day':
-            model_data['julian_day'] = model_data.index.dayofyear
-            model_data = model_data.groupby('julian_day').mean()
+        # Apply daily_mean using resample (preserves multi-year simulations)
+        if daily_mean and isinstance(model_data.index, pd.DatetimeIndex):
+            model_data = model_data.resample('D').mean()
+        elif daily_mean:
+            # Fallback for non-datetime index (backward compatibility)
+            if model_data.index.name != 'julian_day':
+                model_data['julian_day'] = model_data.index.dayofyear
+                model_data = model_data.groupby('julian_day').mean()
 
         model_data_list.append(model_data)
         model_names.append(name)
@@ -195,29 +197,63 @@ def prepare_model_obs_data(
     if observations is None:
         return model_data_list, None, None, model_names
 
-    # Prepare observation data
+    # Prepare observation data with automatic cycling for multi-year simulations
     obs_data = observations.df.copy()
 
-    if daily_mean and obs_data.index.name != 'julian_day':
-        obs_data['julian_day'] = obs_data.index.dayofyear
-        obs_data = obs_data.groupby('julian_day').mean()
-    elif not daily_mean and obs_data.index.name == 'julian_day':
-        # Convert julian day index to datetime to match model data
-        # Assumes year alignment with model data (first model's year is used)
-        model_year = model_data_list[0].index[0].year
-        obs_data.index = pd.to_datetime(obs_data.index.astype(int), format='%j').map(
-            lambda x: x.replace(year=model_year)
-        )
+    # Detect simulation span for multi-year cycling
+    model_start = model_data_list[0].index.min()
+    model_end = model_data_list[0].index.max()
+    simulation_days = (model_end - model_start).days
+    years_needed = int(np.ceil(simulation_days / 365))
+
+    # Only cycle observations if they have a DatetimeIndex
+    if isinstance(obs_data.index, pd.DatetimeIndex):
+        # Cycle observations for multi-year simulations
+        if years_needed > 1:
+            cycled_obs_list = []
+            start_year = model_start.year
+
+            for year_offset in range(years_needed):
+                obs_year = obs_data.copy()
+                # Map observation dates to simulation years
+                obs_year.index = obs_year.index.map(
+                    lambda x: x.replace(year=start_year + year_offset)
+                )
+                cycled_obs_list.append(obs_year)
+
+            obs_data = pd.concat(cycled_obs_list).sort_index()
+
+            if daily_mean:
+                obs_data = obs_data.resample('D').mean()
+        else:
+            # Single year - align with model year
+            model_year = model_start.year
+            obs_data.index = obs_data.index.map(
+                lambda x: x.replace(year=model_year)
+            )
+
+            if daily_mean:
+                obs_data = obs_data.resample('D').mean()
+    else:
+        # Non-datetime index (e.g., julian_day): apply daily_mean without cycling
+        if daily_mean and obs_data.index.name != 'julian_day':
+            obs_data['julian_day'] = obs_data.index.dayofyear
+            obs_data = obs_data.groupby('julian_day').mean()
 
     # Merge with first model for the model period
-    merged_data = pd.merge(
-        model_data_list[0],
-        obs_data,
-        left_index=True,
-        right_index=True,
-        how='outer',
-        suffixes=('_MOD', '_OBS')
-    )
+    # Only merge if both have compatible index types
+    if isinstance(model_data_list[0].index, pd.DatetimeIndex) and isinstance(obs_data.index, pd.DatetimeIndex):
+        merged_data = pd.merge(
+            model_data_list[0],
+            obs_data,
+            left_index=True,
+            right_index=True,
+            how='outer',
+            suffixes=('_MOD', '_OBS')
+        )
+    else:
+        # Incompatible index types (e.g., datetime vs numeric) - skip merge
+        merged_data = None
 
     return model_data_list, merged_data, obs_data, model_names
 

@@ -567,7 +567,7 @@ class Model:
                 method='DOP853',
                 t_eval=self.dates
             )
-            self.t = results.t
+            self.t = self.dates  # Use DatetimeIndex instead of results.t
             self.y = results.y
 
         except Exception as e:
