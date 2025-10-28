@@ -76,15 +76,22 @@ class DIM(BaseStateVar):
         self.coupled_exud_sources_phyto = coupled_exud_sources_phyto
         self.coupled_sloppy_feeding_sources = coupled_sloppy_feeding_sources
 
+        # Optimization: Pre-compute temperature limitation array for entire simulation
+        if self.setup is not None:
+            self._precompute_temp_limitation(
+                A_E=self.A_E, T_ref=self.T_ref, boltz=True,
+                bound_temp_to_1=self.bound_temp_to_1, suffix=''
+            )
+
     def update_val(self, concentration,
                    t=None,
                    debugverbose=False):
         self.concentration = concentration
         # Calculate remineralization rate (available for all subsequent steps)
-        if self.formulation == "Onur22" and self.k_remin > 0 and t is not None:
-            f_temp = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
-                                 boltz=True, bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max)
-            self.remineralization_rate = self.k_remin * f_temp
+        if self.k_remin > 0 and t is not None:
+            # Optimization: Use pre-computed temperature limitation
+            time_idx = self.setup.dates_to_index[t]
+            self.remineralization_rate = self.k_remin * self.limT_array[time_idx]
         else:
             self.remineralization_rate = 0.
 
@@ -121,24 +128,11 @@ class DIM(BaseStateVar):
         return np.array(self.sinks)
 
     def get_source_remineralization(self, t=None):
-        # Onur22
-        if self.formulation == "Onur22":
-            if self.coupled_remin_sources is not None:
-                nutrient_map = {'NH4': 'N', 'DIP': 'P', 'DSi': 'Si'}
-                self.source_remineralization = fns.get_all_contributors(
-                    self.coupled_remin_sources, 'sink_remineralization', nutrient_map[self.name])
-            else:
-                self.source_remineralization = 0.
-
-        # Sch07
-        elif self.formulation == "Sch07" and self.coupled_remin_sources is not None:
-            if self.name == 'DIC' or self.name == 'DIN':
-                self.source_remineralization = fns.get_all_contributors(self.coupled_remin_sources,
-                                                                        'sink_remineralization')
-            elif self.name == 'TA':
-                # /!\ Then remineralization is actually a sink term for Total Alkalinity!
-                self.source_remineralization = - (1 + 1 / 16.) * fns.get_all_contributors(self.coupled_remin_sources,
-                                                                                          'sink_remineralization')
+        """Calculate remineralization sources for Onur22 formulation."""
+        if self.coupled_remin_sources is not None:
+            nutrient_map = {'NH4': 'N', 'DIP': 'P', 'DSi': 'Si'}
+            self.source_remineralization = fns.get_all_contributors(
+                self.coupled_remin_sources, 'sink_remineralization', nutrient_map[self.name])
         else:
             self.source_remineralization = 0.
 
@@ -160,39 +154,33 @@ class DIM(BaseStateVar):
     def get_source_redox(self, t):
         # Onur22
         if self.name == 'NO3':
-            self.source_redox = self.r_nit * fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
-                                                         bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max,
-                                                         boltz=True) * self.coupled_NH4.concentration
+            # Optimization: Use pre-computed temperature limitation
+            time_idx = self.setup.dates_to_index[t]
+            self.source_redox = self.r_nit * self.limT_array[time_idx] * self.coupled_NH4.concentration
         else:
             self.source_redox = 0.
 
     def get_source_sloppy_feeding(self):
-        if self.formulation == "Onur22":
-            if self.name == 'DIC':
-                self.source_sloppy_feeding = np.sum(
-                    [sf.source_ing_C_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
-            elif self.name == 'NH4':
-                self.source_sloppy_feeding = np.sum(
-                    [sf.source_ing_N_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
-            elif self.name == 'NO3':
-                self.source_sloppy_feeding = 0.
-            elif self.name == 'DIP':
-                self.source_sloppy_feeding = np.sum(
-                    [sf.source_ing_P_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
-            elif self.name == 'DSi':
-                self.source_sloppy_feeding = np.sum([sum(sf.source_ingestion.Si.values()) * (1 - sf.f_unass_Si)
-                                                     for sf in self.coupled_sloppy_feeding_sources])
-
-        else:
+        if self.name == 'DIC':
+            self.source_sloppy_feeding = np.sum(
+                [sf.source_ing_C_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
+        elif self.name == 'NH4':
+            self.source_sloppy_feeding = np.sum(
+                [sf.source_ing_N_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
+        elif self.name == 'NO3':
             self.source_sloppy_feeding = 0.
+        elif self.name == 'DIP':
+            self.source_sloppy_feeding = np.sum(
+                [sf.source_ing_P_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
+        elif self.name == 'DSi':
+            self.source_sloppy_feeding = np.sum([sum(sf.source_ingestion.Si.values()) * (1 - sf.f_unass_Si)
+                                                 for sf in self.coupled_sloppy_feeding_sources])
+
 
     def get_source_exudation(self):
-        if self.formulation == 'Onur22':
-            if self.name == 'DSi':
-                self.source_exudation = self.coupled_exud_sources_phyto.sink_exudation.Si
-                self.source_exudation = self.source_exudation + self.coupled_exud_sources_phyto.sink_lysis.Si
-            else:
-                self.source_exudation = 0.
+        if self.name == 'DSi':
+            self.source_exudation = self.coupled_exud_sources_phyto.sink_exudation.Si
+            self.source_exudation = self.source_exudation + self.coupled_exud_sources_phyto.sink_lysis.Si
         else:
             self.source_exudation = 0.
 
@@ -209,7 +197,7 @@ class DIM(BaseStateVar):
 
 
     def get_sink_uptake(self):
-        if self.name == 'DIC':  # Onur22 and Sch07
+        if self.name == 'DIC':  # Onur22
             self.sink_uptake = fns.get_all_contributors(self.coupled_uptake_sinks, 'source_PP', 'C')
 
         # 202403 TODO priority2 - make this more generic (e.g. dict)
@@ -221,14 +209,6 @@ class DIM(BaseStateVar):
             self.sink_uptake = fns.get_all_contributors(self.coupled_uptake_sinks, 'source_uptake', 'P')
         elif self.name == 'DSi':
             self.sink_uptake = fns.get_all_contributors(self.coupled_uptake_sinks, 'source_uptake', 'Si')
-
-
-        elif self.name == 'DIN':  # Sch07
-            self.sink_uptake = fns.get_all_contributors(self.coupled_uptake_sinks, 'source_uptake', 'N')
-        elif self.name == 'TA':  # Sch07
-            # /!\ Then uptake is actually a source term for Total Alkalinity!
-            self.sink_uptake = - (1 + 1 / 16.) * fns.get_all_contributors(self.coupled_uptake_sinks, 'source_uptake',
-                                                                          'N')
 
     def get_sink_redox(self):
         if self.name == 'NH4':

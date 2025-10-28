@@ -24,6 +24,30 @@ class BaseStateVar:
     def get_diagnostic_variables(self):
         return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics])
 
+    def _precompute_temp_limitation(self, A_E, T_ref, boltz=False,
+                                   bound_temp_to_1=True, suffix=''):
+        """
+        Pre-compute temperature limitation array for entire simulation.
+        Optimization: Called once during set_coupling() to avoid repeated calculations.
+
+        Args:
+            A_E: Activation energy parameter
+            T_ref: Reference temperature [K]
+            boltz: Use Boltzmann constant if True
+            bound_temp_to_1: Bound limitation between 0 and 1
+            suffix: Identifier suffix (e.g., '_growth', '_grazing') for multiple limT arrays
+        """
+        if self.setup is None:
+            raise ValueError("setup must be initialized before pre-computing temperature limitation")
+
+        limT_array = fns.getlimT(
+            self.setup.T_array,
+            A_E=A_E, T_ref=T_ref, boltz=boltz,
+            bound_temp_to_1=bound_temp_to_1,
+            T_max=self.setup.T_max
+        )
+        setattr(self, f'limT{suffix}_array', limT_array)
+
 
 class BaseOrg(BaseStateVar):
     def __init__(self):

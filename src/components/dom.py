@@ -7,26 +7,13 @@ from src.config_model import varinfos
 class DOM(BaseOrg):
     def __init__(self,
                  name,
-                 rho=0,
                  rho_TEP=0.01,
-                 f_PCHO=0.640,  # Polysaccharide fraction of tot DOC exudates
-                 phi_PCHO=2.,  # Deviation from a priori guess on PCHO-PCHO coagulation (Sch07)
-                 phi_TEPC=0.5,  # Deviation from a priori guess on PCHO-TEPC coagulation (Sch07)
-
-                 alpha=0.001,  # [-] Self attachment probabilty (Onur22)
-
-                 alpha_PCHO=0.87 * 1e-3,  # Particle stickiness PCHO-PCHO
-                 alpha_TEPC=0.4,  # Particle stickiness PCHO-TEPC
-
+                 alpha=0.001,  # [-] Self attachment probability (Onur22)
+                 alpha_TEPC=0.4,  # [-] Particle stickiness DOC-TEPC (Onur22)
                  beta=0.86,  # [m3 mmolC-1 d-1] Self collision kernel (Onur22)
-
-                 beta_PCHO=0.86,
-                 # /varinfos.molmass_C * 1e3,    # [m3 gC-1 d-1] converted from m3 mmolC-1 d-1. C-specific collision kernel PCHO-PCHO
-                 beta_TEPC=0.064,
-                 # /varinfos.molmass_C * 1e3,   # [m3 gC-1 d-1] converted from m3 mmolC-1 d-1. C-specific collision kernel PCHO-TEPC
+                 beta_TEPC=0.064,  # [m3 mmolC-1 d-1] Collision kernel DOC-TEPC (Onur22)
                  dt2=False,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
-                 # formulation='Sch07'
                  ):
 
         super().__init__()
@@ -34,16 +21,10 @@ class DOM(BaseOrg):
         self.formulation = None
         self.classname = 'DOM'  # Name used as prefix for variables (used in Model.finalizeres vs varinfos)
         self.name = name
-        self.rho = rho
         self.rho_TEP = rho_TEP
-        self.f_PCHO = f_PCHO
-        self.phi_PCHO = phi_PCHO
-        self.phi_TEPC = phi_TEPC
         self.alpha = alpha
-        self.alpha_PCHO = alpha_PCHO
         self.alpha_TEPC = alpha_TEPC
         self.beta = beta
-        self.beta_PCHO = beta_PCHO
         self.beta_TEPC = beta_TEPC
         self.dt2 = dt2
         self.bound_temp_to_1 = bound_temp_to_1
@@ -174,73 +155,41 @@ class DOM(BaseOrg):
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks) if sinks is not None])
 
     def get_source_exudation(self):
-        if self.formulation == "Onur22":
-            if self.name == "DOCS":
-                self.source_exudation.C = (self.coupled_exud_sources_phyto.sink_exudation.C *
-                                           self.coupled_exud_sources_phyto.frac_exud_small)
-                self.source_exudation.N = (self.coupled_exud_sources_phyto.sink_exudation.N) # *
-                                           # self.coupled_exud_sources_phyto.frac_exud_small)
-                self.source_exudation.P = (self.coupled_exud_sources_phyto.sink_exudation.P) # *
-                                           # self.coupled_exud_sources_phyto.frac_exud_small)
-            elif self.name == "DOCL":
-                self.source_exudation.C = (self.coupled_exud_sources_phyto.sink_exudation.C *
-                                           (1. - self.coupled_exud_sources_phyto.frac_exud_small))
-            else:
-                self.source_exudation.C = 0.
-
+        """Calculate exudation sources for Onur22 formulation."""
+        if self.name == "DOCS":
+            self.source_exudation.C = (self.coupled_exud_sources_phyto.sink_exudation.C *
+                                       self.coupled_exud_sources_phyto.frac_exud_small)
+            self.source_exudation.N = self.coupled_exud_sources_phyto.sink_exudation.N
+            self.source_exudation.P = self.coupled_exud_sources_phyto.sink_exudation.P
+        elif self.name == "DOCL":
+            self.source_exudation.C = (self.coupled_exud_sources_phyto.sink_exudation.C *
+                                       (1. - self.coupled_exud_sources_phyto.frac_exud_small))
         else:
-            if self.name == 'resDOC':
-                self.source_exudation.C = (1 - self.f_PCHO) * self.coupled_exud_sources_phyto.sink_exudation.C + \
-                                          self.coupled_exud_sources_zoo.sink_mortality.C
-            elif self.name == 'DON':
-                self.source_exudation.C = self.coupled_exud_sources_phyto.sink_exudation.N + self.coupled_exud_sources_zoo.sink_mortality.N
-            elif self.name == 'PCHO':
-                self.source_exudation.C = self.f_PCHO * self.coupled_exud_sources_phyto.sink_exudation.C
-            elif self.name == 'TEPC':
-                self.source_exudation.C = 0.
+            self.source_exudation.C = 0.
 
     def get_source_breakdown(self):
-        if self.formulation == "Onur22":
-            if self.name == "DOCS":
-                # 20240430
-                # No C source, but the lysed material from phytoplankton and Heterotrophs go to DON and DOP
-                self.source_breakdown.C = 0. # All C lysis/breakdown goes to DOCL
-                self.source_breakdown.N = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'N')
-                self.source_breakdown.P = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'P')
-            elif self.name == "DOCL":
-                self.source_breakdown.C = (fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'C') +
-                                           fns.get_all_contributors(self.coupled_breakdown_sources, 'sink_breakdown',
-                                                                    'C'))
-            else:
-                self.source_breakdown.C = 0.
-                self.source_breakdown.N = 0.
-                self.source_breakdown.P = 0.
-
-        else:  # Sch07
-            if self.name == 'resDOC':
-                self.source_breakdown.C = np.sum(
-                    [src.sink_breakdown.C if src.npools > 1 else src.sink_breakdown for src in
-                     self.coupled_breakdown_sources])
-            elif self.name == 'DON':
-                self.source_breakdown.C = self.coupled_breakdown_sources.sink_breakdown.N
-            elif self.name == 'PCHO' or self.name == 'TEPC':
-                self.source_breakdown.C = 0.
+        """Calculate breakdown sources for Onur22 formulation."""
+        if self.name == "DOCS":
+            # No C source, but lysed material from phytoplankton and Heterotrophs go to DON and DOP
+            self.source_breakdown.C = 0.  # All C lysis/breakdown goes to DOCL
+            self.source_breakdown.N = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'N')
+            self.source_breakdown.P = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'P')
+        elif self.name == "DOCL":
+            self.source_breakdown.C = (fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'C') +
+                                       fns.get_all_contributors(self.coupled_breakdown_sources, 'sink_breakdown', 'C'))
+        else:
+            self.source_breakdown.C = 0.
+            self.source_breakdown.N = 0.
+            self.source_breakdown.P = 0.
 
     def get_source_aggregation(self):
-        if self.formulation == "Onur22":
-            if self.name == "TEPC":
-                self.source_aggregation.C = fns.get_all_contributors(self.coupled_aggreg_sources, 'sink_aggregation',
-                                                                     'C')
-            else:
-                self.source_aggregation.C = 0.
-                self.source_aggregation.N = 0.
-                self.source_aggregation.P = 0.
-
+        """Calculate aggregation sources for Onur22 formulation."""
+        if self.name == "TEPC":
+            self.source_aggregation.C = fns.get_all_contributors(self.coupled_aggreg_sources, 'sink_aggregation', 'C')
         else:
-            if self.name == 'TEPC':
-                self.source_aggregation.C = self.coupled_aggreg_sources.sink_aggregation
-            else:
-                self.source_aggregation.C = 0
+            self.source_aggregation.C = 0.
+            self.source_aggregation.N = 0.
+            self.source_aggregation.P = 0.
 
     def get_source_sloppy_feeding(self):
         if self.name == 'DOCS':
@@ -254,76 +203,49 @@ class DOM(BaseOrg):
             self.source_sloppy_feeding.C = 0
 
     def get_sink_ingestion(self):
-        if self.formulation == "Onur22":
-            self.sink_ingestion.C = np.sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
-            if self.name == "DOCS":
-                self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
-                self.sink_ingestion.P = np.sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
-            else:
-                self.sink_ingestion.N = 0.
-                self.sink_ingestion.P = 0.
+        """Calculate ingestion sinks for Onur22 formulation."""
+        self.sink_ingestion.C = np.sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
+        if self.name == "DOCS":
+            self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
+            self.sink_ingestion.P = np.sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
         else:
-            self.sink_ingestion.C = 0.
             self.sink_ingestion.N = 0.
             self.sink_ingestion.P = 0.
 
     def get_sink_remineralization(self, t=None):
-        if self.formulation == "Onur22":
-            self.sink_remineralization.C = 0.
-            self.sink_remineralization.N = 0.
-            self.sink_remineralization.P = 0.
+        """Calculate remineralization sinks for Onur22 formulation."""
+        self.sink_remineralization.C = 0.
+        self.sink_remineralization.N = 0.
+        self.sink_remineralization.P = 0.
 
-            if self.coupled_remin_products is not None:
-                for product in self.coupled_remin_products:
-                    if product.name == 'NH4' and hasattr(self, 'N'):
-                        self.sink_remineralization.N = product.remineralization_rate * self.N
-                    elif product.name == 'DIP' and hasattr(self, 'P'):
-                        self.sink_remineralization.P = product.remineralization_rate * self.P
-
-
-        else:  # Sch07
-            if self.name == 'resDOC' or self.name == 'DON':
-                self.sink_remineralization.C = self.rho * fns.getlimT(self.setup.T.loc[t]['T'],
-                                                                      bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) * self.C
-            else:
-                self.sink_remineralization.C = 0.
+        if self.coupled_remin_products is not None:
+            for product in self.coupled_remin_products:
+                if product.name == 'NH4' and hasattr(self, 'N'):
+                    self.sink_remineralization.N = product.remineralization_rate * self.N
+                elif product.name == 'DIP' and hasattr(self, 'P'):
+                    self.sink_remineralization.P = product.remineralization_rate * self.P
 
     def get_sink_breakdown(self, t=None):
-        if self.formulation == 'Onur22':
-            if self.name == 'TEPC':
-                self.sink_breakdown.C = self.rho_TEP * self.C
-            else:
-                self.sink_breakdown.C = 0.
-            self.sink_breakdown.N = 0.
-            self.sink_breakdown.P = 0.
-
+        """Calculate breakdown sinks for Onur22 formulation."""
+        if self.name == 'TEPC':
+            self.sink_breakdown.C = self.rho_TEP * self.C
         else:
-            if self.name == 'resDOC' or self.name == 'DON' or self.name == 'PCHO':
-                self.sink_breakdown.C = 0.
-            elif self.name == 'TEPC':
-                self.sink_breakdown.C = self.rho_TEP * fns.getlimT(self.setup.T.loc[t]['T'],
-                                                                   bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) * self.C
+            self.sink_breakdown.C = 0.
+        self.sink_breakdown.N = 0.
+        self.sink_breakdown.P = 0.
 
     def get_sink_aggregation(self):
-        if self.formulation == 'Onur22':
-            if self.name == 'DOCL':
-                self.sink_aggregation.C = (self.alpha * self.beta * self.C ** 2 +
-                                           self.alpha_TEPC * self.beta_TEPC * self.C * self.coupled_TEPC.C)
-            elif self.name == "DOCS":
-                self.sink_aggregation.C = self.alpha_TEPC * self.beta_TEPC * self.C * self.coupled_TEPC.C
-                # DON and DOP are considered not to aggregate
-                self.sink_aggregation.N = 0. #self.sink_aggregation.C * self.QN
-                self.sink_aggregation.P = 0. #self.sink_aggregation.C * self.QP
-            elif self.name == "TEPC":
-                self.sink_aggregation.C = self.coupled_aggreg_target.aggTEP_C
-
-        else:
-            # Schartau07
-            if self.name == 'resDOC' or self.name == 'DON' or self.name == 'TEPC':
-                self.sink_aggregation.C = 0.
-            elif self.name == 'PCHO':
-                self.sink_aggregation.C = self.phi_PCHO * self.alpha_PCHO * self.beta_PCHO * self.C ** 2 + \
-                                          self.phi_TEPC * self.alpha_TEPC * self.beta_TEPC * self.C * self.coupled_TEPC.C
+        """Calculate aggregation sinks for Onur22 formulation."""
+        if self.name == 'DOCL':
+            self.sink_aggregation.C = (self.alpha * self.beta * self.C ** 2 +
+                                       self.alpha_TEPC * self.beta_TEPC * self.C * self.coupled_TEPC.C)
+        elif self.name == "DOCS":
+            self.sink_aggregation.C = self.alpha_TEPC * self.beta_TEPC * self.C * self.coupled_TEPC.C
+            # DON and DOP are considered not to aggregate
+            self.sink_aggregation.N = 0.
+            self.sink_aggregation.P = 0.
+        elif self.name == "TEPC":
+            self.sink_aggregation.C = self.coupled_aggreg_target.aggTEP_C
 
     def get_sink_vertical_loss(self):
         """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)"""

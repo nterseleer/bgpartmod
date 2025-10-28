@@ -8,14 +8,10 @@ from src.config_model import varinfos
 class Detritus(BaseOrg):
     def __init__(self,
                  name,
-                 omega_C=0.004,  # [d-1] Remineralization rate of detrital C (Sch07)
-                 omega_N=0.018,  # [d-1] Remineralization rate of detrital N (Sch07)
-                 eps_kd=2e-4 * varinfos.molmass_C,  # [m2 mgC-1] (or m2 mg-1 ??) Diffuse attenuation cross section
-
+                 eps_kd=2e-4 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
                  kleak=0.25,  # [d-1] Specific leakage rate (out of the system) (Onur22)
                  beta_max=0.033,  # [m3 mmolC-1 d-1] Max collision kernel for A2 (Onur22)
                  KA2=57.48,  # [mmolC m-3] Half saturation cst for TEP dependence of A2 (Onur22)
-
                  dt2=False,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
@@ -38,14 +34,10 @@ class Detritus(BaseOrg):
         self.classname = 'Det'  # Name used as prefix for variables (used in Model.finalizeres vs varinfos)
 
         self.name = name
-
-        self.omega_C = omega_C
-        self.omega_N = omega_N
         self.eps_kd = eps_kd
         self.kleak = kleak
         self.beta_max = beta_max
         self.KA2 = KA2
-
         self.dt2 = dt2
         self.bound_temp_to_1 = bound_temp_to_1
 
@@ -176,56 +168,46 @@ class Detritus(BaseOrg):
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks, self.Si_sinks) if sinks is not None])
 
     def get_source_aggregation(self):
-        if self.formulation == "Onur22":
-            if self.name == 'DetL':
-                betaA2 = self.beta_max * self.coupled_TEPC.C / (self.coupled_TEPC.C + self.KA2)
-                self.aggPD_tot = betaA2 * (
-                        self.coupled_Phy.C + self.coupled_TEPC.C + self.coupled_smaller_Det.C) * self.C
+        """Calculate aggregation sources for Onur22 formulation."""
+        if self.name == 'DetL':
+            betaA2 = self.beta_max * self.coupled_TEPC.C / (self.coupled_TEPC.C + self.KA2)
+            self.aggPD_tot = betaA2 * (
+                    self.coupled_Phy.C + self.coupled_TEPC.C + self.coupled_smaller_Det.C) * self.C
 
-                self.sumc = self.coupled_Phy.C + self.coupled_TEPC.C + self.coupled_smaller_Det.C + self.C
+            self.sumc = self.coupled_Phy.C + self.coupled_TEPC.C + self.coupled_smaller_Det.C + self.C
 
-                # PD is Phyto+Detritus
-                self.aggPhy_C = self.aggPD_tot * self.coupled_Phy.C / self.sumc
-                self.aggPhy_N = self.aggPhy_C * self.coupled_Phy.QN
-                self.aggPhy_P = self.aggPhy_C * self.coupled_Phy.QP
-                self.aggPhy_Si = self.aggPhy_C * self.coupled_Phy.QSi
-                self.aggPhy_Chl = self.aggPhy_C * self.coupled_Phy.thetaC
+            # PD is Phyto+Detritus
+            self.aggPhy_C = self.aggPD_tot * self.coupled_Phy.C / self.sumc
+            self.aggPhy_N = self.aggPhy_C * self.coupled_Phy.QN
+            self.aggPhy_P = self.aggPhy_C * self.coupled_Phy.QP
+            self.aggPhy_Si = self.aggPhy_C * self.coupled_Phy.QSi
+            self.aggPhy_Chl = self.aggPhy_C * self.coupled_Phy.thetaC
 
-                self.aggDetS_C = self.aggPD_tot * self.coupled_smaller_Det.C / self.sumc
-                self.aggDetS_N = self.aggDetS_C * self.coupled_smaller_Det.QN
-                self.aggDetS_P = self.aggDetS_C * self.coupled_smaller_Det.QP
-                self.aggDetS_Si = self.aggDetS_C * self.coupled_smaller_Det.QSi
+            self.aggDetS_C = self.aggPD_tot * self.coupled_smaller_Det.C / self.sumc
+            self.aggDetS_N = self.aggDetS_C * self.coupled_smaller_Det.QN
+            self.aggDetS_P = self.aggDetS_C * self.coupled_smaller_Det.QP
+            self.aggDetS_Si = self.aggDetS_C * self.coupled_smaller_Det.QSi
 
-                # aggDetL is useless (source-sink for the same state equ)
-                # aggDetL_C = self.aggPD_tot * self.C / self.sumc
-                # aggDetL_N = self.aggPhy_C * self.QN
-                # aggDetL_P = self.aggPhy_C * self.QP
-                # aggDetL_Si = self.aggPhy_C * self.QSi
+            self.aggTEP_C = self.aggPD_tot * self.coupled_TEPC.C / self.sumc
 
-                self.aggTEP_C = self.aggPD_tot * self.coupled_TEPC.C / self.sumc
+            self.source_aggregation.C = (self.aggPhy_C +
+                                         self.aggDetS_C +
+                                         self.aggTEP_C)
+            self.source_aggregation.N = (self.aggPhy_N +
+                                         self.aggDetS_N)
+            self.source_aggregation.P = (self.aggPhy_P +
+                                         self.aggDetS_P)
+            self.source_aggregation.Si = (self.aggPhy_Si +
+                                          self.aggDetS_Si)
 
-                self.source_aggregation.C = (self.aggPhy_C +
-                                             self.aggDetS_C +
-                                             self.aggTEP_C)
-                self.source_aggregation.N = (self.aggPhy_N +
-                                             self.aggDetS_N)
-                self.source_aggregation.P = (self.aggPhy_P +
-                                             self.aggDetS_P)
-                self.source_aggregation.Si = (self.aggPhy_Si +
-                                              self.aggDetS_Si)
-
-            elif self.name == 'DetS':
-                self.source_aggregation.C = 0.
-                self.source_aggregation.N = 0.
-                self.source_aggregation.P = 0.
-                self.source_aggregation.Si = 0.
-
-        else:
-            self.source_aggregation.C = fns.get_all_contributors(self.coupled_aggreg_sources, 'sink_aggregation', 'C')
-            self.source_aggregation.N = fns.get_all_contributors(self.coupled_aggreg_sources, 'sink_aggregation', 'N')
+        elif self.name == 'DetS':
+            self.source_aggregation.C = 0.
+            self.source_aggregation.N = 0.
+            self.source_aggregation.P = 0.
+            self.source_aggregation.Si = 0.
 
     def get_source_mortality(self):
-        if self.formulation == "Onur22" and self.name == "DetS":
+        if self.name == "DetS":
             self.source_mortality.C = fns.get_all_contributors(self.coupled_mortality_sources, 'sink_mortality', 'C')
             coupled_mortsources_N = [c for c in self.coupled_mortality_sources if c.sink_mortality.N is not None]
             self.source_mortality.N = fns.get_all_contributors(coupled_mortsources_N, 'sink_mortality', 'N')
@@ -240,92 +222,71 @@ class Detritus(BaseOrg):
             self.source_mortality.Si = 0.
 
     def get_source_sloppy_feeding(self):
-        if self.formulation == "Onur22":
-            self.source_sloppy_feeding.C = 0.
-            self.source_sloppy_feeding.N = 0.
-            self.source_sloppy_feeding.P = 0.
-            if self.coupled_sloppy_feeding_sources is not None:
-                self.source_sloppy_feeding.Si = np.sum([sum(sf.source_ingestion.Si.values()) * sf.f_unass_Si
-                                                        for sf in self.coupled_sloppy_feeding_sources])
-            else:
-                self.source_sloppy_feeding.Si = 0.
+        self.source_sloppy_feeding.C = 0.
+        self.source_sloppy_feeding.N = 0.
+        self.source_sloppy_feeding.P = 0.
+        if self.coupled_sloppy_feeding_sources is not None:
+            self.source_sloppy_feeding.Si = np.sum([sum(sf.source_ingestion.Si.values()) * sf.f_unass_Si
+                                                    for sf in self.coupled_sloppy_feeding_sources])
+        else:
+            self.source_sloppy_feeding.Si = 0.
 
     def get_sink_breakdown(self):
-        if self.formulation == "Onur22":
-            self.sink_breakdown.C = 0.
-            self.sink_breakdown.N = 0.
-            self.sink_breakdown.P = 0.
-            self.sink_breakdown.Si = 0.
-        else:
-            self.sink_breakdown.C = self.omega_C * fns.getlimT(self.setup.T.loc[t]['T'],
-                                                               bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) * self.C
-            self.sink_breakdown.N = self.omega_N * fns.getlimT(self.setup.T.loc[t]['T'],
-                                                               bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) * self.N
+        """Calculate breakdown sinks for Onur22 formulation."""
+        self.sink_breakdown.C = 0.
+        self.sink_breakdown.N = 0.
+        self.sink_breakdown.P = 0.
+        self.sink_breakdown.Si = 0.
 
     def get_sink_aggregation(self):
-        if self.formulation == "Onur22":
-            if self.name == 'DetL':
-                self.sink_aggregation.C = 0.
-                self.sink_aggregation.N = 0.
-                self.sink_aggregation.P = 0.
-                self.sink_aggregation.Si = 0.
-            elif self.name == 'DetS':
-                self.sink_aggregation.C = self.coupled_larger_Det.aggDetS_C
-                self.sink_aggregation.N = self.coupled_larger_Det.aggDetS_N
-                self.sink_aggregation.P = self.coupled_larger_Det.aggDetS_P
-                self.sink_aggregation.Si = self.coupled_larger_Det.aggDetS_Si
+        if self.name == 'DetL':
+            self.sink_aggregation.C = 0.
+            self.sink_aggregation.N = 0.
+            self.sink_aggregation.P = 0.
+            self.sink_aggregation.Si = 0.
+        elif self.name == 'DetS':
+            self.sink_aggregation.C = self.coupled_larger_Det.aggDetS_C
+            self.sink_aggregation.N = self.coupled_larger_Det.aggDetS_N
+            self.sink_aggregation.P = self.coupled_larger_Det.aggDetS_P
+            self.sink_aggregation.Si = self.coupled_larger_Det.aggDetS_Si
 
     def get_sink_leakage_out(self):
-        if self.formulation == "Onur22":
-            if self.name == 'DetL':
-                # Mesocosm-specific leakage process (independent of floc dynamics)
-                self.sink_leakage_out.C = self.kleak * self.C
-                self.sink_leakage_out.N = self.kleak * self.N
-                self.sink_leakage_out.P = self.kleak * self.P
-                self.sink_leakage_out.Si = self.kleak * self.Si
-            else:
-                self.sink_leakage_out.C = 0.
-                self.sink_leakage_out.N = 0.
-                self.sink_leakage_out.P = 0.
-                self.sink_leakage_out.Si = 0.
+        if self.name == 'DetL':
+            # Mesocosm-specific leakage process (independent of floc dynamics)
+            self.sink_leakage_out.C = self.kleak * self.C
+            self.sink_leakage_out.N = self.kleak * self.N
+            self.sink_leakage_out.P = self.kleak * self.P
+            self.sink_leakage_out.Si = self.kleak * self.Si
         else:
             self.sink_leakage_out.C = 0.
             self.sink_leakage_out.N = 0.
             self.sink_leakage_out.P = 0.
             self.sink_leakage_out.Si = 0.
 
+
     def get_sink_ingestion(self):
-        if self.formulation == "Onur22":
-            self.sink_ingestion.C = np.sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
-            self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
-            self.sink_ingestion.P = np.sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
-            self.sink_ingestion.Si = np.sum([c.source_ingestion.Si[self.name] for c in self.coupled_consumers])
-        else:
-            self.sink_ingestion.C = 0.
-            self.sink_ingestion.N = 0.
-            self.sink_ingestion.P = 0.
-            self.sink_ingestion.Si = 0.
+        """Calculate ingestion sinks for Onur22 formulation."""
+        self.sink_ingestion.C = np.sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
+        self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
+        self.sink_ingestion.P = np.sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
+        self.sink_ingestion.Si = np.sum([c.source_ingestion.Si[self.name] for c in self.coupled_consumers])
 
     def get_sink_remineralization(self, t=None):
-        if self.formulation == "Onur22":
-            self.sink_remineralization.C = 0.
-            self.sink_remineralization.N = 0.
-            self.sink_remineralization.P = 0.
-            self.sink_remineralization.Si = 0.
+        self.sink_remineralization.C = 0.
+        self.sink_remineralization.N = 0.
+        self.sink_remineralization.P = 0.
+        self.sink_remineralization.Si = 0.
 
-            if self.coupled_remin_products is not None:
-                for product in self.coupled_remin_products:
-                    if hasattr(product, 'remineralization_rate') and product.remineralization_rate > 0:
-                        if product.name == 'NH4' and hasattr(self, 'N'):
-                            self.sink_remineralization.N = product.remineralization_rate * self.N
-                        elif product.name == 'DIP' and hasattr(self, 'P'):
-                            self.sink_remineralization.P = product.remineralization_rate * self.P
-                        elif product.name == 'DSi' and hasattr(self, 'Si'):
-                            self.sink_remineralization.Si = product.remineralization_rate * self.Si
-        else:
-            self.sink_remineralization.N = 0.
-            self.sink_remineralization.P = 0.
-            self.sink_remineralization.Si = 0.
+        if self.coupled_remin_products is not None:
+            for product in self.coupled_remin_products:
+                if hasattr(product, 'remineralization_rate') and product.remineralization_rate > 0:
+                    if product.name == 'NH4' and hasattr(self, 'N'):
+                        self.sink_remineralization.N = product.remineralization_rate * self.N
+                    elif product.name == 'DIP' and hasattr(self, 'P'):
+                        self.sink_remineralization.P = product.remineralization_rate * self.P
+                    elif product.name == 'DSi' and hasattr(self, 'Si'):
+                        self.sink_remineralization.Si = product.remineralization_rate * self.Si
+
 
     def get_sink_vertical_loss(self):
         """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)"""

@@ -249,10 +249,16 @@ class Setup:
             bed_shear_stress_phase_shift, bed_shear_stress_additive_mode, 2.0
         )
 
-        # Optimization: Pre-compute arrays for faster access during Flocs calculations
+        # Optimization: Pre-compute arrays for faster access during component calculations
         self.g_shear_rate_array = self.g_shear_rate['ShearRate'].values
         self.bed_shear_stress_array = self.bed_shear_stress['BedShearStress'].values
         self.water_depth_array = self.water_depth['WaterDepth'].values
+        self.T_array = self.T['T'].values
+        self.PAR_array = self.PAR['PAR'].values
+
+        # Calculate temperature bounds for efficient access
+        self.T_max = self.T['T'].max()
+        self.T_min = self.T['T'].min()
 
         # Create mapping for fast time index lookup
         self.dates_to_index = {date: idx for idx, date in enumerate(self.dates)}

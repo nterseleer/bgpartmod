@@ -106,10 +106,17 @@ class Heterotrophs(BaseOrg):
             print('WARNING PREF TROUBLE for {} with sum preferences = {}'.format(self.name, sum(self.pref.values())))
             input()
 
+        # Optimization: Pre-compute temperature limitation array for entire simulation
+        if self.setup is not None:
+            self._precompute_temp_limitation(
+                A_E=self.A_E, T_ref=self.T_ref, boltz=True,
+                bound_temp_to_1=self.bound_temp_to_1, suffix=''
+            )
+
     def get_sources(self, t=None):
-        # Limitation functions
-        self.lim_T = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
-                                 boltz=True, bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max)
+        # Optimization: Use pre-computed temperature limitation
+        time_idx = self.setup.dates_to_index[t]
+        self.lim_T = self.limT_array[time_idx]
 
         # SOURCES
         self.get_source_ingestion()
