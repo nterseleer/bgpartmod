@@ -8,7 +8,6 @@ from ..utils import functions as fns
 class Phyto(BaseOrg):
     def __init__(self,
                  mu_max=3.,  # [d-1]
-                 v_max=0.5,  # [gN gC-1 d-1]
                  v_max_N=0.78,  # [molN molC-1 d-1] # Onur22
                  v_max_P=0.075,  # [molP molC-1 d-1] # Onur22
                  v_max_Si=1.2,  # [molSi molC-1 d-1] # Onur22
@@ -19,61 +18,30 @@ class Phyto(BaseOrg):
                  QP_max=0.012,
                  QSi_min=0.06,
                  QSi_max=0.18,
-                 boundQN=True,  # [Boolean]
-                 n=0.01,  # [-]
                  KNH4=3 * varinfos.molmass_N / 1e3,  # [g m-3] converted from 3 µM
                  KNO3=2.,
                  KDIP=0.05,
                  KDSi=0.43,
                  thetaN_max=0.3,  # [gChla gN-1]
-
                  theta_max=0.07 * varinfos.molmass_C,  # [gChl molC-1] from [gChl gC-1] (Onur22)
-
                  T_ref=18. + varinfos.degCtoK,  # [K]
                  A_E=0.32,  # [-] Activation energy for T° scaling (Onur22)
-                 r_ref=0.025,  # [d-1]
-
                  QratioIC=None,  # Ratio to correct for the ICs internal pools vs Q_max (in BaseOrg.set_ICs)
                  checkQmax=True,  # Boolean: whether to check that IC are OK wrt Q_max
-
-                 sigmaN_C=1000 * varinfos.molmass_N ** 2 / varinfos.molmass_C ** 2,
-                 # [mmolN2 mmolC-2] Slope parameter for DIN-uptake regulation (Sch07)
-                 gamma_C=0.,  # 0.250,  # [d-1] Phytoplankton linear C loss rate (Sch07)
-                 gamma_N=0.,  # 0.180,  # [d-1] Phytoplankton linear N loss rate (Sch07)
-                 gamma_chl=0.,  # 0.001,  # [d-1] Chla degradation rate (Sch07)
-
                  gamma_C_exud_base=.02,  # [d-1] Basal exudation rate (Onur22)
                  gamma_C_exud_prod=.11,  # [-] Production sp. exudation rate (Onur22)
-
-                 phi_PP=0.02 / (varinfos.molmass_N ** 2) * 1e6,  # [m6 mmolN-2 d-1]  (Sch07)
-                 phi_PD=0.,  # [?] Deviation from a priori guess on Phy-Det aggregation
-                 zeta=2.,  # [gC gN-1]
-
                  zeta_resp_base=.01,  # [d-1] Basal respiration rate (Onur22)
                  zeta_resp_prod=.01,  # [-] Production sp. respiration rate (Onur22)
-
-                 beta_fact=0.033,  # see Sch07 Equ B13
-                 k_beta=53.125,  # half-sat cst for aggregation vs TEPC cf Ruiz et al 2002
-
                  lysrate=0.1,  # [d-1] Onur22
                  mortrate=0.05,  # [d-1] Onur22
-
                  # Implicit copepod grazing closure term
                  A_E_grazing=0.65,  # [-] Activation energy for temperature scaling of grazing
                  T_ref_grazing=283.15,  # [K] Reference temperature for grazing (10°C)
                  K_grazing=20.0,  # [mmol C m-3] Half-saturation constant for grazing (Michaelis-Menten)
                  grazing_loss_max=0.0,  # [mmol C m-3 d-1] Maximum grazing loss rate (default: disabled)
-
-                 fixedstoichiometry=False,  # [Boolean]
-                 boundrhoChl=False,  # [Boolean]
-                 r_ref_tweakGMK=False,
-
                  kdvar=False,  # Whether to apply an extinction coefficient in the water column to incident light
                  eps_kd=8e-4 * varinfos.molmass_C,  # Diffuse attenuation cross section of phytoplankton [m2 mgC-1]
-                 divide_water_depth_ratio=1.,  # ratio to divide water depth to restrain light attenuation (e.g.,
-                 # assuming they benefit from time period at surface in mixed area,
-                 # otherwise the light attenuation is too penalizing for the average PAR_water)
-
+                 divide_water_depth_ratio=1.,  # ratio to divide water depth to restrain light attenuation
                  dt2=False,
                  name='DefaultPhyto',
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
@@ -91,7 +59,6 @@ class Phyto(BaseOrg):
         self.diagnostics = None
         self.classname = 'Phy'  # Name used as prefix for variables (used in Model.finalizeres vs varinfos)
         self.mu_max = mu_max
-        self.v_max = v_max
         self.v_max_N = v_max_N
         self.v_max_P = v_max_P
         self.v_max_Si = v_max_Si
@@ -102,8 +69,6 @@ class Phyto(BaseOrg):
         self.QP_max = QP_max
         self.QSi_min = QSi_min
         self.QSi_max = QSi_max
-        self.boundQN = boundQN
-        self.n = n
         self.KNH4 = KNH4
         self.KNO3 = KNO3
         self.KDIP = KDIP
@@ -112,31 +77,18 @@ class Phyto(BaseOrg):
         self.theta_max = theta_max
         self.T_ref = T_ref
         self.A_E = A_E
-        self.r_ref = r_ref
         self.QratioIC = QratioIC
         self.checkQmax = checkQmax
-        self.sigmaN_C = sigmaN_C
-        self.gamma_C = gamma_C
-        self.gamma_N = gamma_N
-        self.gamma_chl = gamma_chl
         self.gamma_C_exud_base = gamma_C_exud_base
         self.gamma_C_exud_prod = gamma_C_exud_prod
-        self.phi_PP = phi_PP
-        self.phi_PD = phi_PD
-        self.zeta = zeta
         self.zeta_resp_base = zeta_resp_base
         self.zeta_resp_prod = zeta_resp_prod
-        self.beta_fact = beta_fact
         self.lysrate = lysrate
         self.mortrate = mortrate
         self.A_E_grazing = A_E_grazing
         self.T_ref_grazing = T_ref_grazing
         self.K_grazing = K_grazing
         self.grazing_loss_max = grazing_loss_max
-        self.k_beta = k_beta
-        self.fixedstoichiometry = fixedstoichiometry
-        self.boundrhoChl = boundrhoChl
-        self.r_ref_tweakGMK = r_ref_tweakGMK
         self.kdvar = kdvar
         self.eps_kd = eps_kd
         self.divide_water_depth_ratio = divide_water_depth_ratio
@@ -147,8 +99,6 @@ class Phyto(BaseOrg):
         self.lim_N = None
         self.lim_P = None
         self.lim_Si = None
-        self.lim_QN = None
-        self.lim_QN2 = None
         self.limNUT = None
         self.limT = None
         self.fnut = None
@@ -203,15 +153,24 @@ class Phyto(BaseOrg):
         self.coupled_aggreg_target = coupled_aggreg_target
         self.coupled_light_attenuators = coupled_light_attenuators
 
+        # Optimization: Pre-compute temperature limitation arrays for entire simulation
+        if self.setup is not None:
+            self._precompute_temp_limitation(
+                A_E=self.A_E, T_ref=self.T_ref, boltz=True,
+                bound_temp_to_1=self.bound_temp_to_1, suffix='_growth'
+            )
+            self._precompute_temp_limitation(
+                A_E=self.A_E_grazing, T_ref=self.T_ref_grazing, boltz=True,
+                bound_temp_to_1=self.bound_temp_to_1, suffix='_grazing'
+            )
+
     def get_sources(self, t):
+        # Optimization: Use pre-computed arrays for faster access
+        time_idx = self.setup.dates_to_index[t]
+
         # Limitation functions
         self.get_limNUT()
-        if self.formulation == 'Onur22':
-            self.limT = fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E, T_ref=self.T_ref,
-                                    boltz=True, bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max)
-        else:
-            self.limT = fns.getlimT(self.setup.T.loc[t]['T'], bound_temp_to_1=self.bound_temp_to_1,
-                                    T_max=self.setup.T_max)
+        self.limT = self.limT_growth_array[time_idx]
         if self.P is not None and self.Si is not None:
             self.fnut = min(self.QN, self.QP, self.QSi)
 
@@ -297,203 +256,108 @@ class Phyto(BaseOrg):
     def get_diagnostic_variables(self):
         return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics])
 
-    def get_limNUT(self, verbose=True):
-        if self.formulation == 'Onur22':
-            self.lim_N = 1 - self.QN_min / self.QN
-            self.lim_P = 1 - self.QP_min / self.QP
-            self.lim_Si = 1 - self.QSi_min / self.QSi
-            self.limNUT = min(self.lim_N, self.lim_P, self.lim_Si)
-            self.limQUOTAmin.N = (self.QN - self.QN_min) / (self.QN_max - self.QN_min)
-            self.limQUOTA.N = 1 - self.limQUOTAmin.N
-            self.limQUOTAmin.P = (self.QP - self.QP_min) / (self.QP_max - self.QP_min)
-            self.limQUOTA.P = 1 - self.limQUOTAmin.P
-            self.limQUOTAmin.Si = (self.QSi - self.QSi_min) / (self.QSi_max - self.QSi_min)
-            self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
-
-
-        else:
-            self.lim_N = self.coupled_NH4.concentration / (self.coupled_NH4.concentration + self.KNH4)
-            if self.boundQN:
-                self.lim_QN = max((self.QN - self.QN_min), 0) / (self.QN_max - self.QN_min)
-                self.lim_QN2 = (max((self.QN_max - self.QN), 0) / (self.QN_max - self.QN_min)) ** self.n
-            else:
-                self.lim_QN = (self.QN - self.QN_min) / (self.QN_max - self.QN_min)
-                self.lim_QN2 = ((self.QN_max - self.QN) / (self.QN_max - self.QN_min)) ** self.n
-            if verbose and self.formulation == 'GMK98' and (self.QN_max - self.QN) < 0:
-                # Then lim_QN2 is np.nan and so is self.VC_N etc...
-                # Note: lim_QN2 not used in Schartau
-                print('(self.QN_max - self.QN)<0 !!! at t=', self.t)
-            if verbose and (self.QN - self.QN_min) < 0:
-                print('(self.QN - self.QN_min)<0 !!! at t=', self.t)
-            self.limNUT = self.lim_QN
+    def get_limNUT(self):
+        """Calculate nutrient limitations for Onur22 formulation."""
+        self.lim_N = 1 - self.QN_min / self.QN
+        self.lim_P = 1 - self.QP_min / self.QP
+        self.lim_Si = 1 - self.QSi_min / self.QSi
+        self.limNUT = min(self.lim_N, self.lim_P, self.lim_Si)
+        self.limQUOTAmin.N = (self.QN - self.QN_min) / (self.QN_max - self.QN_min)
+        self.limQUOTA.N = 1 - self.limQUOTAmin.N
+        self.limQUOTAmin.P = (self.QP - self.QP_min) / (self.QP_max - self.QP_min)
+        self.limQUOTA.P = 1 - self.limQUOTAmin.P
+        self.limQUOTAmin.Si = (self.QSi - self.QSi_min) / (self.QSi_max - self.QSi_min)
+        self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
 
     def get_kd(self):
+        """Calculate light attenuation coefficient for Onur22 formulation."""
         if self.kdvar:
-            if self.formulation == 'GMK98':
-                self.kd = self.setup.k_att * self.setup.Chl_tot  # TBC !!!
-
-            elif self.formulation == "Onur22":
-                self.kd = self.eps_kd * self.C + np.sum([x.eps_kd * x.C for x in self.coupled_light_attenuators])
-                if self.coupled_SPM:
-                    # print(["{} with eps {}".format(x.name, x.eps_kd) for x in self.coupled_SPM])
-                    # print(self.kd)
-                    self.kd += np.sum([x.eps_kd * x.massconcentration for x in self.coupled_SPM])
-                    # print(self.kd)
-
-            else:
-                self.kd = (self.setup.kb +
-                           self.coupled_SPM.eps_kd * np.sqrt(self.coupled_SPM.concentration) * 1e9 +
-                           self.coupled_Det.eps_kd * self.coupled_Det.C +
-                           self.eps_kd * self.setup.Cphy_tot)
+            self.kd = self.eps_kd * self.C + np.sum([x.eps_kd * x.C for x in self.coupled_light_attenuators])
+            if self.coupled_SPM:
+                self.kd += np.sum([x.eps_kd * x.massconcentration for x in self.coupled_SPM])
 
     def get_source_PP(self, t):
-        self.PAR_t = self.setup.PAR.loc[t]['PAR']
+        """Calculate primary production for Onur22 formulation."""
+        # Optimization: Use pre-computed arrays for faster access
+        time_idx = self.setup.dates_to_index[t]
+        self.PAR_t = self.setup.PAR_array[time_idx]
         if self.kdvar:
             self.get_kd()
-            self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth.loc[t]['WaterDepth'] /
+            self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[time_idx] /
                                                           self.divide_water_depth_ratio)
 
-        if not self.fixedstoichiometry:
-            self.PC_max = self.mu_max * self.limNUT * self.limT  # OK
-            self.limI = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column) / (
-                    self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0  # Eq. 4
-            self.PC = self.PC_max * self.limI
-            self.source_PP.C = self.PC * self.C
+        self.PC_max = self.mu_max * self.limNUT * self.limT
+        self.limI = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column) / (
+                self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0
+        self.PC = self.PC_max * self.limI
+        self.source_PP.C = self.PC * self.C
 
-            if self.boundrhoChl:
-                self.rho_Chl = 0. if not light else self.thetaN_max * self.PC / (self.alpha * self.thetaC * I_t_LD)
-            else:
-                if self.formulation == "Onur22":
-                    """
-                    rho_chl must be in [mgChl mmolN-1] (see source_Chlprod.Chl)
-                    Hence (self.PC / (self.alpha * self.thetaC * PAR_t_water_column)) must be [-] dimensionless (see limI)
-                    and self.theta_max / self.QN_max must be in [mgChl mmolN-1]
-                    Hence: 
-                    - QN_max is in [molN:molC]
-                    - theta_max must be in [mgChl molC-1] and NOT in [mgChl gC-1]! The conversion must be done 
-                        at the parameter definition (instanciation), already in the config file. 
-                    """
-
-                    self.rho_Chl = 0. if self.PAR_t_water_column < 0.01 else self.theta_max / self.QN_max * (
-                            self.PC * varinfos.molmass_C / (self.alpha * self.thetaC * self.PAR_t_water_column))
-                else:
-                    self.rho_Chl = self.thetaN_max * self.PC / (
-                            self.alpha * self.thetaC * I_t)  # TBC HERE I_t_LD or I ?? #
-        else:
-            self.limI = 1 - np.exp((-self.alpha * self.thetaC * I_t_LD) / self.mu_max)
-            self.source_PP.C = self.mu_max * self.lim_N * self.limI * self.C
-            self.rho_Chl = None
+        # Calculate rho_Chl for chlorophyll production
+        # rho_chl must be in [mgChl mmolN-1] (see source_Chlprod.Chl)
+        # QN_max is in [molN:molC], theta_max is in [mgChl molC-1]
+        self.rho_Chl = 0. if self.PAR_t_water_column < 0.01 else self.theta_max / self.QN_max * (
+                self.PC * varinfos.molmass_C / (self.alpha * self.thetaC * self.PAR_t_water_column))
 
     def get_source_uptake(self):
-        if not self.fixedstoichiometry:
-            # GMK1998
-            if self.formulation == 'GMK98':
-                VC_max = self.v_max * self.lim_QN2 * self.limT
-                self.VC_N = VC_max * self.lim_N
-                self.source_uptake.N = self.VC_N / self.QN * self.N
-            elif self.formulation == 'Sch07':
-                RN_C = 1 - np.exp(-self.sigmaN_C * (np.abs(self.QN - self.QN_max) - (self.QN - self.QN_max)) ** 2)
-                self.VC_N = self.PC_max * self.QN_max * RN_C * self.lim_N
-                self.source_uptake.N = self.VC_N / self.QN * self.N
-            elif self.formulation == 'Onur22':
-                wNH4 = self.coupled_NH4.concentration / self.KNH4
-                wNO3 = self.coupled_NO3.concentration / self.KNO3
-                self.mmNH4 = wNH4 / (1 + wNH4 + wNO3)
-                self.mmNO3 = wNO3 / (1 + wNH4 + wNO3)
-                self.mmDIP = self.coupled_DIP.concentration / (self.coupled_DIP.concentration + self.KDIP)
-                self.mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi)
-                self.source_uptake.NH4 = self.v_max_N * self.limQUOTA.N * self.mmNH4 * self.limT * self.C
-                self.source_uptake.NO3 = self.v_max_N * self.limQUOTA.N * self.mmNO3 * self.limT * self.C
-                self.source_uptake.N = self.source_uptake.NH4 + self.source_uptake.NO3
-                self.source_uptake.P = self.v_max_P * self.limQUOTA.P * self.mmDIP * self.limT * self.C
-                self.source_uptake.Si = self.v_max_Si * self.limQUOTA.Si * self.mmDSi * self.limT * self.C
-        else:
-            self.source_uptake.N = self.source_PP.C * self.QN
+        """Calculate nutrient uptake for Onur22 formulation."""
+        wNH4 = self.coupled_NH4.concentration / self.KNH4
+        wNO3 = self.coupled_NO3.concentration / self.KNO3
+        self.mmNH4 = wNH4 / (1 + wNH4 + wNO3)
+        self.mmNO3 = wNO3 / (1 + wNH4 + wNO3)
+        self.mmDIP = self.coupled_DIP.concentration / (self.coupled_DIP.concentration + self.KDIP)
+        self.mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi)
+        self.source_uptake.NH4 = self.v_max_N * self.limQUOTA.N * self.mmNH4 * self.limT * self.C
+        self.source_uptake.NO3 = self.v_max_N * self.limQUOTA.N * self.mmNO3 * self.limT * self.C
+        self.source_uptake.N = self.source_uptake.NH4 + self.source_uptake.NO3
+        self.source_uptake.P = self.v_max_P * self.limQUOTA.P * self.mmDIP * self.limT * self.C
+        self.source_uptake.Si = self.v_max_Si * self.limQUOTA.Si * self.mmDSi * self.limT * self.C
 
     def get_source_Chlprod(self):
-        if not self.fixedstoichiometry:
-            if self.formulation == 'Onur22':
-                """
-                20240702 - dPhyChl = VN*rho_chl - Without self.C
-                Indeed, rho_Chl is expressed as gChl/molN!
-                Hence, dimensional analysis: 
-                [mgChl m-3 d-1] = [mgChl mmolN-1] * [mmolN m-3 d-1]
-                Confirming that rho_chl must be in [mgChl mmolN-1]
-                """
-                self.source_Chlprod.Chl = self.rho_Chl * self.source_uptake.N
-            else:
-                # GMK1998, Sch07
-                self.source_Chlprod.Chl = self.C * self.rho_Chl * self.VC_N  # equivalent to self.VC_N / self.thetaC * self.rho_Chl * self.Chl
-        else:
-            self.source_Chlprod.Chl = self.source_PP.C * self.thetaC
+        """
+        Calculate chlorophyll production for Onur22 formulation.
+        dPhyChl = VN*rho_chl (without self.C)
+        rho_Chl is in [mgChl mmolN-1], source_uptake.N is in [mmolN m-3 d-1]
+        Hence [mgChl m-3 d-1] = [mgChl mmolN-1] * [mmolN m-3 d-1]
+        """
+        self.source_Chlprod.Chl = self.rho_Chl * self.source_uptake.N
 
     def get_sink_lysis(self):
-        if self.formulation == 'Onur22':
-            flysis = 0.05 + 0.95 * (1. + np.exp(-(self.fnut - 0.2) * 30)) ** (-1)
-            self.sink_lysis.C = self.C * flysis * self.lysrate
-            self.sink_lysis.N = self.sink_lysis.C * self.QN
-            self.sink_lysis.Chl = self.sink_lysis.C * self.thetaC
-            self.sink_lysis.P = self.sink_lysis.C * self.QP
-            self.sink_lysis.Si = self.sink_lysis.C * self.QSi
-        else:
-            self.sink_lysis.C = 0
-            self.sink_lysis.N = 0
-            self.sink_lysis.Chl = 0
-            self.sink_lysis.P = 0
-            self.sink_lysis.Si = 0
+        flysis = 0.05 + 0.95 * (1. + np.exp(-(self.fnut - 0.2) * 30)) ** (-1)
+        self.sink_lysis.C = self.C * flysis * self.lysrate
+        self.sink_lysis.N = self.sink_lysis.C * self.QN
+        self.sink_lysis.Chl = self.sink_lysis.C * self.thetaC
+        self.sink_lysis.P = self.sink_lysis.C * self.QP
+        self.sink_lysis.Si = self.sink_lysis.C * self.QSi
 
     def get_sink_mortality(self, t):
-        if self.formulation == 'Onur22':
-            grazing_loss = (self.grazing_loss_max *
-                            fns.getlimT(self.setup.T.loc[t]['T'], A_E=self.A_E_grazing,
-                                        T_ref=self.T_ref_grazing, boltz=True,
-                                        bound_temp_to_1=self.bound_temp_to_1, T_max=self.setup.T_max) *
-                            self.C / (self.K_grazing + self.C))
-            self.sink_mortality.C = self.C * self.mortrate + grazing_loss
-            self.sink_mortality.N = self.sink_mortality.C * self.QN
-            self.sink_mortality.Chl = self.sink_mortality.C * self.thetaC
-            self.sink_mortality.P = self.sink_mortality.C * self.QP
-            self.sink_mortality.Si = self.sink_mortality.C * self.QSi
-        else:
-            self.sink_mortality.C = 0
-            self.sink_mortality.N = 0
-            self.sink_mortality.Chl = 0
-            self.sink_mortality.P = 0
-            self.sink_mortality.Si = 0
+        # Optimization: Use pre-computed temperature limitation for grazing
+        time_idx = self.setup.dates_to_index[t]
+        grazing_loss = (self.grazing_loss_max *
+                        self.limT_grazing_array[time_idx] *
+                        self.C / (self.K_grazing + self.C))
+        self.sink_mortality.C = self.C * self.mortrate + grazing_loss
+        self.sink_mortality.N = self.sink_mortality.C * self.QN
+        self.sink_mortality.Chl = self.sink_mortality.C * self.thetaC
+        self.sink_mortality.P = self.sink_mortality.C * self.QP
+        self.sink_mortality.Si = self.sink_mortality.C * self.QSi
 
     def get_sink_exudation(self):
-        if self.formulation == 'Onur22':
-            self.sink_exudation.C = self.gamma_C_exud_base * self.C + self.gamma_C_exud_prod * self.PC
-            self.sink_exudation.Chl = 0.
-            xquota = 0.99
-            self.sink_exudation.N = self.sink_exudation.C * self.QN if self.limQUOTAmin.N > xquota else 0.
-            self.sink_exudation.P = self.sink_exudation.C * self.QP if self.limQUOTAmin.P > xquota else 0.
-            self.sink_exudation.Si = self.sink_exudation.C * self.QSi if self.limQUOTAmin.Si > xquota else 0.
-            self.frac_exud_small = 1 / (1 + np.exp(-(self.fnut - 0.2) * 30))
-        else:
-            self.sink_exudation.C = self.gamma_C * self.C
-            self.sink_exudation.N = self.gamma_N * self.N
-            self.sink_exudation.Chl = self.gamma_chl * self.Chl
+        """Calculate exudation for Onur22 formulation."""
+        self.sink_exudation.C = self.gamma_C_exud_base * self.C + self.gamma_C_exud_prod * self.PC
+        self.sink_exudation.Chl = 0.
+        xquota = 0.99
+        self.sink_exudation.N = self.sink_exudation.C * self.QN if self.limQUOTAmin.N > xquota else 0.
+        self.sink_exudation.P = self.sink_exudation.C * self.QP if self.limQUOTAmin.P > xquota else 0.
+        self.sink_exudation.Si = self.sink_exudation.C * self.QSi if self.limQUOTAmin.Si > xquota else 0.
+        self.frac_exud_small = 1 / (1 + np.exp(-(self.fnut - 0.2) * 30))
 
     def get_sink_respiration(self):
-        if self.formulation == 'Onur22':
-            self.sink_respiration.C = self.zeta_resp_base * self.C + self.zeta_resp_prod * self.PC
-            self.sink_respiration.Chl = self.sink_respiration.C * self.thetaC  # "Chl degradation"
-            self.sink_respiration.N = 0.
-            self.sink_respiration.P = 0.
-            self.sink_respiration.Si = 0.
-        else:
-            # Respiration (maintenance metabolic cost) + biosynthetic costs
-            if self.r_ref_tweakGMK:
-                self.r_ref = self.r_ref * self.source_PP.C
-            self.sink_respiration.C = (self.r_ref + self.zeta * self.VC_N) * self.C
-
-            if self.formulation == 'GMK98':
-                self.sink_respiration.N = self.r_ref * self.N
-                self.sink_respiration.Chl = self.r_ref * self.Chl
-            else:
-                self.sink_respiration.N = 0.
-                self.sink_respiration.Chl = 0.
+        """Calculate respiration for Onur22 formulation."""
+        self.sink_respiration.C = self.zeta_resp_base * self.C + self.zeta_resp_prod * self.PC
+        self.sink_respiration.Chl = self.sink_respiration.C * self.thetaC  # Chl degradation
+        self.sink_respiration.N = 0.
+        self.sink_respiration.P = 0.
+        self.sink_respiration.Si = 0.
 
     def get_sink_ingestion(self):
         if self.coupled_consumer is not None:
@@ -509,23 +373,10 @@ class Phyto(BaseOrg):
             self.sink_ingestion.P = 0.
             self.sink_ingestion.Si = 0.
 
-    def get_sink_aggregation(self, ):
-        if self.formulation == 'Onur22':
-            self.sink_aggregation.C = self.coupled_aggreg_target.aggPhy_C
-            self.sink_aggregation.N = self.coupled_aggreg_target.aggPhy_N
-            self.sink_aggregation.P = self.coupled_aggreg_target.aggPhy_P
-            self.sink_aggregation.Si = self.coupled_aggreg_target.aggPhy_Si
-            self.sink_aggregation.Chl = self.coupled_aggreg_target.aggPhy_Chl
-
-        else:
-            if self.coupled_TEPC is not None:
-                # TBC - 20231009 - the 1/self.QN is TBC (partially present in Sch07 Equ B13)
-                beta = self.beta_fact / self.QN * self.coupled_TEPC.concentration / (
-                        self.k_beta + self.coupled_TEPC.concentration)
-                self.sink_aggregation.N = self.phi_PP * self.N ** 2 + self.phi_PD * beta * self.N * self.coupled_Det.N
-                self.sink_aggregation.C = self.sink_aggregation.N / self.QN
-                self.sink_aggregation.Chl = self.sink_aggregation.C * self.thetaC
-            else:
-                self.sink_aggregation.N = 0.
-                self.sink_aggregation.C = 0.
-                self.sink_aggregation.Chl = 0.
+    def get_sink_aggregation(self):
+        """Calculate aggregation for Onur22 formulation."""
+        self.sink_aggregation.C = self.coupled_aggreg_target.aggPhy_C
+        self.sink_aggregation.N = self.coupled_aggreg_target.aggPhy_N
+        self.sink_aggregation.P = self.coupled_aggreg_target.aggPhy_P
+        self.sink_aggregation.Si = self.coupled_aggreg_target.aggPhy_Si
+        self.sink_aggregation.Chl = self.coupled_aggreg_target.aggPhy_Chl
