@@ -12,6 +12,7 @@ class DOM(BaseOrg):
                  alpha_TEPC=0.4,  # [-] Particle stickiness DOC-TEPC (Onur22)
                  beta=0.86,  # [m3 mmolC-1 d-1] Self collision kernel (Onur22)
                  beta_TEPC=0.064,  # [m3 mmolC-1 d-1] Collision kernel DOC-TEPC (Onur22)
+                 kleak=0.,           # [d-1] Specific leakage rate (out of the system)
                  dt2=False,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
@@ -26,6 +27,7 @@ class DOM(BaseOrg):
         self.alpha_TEPC = alpha_TEPC
         self.beta = beta
         self.beta_TEPC = beta_TEPC
+        self.kleak = kleak
         self.dt2 = dt2
         self.bound_temp_to_1 = bound_temp_to_1
 
@@ -39,6 +41,7 @@ class DOM(BaseOrg):
         self.sink_breakdown = Elms()
         self.sink_aggregation = Elms()
         self.sink_vertical_loss = Elms()  # Vertical loss coupled to mineral flocs
+        self.sink_leakage_out = Elms()
 
         # Coupling links
         self.coupled_aggregate = None  # Link to Macroflocs for vertical dynamics
@@ -94,6 +97,8 @@ class DOM(BaseOrg):
         # SINKS
         self.get_sink_breakdown()
         self.get_sink_remineralization()
+        self.get_sink_leakage_out()
+
 
     def get_sources(self, t=None):
         # SOURCES
@@ -131,25 +136,30 @@ class DOM(BaseOrg):
         # self.get_sink_remineralization()
         # self.get_sink_breakdown()
         # self.get_sink_aggregation()
+        # self.get_sink_leakage_out()
+
 
         # SINK terms of the state equation
         self.C_sinks = (self.sink_ingestion.C +
                         self.sink_remineralization.C +
                         self.sink_breakdown.C +
                         self.sink_aggregation.C +
-                        self.sink_vertical_loss.C)
+                        self.sink_vertical_loss.C +
+                        self.sink_leakage_out.C)
         if self.N is not None:
             self.N_sinks = (self.sink_ingestion.N +
                             self.sink_remineralization.N +
                             self.sink_breakdown.N +
                             self.sink_aggregation.N +
-                            self.sink_vertical_loss.N)
+                            self.sink_vertical_loss.N +
+                        self.sink_leakage_out.N)
         if self.P is not None:
             self.P_sinks = (self.sink_ingestion.P +
                             self.sink_remineralization.P +
                             self.sink_breakdown.P +
                             self.sink_aggregation.P +
-                            self.sink_vertical_loss.P)
+                            self.sink_vertical_loss.P +
+                        self.sink_leakage_out.N)
 
         return np.array(
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks) if sinks is not None])
@@ -274,3 +284,10 @@ class DOM(BaseOrg):
             self.sink_vertical_loss.C = 0.
             self.sink_vertical_loss.N = 0.
             self.sink_vertical_loss.P = 0.
+
+    def get_sink_leakage_out(self):
+        # Independent leakage = pure loss term (open system!) ~ loss of TEP to TEP_non_reactive
+        self.sink_leakage_out.C = self.kleak * self.C
+        self.sink_leakage_out.N = self.kleak * self.N if self.N else 0.
+        self.sink_leakage_out.P = self.kleak * self.P if self.P else 0.
+        self.sink_leakage_out.Si = self.kleak * self.Si if self.Si else 0.
