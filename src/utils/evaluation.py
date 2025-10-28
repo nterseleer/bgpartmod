@@ -18,11 +18,11 @@ def prepare_likelihood_data(
 ) -> pd.DataFrame:
     """
     Streamlined data preparation for likelihood calculation.
-    Supports multi-year simulations with DatetimeIndex.
+    Assumes both model_results and observations have DatetimeIndex.
 
     Args:
-        model_results: Model results DataFrame
-        observations: Observation data object
+        model_results: Model results DataFrame with DatetimeIndex
+        observations: Observation data object with DatetimeIndex
         daily_mean: Whether to use daily means
         method: 'aggregate' (default) aggregates model to obs periods,
                 'interpolate' interpolates model to obs times
@@ -31,37 +31,11 @@ def prepare_likelihood_data(
     Returns:
         DataFrame with merged model and observation data
     """
-    # Prepare model data - use resample for DatetimeIndex (multi-year compatible)
-    if daily_mean and isinstance(model_results.index, pd.DatetimeIndex):
-        model_data = model_results.resample('D').mean()
-    elif daily_mean and model_results.index.name != 'julian_day':
-        # Fallback for non-datetime index (backward compatibility)
-        model_data = model_results.copy()
-        model_data['julian_day'] = model_data.index.dayofyear
-        model_data = model_data.groupby('julian_day').mean()
-    else:
-        model_data = model_results
+    # Prepare model data with daily mean if requested
+    model_data = model_results.resample('D').mean() if daily_mean else model_results
 
-    # Use cached Observations if available
-    if _cached_obs is not None:
-        obs_data = _cached_obs
-    else:
-        obs_data = observations.df
-
-        # print(obs_data.index)
-        # print(daily_mean, isinstance(obs_data.index, pd.DatetimeIndex))
-
-        # if daily_mean and isinstance(obs_data.index, pd.DatetimeIndex):
-        #     obs_data = obs_data.resample('D').mean()
-        # elif daily_mean and obs_data.index.name != 'julian_day':
-        if daily_mean and obs_data.index.name != 'julian_day':
-            # Fallback for non-datetime index
-            obs_data = obs_data.copy()
-            obs_data['julian_day'] = obs_data.index.dayofyear
-            obs_data = obs_data.groupby('julian_day').mean()
-
-        # print(obs_data.index)
-        # input('BLOBLO')
+    # Use cached observations if available
+    obs_data = _cached_obs if _cached_obs is not None else observations.df
 
     # Handle different temporal resolutions
     if method == 'interpolate':
@@ -71,41 +45,21 @@ def prepare_likelihood_data(
     else:  # method == 'aggregate' (default)
         # Option 2: Aggregate model to match observation periods
 
-        # Detect period_days from observation index spacing
+        # Detect spacing from observation index (in timedelta)
         if len(obs_data) > 1:
-            obs_spacing = np.diff(obs_data.index).mean()
-            # print(obs_data.index)
-            # print(np.diff(obs_data.index))
-            # print(np.diff(obs_data.index).mean())
-            # print('BLABLA')
-            # print(obs_spacing)
-            # print(obs_spacing.astype('timedelta64[D]').astype(int))
-            # input("BLABLA")
-            # period_days = int(round(obs_spacing))
-            # period_days = obs_spacing.astype('timedelta64[D]').astype(int)
+            obs_spacing = pd.Series(np.diff(obs_data.index)).mean()
         else:
-            period_days = 1  # Fallback for single observation
+            obs_spacing = pd.Timedelta(days=1)  # Fallback for single observation
 
         # Aggregate model data to observation periods
         aggregated_model = []
-        # for obs_time in obs_data.index:
-        #     # Determine the period this observation represents
-        #     period_start = obs_time - period_days / 2 + 0.5
-        #     period_end = obs_time + period_days / 2 + 0.5
-        #
-        #     # Find model days in this period
-        #     period_mask = (model_data.index >= period_start) & (model_data.index <= period_end)
-        #     period_model = model_data[period_mask]
-        #
-        #     if len(period_model) > 0:
-        #         # Compute mean over the period
-        #         period_mean = period_model.mean()
-        #         period_mean.name = obs_time
-        #         aggregated_model.append(period_mean)
-
         for obs_time in obs_data.index:
-            # Find model days in this period
-            period_mask = (model_data.index >= obs_time) & (model_data.index <= obs_time+obs_spacing)
+            # Find model days in the period centered on this observation
+            # Use semi-open interval (period_start, period_end] to match pd.cut() behavior
+            # and avoid double-counting values at boundaries
+            period_start = obs_time - obs_spacing / 2
+            period_end = obs_time + obs_spacing / 2
+            period_mask = (model_data.index > period_start) & (model_data.index <= period_end)
             period_model = model_data[period_mask]
 
             if len(period_model) > 0:
@@ -117,7 +71,7 @@ def prepare_likelihood_data(
         if aggregated_model:
             model_reworked = pd.DataFrame(aggregated_model)
         else:
-            # No overlap - return empty DataFrame with proper structure
+            # No overlap - return empty DataFrame
             return pd.DataFrame()
 
     merged_data = pd.merge(
@@ -200,10 +154,11 @@ def calculate_rmse(
 ) -> Dict[str, float]:
     """
     Calculate Root Mean Square Error between model and Observations.
+    Assumes both have DatetimeIndex.
 
     Args:
-        model_results: DataFrame containing model results
-        observations: Observations object with .df attribute
+        model_results: DataFrame containing model results with DatetimeIndex
+        observations: Observations object with .df attribute and DatetimeIndex
         variables: List of variables to calculate RMSE for
         daily_mean: Whether to compare daily means
 
@@ -213,23 +168,25 @@ def calculate_rmse(
     if variables is None:
         variables = observations.df.columns
 
-    model_data = model_results.copy()
-    if daily_mean:
-        model_data['julian_day'] = model_data.index.dayofyear
-        model_data = model_data.groupby('julian_day').mean()
+    model_data = model_results.resample('D').mean() if daily_mean else model_results.copy()
 
     combined_data = pd.merge(
         model_data,
         observations.df,
         left_index=True,
         right_index=True,
-        how='left'
+        how='left',
+        suffixes=('_MOD', '_OBS')
     )
 
     rmse_values = {}
     for var in variables:
-        if var in combined_data.columns:
-            squared_diff = (combined_data[f'{var}_MOD'] - combined_data[var]) ** 2
+        # Handle both suffixed and non-suffixed columns
+        mod_col = f'{var}_MOD' if f'{var}_MOD' in combined_data.columns else var
+        obs_col = f'{var}_OBS' if f'{var}_OBS' in combined_data.columns else var
+
+        if mod_col in combined_data.columns and obs_col in combined_data.columns:
+            squared_diff = (combined_data[mod_col] - combined_data[obs_col]) ** 2
             rmse = np.sqrt(np.nanmean(squared_diff))
             rmse_values[var] = rmse
 
