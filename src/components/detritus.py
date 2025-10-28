@@ -9,7 +9,7 @@ class Detritus(BaseOrg):
     def __init__(self,
                  name,
                  eps_kd=2e-4 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
-                 kleak=0.25,  # [d-1] Specific leakage rate (out of the system) (Onur22)
+                 kleak=0., #0.25,  # [d-1] Specific leakage rate (out of the system) (Onur22)
                  beta_max=0.033,  # [m3 mmolC-1 d-1] Max collision kernel for A2 (Onur22)
                  KA2=57.48,  # [mmolC m-3] Half saturation cst for TEP dependence of A2 (Onur22)
                  dt2=False,
@@ -251,18 +251,11 @@ class Detritus(BaseOrg):
             self.sink_aggregation.Si = self.coupled_larger_Det.aggDetS_Si
 
     def get_sink_leakage_out(self):
-        if self.name == 'DetL':
-            # Mesocosm-specific leakage process (independent of floc dynamics)
-            self.sink_leakage_out.C = self.kleak * self.C
-            self.sink_leakage_out.N = self.kleak * self.N
-            self.sink_leakage_out.P = self.kleak * self.P
-            self.sink_leakage_out.Si = self.kleak * self.Si
-        else:
-            self.sink_leakage_out.C = 0.
-            self.sink_leakage_out.N = 0.
-            self.sink_leakage_out.P = 0.
-            self.sink_leakage_out.Si = 0.
-
+        # Independant leakage (initially: for Mesocosm loss in Kerimoglu et al., 2022)
+        self.sink_leakage_out.C = self.kleak * self.C
+        self.sink_leakage_out.N = self.kleak * self.N if self.N else 0.
+        self.sink_leakage_out.P = self.kleak * self.P if self.P else 0.
+        self.sink_leakage_out.Si = self.kleak * self.Si if self.Si else 0.
 
     def get_sink_ingestion(self):
         """Calculate ingestion sinks for Onur22 formulation."""
