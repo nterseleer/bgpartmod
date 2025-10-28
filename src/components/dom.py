@@ -192,22 +192,29 @@ class DOM(BaseOrg):
             self.source_aggregation.P = 0.
 
     def get_source_sloppy_feeding(self):
+        """Calculate sloppy feeding sources (vectorized)."""
         if self.name == 'DOCS':
-            self.source_sloppy_feeding.C = np.sum(
-                [sf.source_ing_C_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
-            self.source_sloppy_feeding.N = np.sum(
-                [sf.source_ing_N_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
-            self.source_sloppy_feeding.P = np.sum(
-                [sf.source_ing_P_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
+            # Vectorized: extract all unassimilated contributions at once
+            C_unassim = np.array([sf.source_ing_C_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
+            N_unassim = np.array([sf.source_ing_N_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
+            P_unassim = np.array([sf.source_ing_P_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
+            self.source_sloppy_feeding.C = np.sum(C_unassim)
+            self.source_sloppy_feeding.N = np.sum(N_unassim)
+            self.source_sloppy_feeding.P = np.sum(P_unassim)
         else:
             self.source_sloppy_feeding.C = 0
 
     def get_sink_ingestion(self):
-        """Calculate ingestion sinks for Onur22 formulation."""
-        self.sink_ingestion.C = np.sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
+        """Calculate ingestion sinks for Onur22 formulation (vectorized)."""
+        # Vectorized: extract all consumer contributions
+        C_ing = np.array([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
+        self.sink_ingestion.C = np.sum(C_ing)
+
         if self.name == "DOCS":
-            self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
-            self.sink_ingestion.P = np.sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
+            N_ing = np.array([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
+            P_ing = np.array([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
+            self.sink_ingestion.N = np.sum(N_ing)
+            self.sink_ingestion.P = np.sum(P_ing)
         else:
             self.sink_ingestion.N = 0.
             self.sink_ingestion.P = 0.

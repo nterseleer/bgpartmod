@@ -270,11 +270,18 @@ class Phyto(BaseOrg):
         self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
 
     def get_kd(self):
-        """Calculate light attenuation coefficient for Onur22 formulation."""
+        """Calculate light attenuation coefficient for Onur22 formulation (vectorized)."""
         if self.kdvar:
-            self.kd = self.eps_kd * self.C + np.sum([x.eps_kd * x.C for x in self.coupled_light_attenuators])
+            # Vectorized: light attenuators contribution
+            eps_kds = np.array([x.eps_kd for x in self.coupled_light_attenuators])
+            Cs = np.array([x.C for x in self.coupled_light_attenuators])
+            self.kd = self.eps_kd * self.C + np.sum(eps_kds * Cs)
+
+            # Vectorized: SPM contribution
             if self.coupled_SPM:
-                self.kd += np.sum([x.eps_kd * x.massconcentration for x in self.coupled_SPM])
+                spm_eps_kds = np.array([x.eps_kd for x in self.coupled_SPM])
+                spm_masses = np.array([x.massconcentration for x in self.coupled_SPM])
+                self.kd += np.sum(spm_eps_kds * spm_masses)
 
     def get_source_PP(self, t):
         """Calculate primary production for Onur22 formulation."""
