@@ -204,26 +204,29 @@ class Heterotrophs(BaseOrg):
         return np.array((self.C_sinks, self.N_sinks, self.P_sinks))
 
     def get_source_ingestion(self):
-        realpref = {}
-        sumpc = np.sum([self.pref[t.name] * t.C for t in self.coupled_targets])
-        for t in self.coupled_targets:
-            realpref[t.name] = (self.pref[t.name] * t.C) / sumpc
+        """Calculate ingestion with vectorized operations for Onur22 formulation."""
+        # Vectorize: extract arrays from coupled targets
+        n_targets = len(self.coupled_targets)
+        prefs = np.array([self.pref[t.name] for t in self.coupled_targets])
+        Cs = np.array([t.C for t in self.coupled_targets])
 
-        sumrpc = np.sum([realpref[t.name] * t.C for t in self.coupled_targets])
-        for t in self.coupled_targets:
-            self.source_ingestion.C[t.name] = self.C * self.g_max * self.lim_T * realpref[t.name] * t.C / (self.K_i + sumrpc)
-            if t.N is not None:
-                self.source_ingestion.N[t.name] = self.source_ingestion.C[t.name] * t.N / t.C
-            else:
-                self.source_ingestion.N[t.name] = 0.
-            if t.P is not None:
-                self.source_ingestion.P[t.name] = self.source_ingestion.C[t.name] * t.P / t.C
-            else:
-                self.source_ingestion.P[t.name] = 0.
-            if t.Si is not None:
-                self.source_ingestion.Si[t.name] = self.source_ingestion.C[t.name] * t.Si / t.C
-            else:
-                self.source_ingestion.Si[t.name] = 0.
+        # Vectorized calculation of real preferences
+        sumpc = np.sum(prefs * Cs)
+        realprefs = (prefs * Cs) / sumpc
+
+        # Vectorized calculation of sumrpc (redundant with sumpc, but kept for consistency)
+        sumrpc = np.sum(realprefs * Cs)
+
+        # Vectorized ingestion calculation
+        common_factor = self.C * self.g_max * self.lim_T / (self.K_i + sumrpc)
+        ingestion_C = common_factor * realprefs * Cs
+
+        # Assign to dict and calculate N, P, Si
+        for i, t in enumerate(self.coupled_targets):
+            self.source_ingestion.C[t.name] = ingestion_C[i]
+            self.source_ingestion.N[t.name] = ingestion_C[i] * t.N / t.C if t.N is not None else 0.
+            self.source_ingestion.P[t.name] = ingestion_C[i] * t.P / t.C if t.P is not None else 0.
+            self.source_ingestion.Si[t.name] = ingestion_C[i] * t.Si / t.C if t.Si is not None else 0.
 
 
     def get_sink_ingestion(self):
