@@ -153,6 +153,9 @@ class Phyto(BaseOrg):
         self.coupled_aggreg_target = coupled_aggreg_target
         self.coupled_light_attenuators = coupled_light_attenuators
 
+        # Optimization: Lazy initialization flag for eps_kd cache
+        self._eps_kds_cached = False
+
         # Optimization: Pre-compute temperature limitation arrays for entire simulation
         if self.setup is not None:
             self._precompute_temp_limitation(
@@ -269,18 +272,21 @@ class Phyto(BaseOrg):
         self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
 
     def get_kd(self):
-        """Calculate light attenuation coefficient for Onur22 formulation (vectorized)."""
-        if self.kdvar:
-            # Vectorized: light attenuators contribution
-            eps_kds = np.array([x.eps_kd for x in self.coupled_light_attenuators])
-            Cs = np.array([x.C for x in self.coupled_light_attenuators])
-            self.kd = self.eps_kd * self.C + np.sum(eps_kds * Cs)
+        """Calculate light attenuation coefficient using cached eps_kd arrays (lazy init)."""
+        # Lazy initialization: compute cache on first call (after all set_coupling done)
+        if not self._eps_kds_cached:
+            self._cached_eps_kds = np.array([x.eps_kd for x in self.coupled_light_attenuators])
+            self._cached_spm_eps_kds = np.array([x.eps_kd for x in self.coupled_SPM]) if self.coupled_SPM else None
+            self._eps_kds_cached = True
 
-            # Vectorized: SPM contribution
-            if self.coupled_SPM:
-                spm_eps_kds = np.array([x.eps_kd for x in self.coupled_SPM])
-                spm_masses = np.array([x.massconcentration for x in self.coupled_SPM])
-                self.kd += np.sum(spm_eps_kds * spm_masses)
+        # Compute kd using cached eps_kd values
+        Cs = np.array([x.C for x in self.coupled_light_attenuators])
+        self.kd = self.eps_kd * self.C + np.sum(self._cached_eps_kds * Cs)
+
+        # SPM contribution (if applicable)
+        if self.coupled_SPM:
+            spm_masses = np.array([x.massconcentration for x in self.coupled_SPM])
+            self.kd += np.sum(self._cached_spm_eps_kds * spm_masses)
 
     def get_source_PP(self, t, t_idx=None):
         """Calculate primary production for Onur22 formulation."""
