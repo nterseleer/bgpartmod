@@ -85,13 +85,13 @@ class DIM(BaseStateVar):
 
     def update_val(self, concentration,
                    t=None,
-                   time_idx=None,
+                   t_idx=None,
                    debugverbose=False):
         self.concentration = concentration
         # Calculate remineralization rate (available for all subsequent steps)
         if self.k_remin > 0 and t is not None:
             # Optimization: Use pre-computed temperature limitation
-            self.remineralization_rate = self.k_remin * self.limT_array[time_idx]
+            self.remineralization_rate = self.k_remin * self.limT_array[t_idx]
         else:
             self.remineralization_rate = 0.
 
@@ -151,11 +151,11 @@ class DIM(BaseStateVar):
         else:
             self.source_airseaexchange = 0.
 
-    def get_source_redox(self, t, time_idx=None):
+    def get_source_redox(self, t, t_idx=None):
         # Onur22
         if self.name == 'NO3':
             # Optimization: Use pre-computed temperature limitation
-            self.source_redox = self.r_nit * self.limT_array[time_idx] * self.coupled_NH4.concentration
+            self.source_redox = self.r_nit * self.limT_array[t_idx] * self.coupled_NH4.concentration
         else:
             self.source_redox = 0.
 

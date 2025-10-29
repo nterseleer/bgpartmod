@@ -521,15 +521,20 @@ class Model:
 
     @_track_time
     def _run_euler_integration(self) -> None:
-        """Run model using Euler integration"""
-        y = self.initial_state
+        """Run model using Euler integration with pre-allocated arrays"""
+        n_steps = len(self.dates)
+        n_vars = len(self.initial_state)
 
-
-        states = [y]
+        # Pre-allocate result arrays
+        states = np.empty((n_steps, n_vars), dtype=np.float64)
+        states[0] = self.initial_state
 
         if self.do_diagnostics:
-            diagnostics = [self._compute_diagnostics(self.setup.dates[0], t_idx=0)]
+            n_diags = len(self.diag_pool_names)
+            diagnostics = np.empty((n_steps, n_diags), dtype=np.float64)
+            diagnostics[0] = self._compute_diagnostics(self.setup.dates[0], t_idx=0)
 
+        y = self.initial_state.copy()
 
         for t_idx, t in enumerate(self.dates[1:], start=1):
             derivatives = self._compute_derivatives(t, y, t_idx=t_idx)
@@ -537,25 +542,27 @@ class Model:
             if np.isnan(derivatives).any():
                 if self.verbose:
                     print(f'STOP MODEL: NaN values in derivatives: {derivatives}')
+                states[t_idx:] = np.nan
+                if self.do_diagnostics:
+                    diagnostics[t_idx:] = np.nan
                 self.error = True
                 self.name += '-ERROR'
                 break
 
             y = y + self.used_dt * derivatives
-            states.append(y)
+            states[t_idx] = y
 
             if self.do_diagnostics:
-                diags = self._compute_diagnostics(t, t_idx=t_idx)
-                diagnostics.append(diags)
+                diagnostics[t_idx] = self._compute_diagnostics(t, t_idx=t_idx)
 
             if self.verbose and t in self.dates[::int(1 / self.used_dt)]:
                 print(f'Eulerian integration for t = {t}')
 
         self.t = self.dates
-        self.y = np.vstack(states).T
+        self.y = states.T
 
         if self.do_diagnostics:
-            self.diagnostics = np.vstack(diagnostics).T
+            self.diagnostics = diagnostics.T
 
     @_track_time
     def _run_ode_integration(self) -> None:

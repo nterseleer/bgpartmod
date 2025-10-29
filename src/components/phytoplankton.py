@@ -164,23 +164,23 @@ class Phyto(BaseOrg):
                 bound_temp_to_1=self.bound_temp_to_1, suffix='_grazing'
             )
 
-    def get_sources(self, t, time_idx):
+    def get_sources(self, t, t_idx):
         # Optimization: Use pre-computed arrays for faster access
 
         # Limitation functions
         self.get_limNUT()
-        self.limT = self.limT_growth_array[time_idx]
+        self.limT = self.limT_growth_array[t_idx]
         if self.P is not None and self.Si is not None:
             self.fnut = min(self.QN, self.QP, self.QSi)
 
         # SOURCES
-        self.get_source_PP(t, t_idx=time_idx)
+        self.get_source_PP(t, t_idx=t_idx)
         self.get_source_uptake()
         self.get_source_Chlprod()
 
         # SINKS
         self.get_sink_lysis()
-        self.get_sink_mortality(t, t_idx=time_idx)
+        self.get_sink_mortality(t, t_idx=t_idx)
         self.get_sink_exudation()
         self.get_sink_respiration()
 
@@ -282,13 +282,13 @@ class Phyto(BaseOrg):
                 spm_masses = np.array([x.massconcentration for x in self.coupled_SPM])
                 self.kd += np.sum(spm_eps_kds * spm_masses)
 
-    def get_source_PP(self, t, time_idx=None):
+    def get_source_PP(self, t, t_idx=None):
         """Calculate primary production for Onur22 formulation."""
         # Optimization: Use pre-computed arrays for faster access
-        self.PAR_t = self.setup.PAR_array[time_idx]
+        self.PAR_t = self.setup.PAR_array[t_idx]
         if self.kdvar:
             self.get_kd()
-            self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[time_idx] /
+            self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx] /
                                                           self.divide_water_depth_ratio)
 
         self.PC_max = self.mu_max * self.limNUT * self.limT
@@ -334,10 +334,10 @@ class Phyto(BaseOrg):
         self.sink_lysis.P = self.sink_lysis.C * self.QP
         self.sink_lysis.Si = self.sink_lysis.C * self.QSi
 
-    def get_sink_mortality(self, t, time_idx=None):
+    def get_sink_mortality(self, t, t_idx=None):
         # Optimization: Use pre-computed temperature limitation for grazing
         grazing_loss = (self.grazing_loss_max *
-                        self.limT_grazing_array[time_idx] *
+                        self.limT_grazing_array[t_idx] *
                         self.C / (self.K_grazing + self.C))
         self.sink_mortality.C = self.C * self.mortrate + grazing_loss
         self.sink_mortality.N = self.sink_mortality.C * self.QN

@@ -113,9 +113,9 @@ class Heterotrophs(BaseOrg):
                 bound_temp_to_1=self.bound_temp_to_1, suffix=''
             )
 
-    def get_sources(self, t=None, time_idx=None):
+    def get_sources(self, t=None, t_idx=None):
         # Optimization: Use pre-computed temperature limitation
-        self.lim_T = self.limT_array[time_idx]
+        self.lim_T = self.limT_array[t_idx]
 
         # SOURCES
         self.get_source_ingestion()
