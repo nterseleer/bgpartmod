@@ -141,6 +141,7 @@ class BaseOrg(BaseStateVar):
                    P=None,
                    Si=None,
                    t=None,
+                   t_idx=None,
                    debugverbose=False):
 
         if debugverbose:

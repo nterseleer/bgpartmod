@@ -319,13 +319,14 @@ class Model:
         ])
 
     @_track_time
-    def _compute_derivatives(self, t: float, y: np.ndarray) -> np.ndarray:
+    def _compute_derivatives(self, t: float, y: np.ndarray, t_idx: int = None) -> np.ndarray:
         """Highly vectorized derivative computation."""
         # Update component states
         for key, component in self.components.items():
             update_map = self.component_update_maps[key]
             component.update_val(
                 t=t,
+                t_idx=t_idx,
                 debugverbose=self.debug_budgets,
                 **{name: y[idx] for name, idx in update_map.items()}
             )
@@ -335,32 +336,32 @@ class Model:
         self.setup.Cphy_tot = y[self.cphy_tot_indices].sum()
 
         if self.two_dt:
-            return self._compute_two_timestep_derivatives(t)
-        return self._compute_single_timestep_derivatives(t)
+            return self._compute_two_timestep_derivatives(t, t_idx)
+        return self._compute_single_timestep_derivatives(t, t_idx)
 
     @_track_time
-    def _compute_single_timestep_derivatives(self, t: float) -> np.ndarray:
+    def _compute_single_timestep_derivatives(self, t: float, t_idx: int = None) -> np.ndarray:
         """Compute derivatives for single timestep case"""
         for component in self.components.values():
             try:
-                component.get_coupled_processes_indepent_sinks_sources(t)
+                component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
             except AttributeError:
                 pass
 
         sources = np.hstack([
-            comp.get_sources(t)
+            comp.get_sources(t, t_idx=t_idx)
             for comp in self.components.values()
         ])
 
         sinks = np.hstack([
-            comp.get_sinks(t)
+            comp.get_sinks(t, t_idx=t_idx)
             for comp in self.components.values()
         ])
 
         return sources - sinks
 
     @_track_time
-    def _compute_two_timestep_derivatives(self, t: float) -> np.ndarray:
+    def _compute_two_timestep_derivatives(self, t: float, t_idx: int = None) -> np.ndarray:
         """Compute derivatives for two timestep case"""
         if t in self.dates1_set:
             active_components = self.components.values()
@@ -369,27 +370,27 @@ class Model:
 
         for component in active_components:
             try:
-                component.get_coupled_processes_indepent_sinks_sources(t)
+                component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
             except AttributeError:
                 continue
 
         if t in self.dates1_set:
             sources = np.hstack([
-                comp.get_sources(t)
+                comp.get_sources(t, t_idx=t_idx)
                 for comp in self.components.values()
             ])
             sinks = np.hstack([
-                comp.get_sinks(t)
+                comp.get_sinks(t, t_idx=t_idx)
                 for comp in self.components.values()
             ])
         else:
             sources = np.hstack([
-                comp.get_sources(t) if comp in self.fast_components
+                comp.get_sources(t, t_idx=t_idx) if comp in self.fast_components
                 else self.slow_zeros[comp.name]
                 for comp in self.components.values()
             ])
             sinks = np.hstack([
-                comp.get_sinks(t) if comp in self.fast_components
+                comp.get_sinks(t, t_idx=t_idx) if comp in self.fast_components
                 else self.slow_zeros[comp.name]
                 for comp in self.components.values()
             ])
@@ -481,7 +482,7 @@ class Model:
             print(f'Spin-up phase completed. Starting main simulation.')
 
     @_track_time
-    def _compute_diagnostics(self, t: float) -> np.ndarray:
+    def _compute_diagnostics(self, t: float, t_idx: int = None) -> np.ndarray:
         """Compute diagnostic variables"""
         if self.two_dt:
             if t in self.dates1_set:
@@ -527,11 +528,11 @@ class Model:
         states = [y]
 
         if self.do_diagnostics:
-            diagnostics = [self._compute_diagnostics(self.setup.dates[0])]
+            diagnostics = [self._compute_diagnostics(self.setup.dates[0], t_idx=0)]
 
 
-        for t in self.dates[1:]:
-            derivatives = self._compute_derivatives(t, y)
+        for t_idx, t in enumerate(self.dates[1:], start=1):
+            derivatives = self._compute_derivatives(t, y, t_idx=t_idx)
 
             if np.isnan(derivatives).any():
                 if self.verbose:
@@ -544,7 +545,7 @@ class Model:
             states.append(y)
 
             if self.do_diagnostics:
-                diags = self._compute_diagnostics(t)
+                diags = self._compute_diagnostics(t, t_idx=t_idx)
                 diagnostics.append(diags)
 
             if self.verbose and t in self.dates[::int(1 / self.used_dt)]:

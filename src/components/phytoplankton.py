@@ -164,9 +164,8 @@ class Phyto(BaseOrg):
                 bound_temp_to_1=self.bound_temp_to_1, suffix='_grazing'
             )
 
-    def get_sources(self, t):
+    def get_sources(self, t, time_idx):
         # Optimization: Use pre-computed arrays for faster access
-        time_idx = self.setup.dates_to_index[t]
 
         # Limitation functions
         self.get_limNUT()
@@ -175,13 +174,13 @@ class Phyto(BaseOrg):
             self.fnut = min(self.QN, self.QP, self.QSi)
 
         # SOURCES
-        self.get_source_PP(t)
+        self.get_source_PP(t, t_idx=time_idx)
         self.get_source_uptake()
         self.get_source_Chlprod()
 
         # SINKS
         self.get_sink_lysis()
-        self.get_sink_mortality(t)
+        self.get_sink_mortality(t, t_idx=time_idx)
         self.get_sink_exudation()
         self.get_sink_respiration()
 
@@ -202,7 +201,7 @@ class Phyto(BaseOrg):
     # TODO priority1 this is dangerous: if for some reason self.P is not None but self.P_sources is None then
     #       it will not be passed. Normally this should cause a fatal issue but still it can continue silently!
 
-    def get_sinks(self, t):
+    def get_sinks(self, t, t_idx=None):
         # SINKS
         # self.get_sink_lysis()
         # self.get_sink_mortality()
@@ -283,10 +282,9 @@ class Phyto(BaseOrg):
                 spm_masses = np.array([x.massconcentration for x in self.coupled_SPM])
                 self.kd += np.sum(spm_eps_kds * spm_masses)
 
-    def get_source_PP(self, t):
+    def get_source_PP(self, t, time_idx=None):
         """Calculate primary production for Onur22 formulation."""
         # Optimization: Use pre-computed arrays for faster access
-        time_idx = self.setup.dates_to_index[t]
         self.PAR_t = self.setup.PAR_array[time_idx]
         if self.kdvar:
             self.get_kd()
@@ -336,9 +334,8 @@ class Phyto(BaseOrg):
         self.sink_lysis.P = self.sink_lysis.C * self.QP
         self.sink_lysis.Si = self.sink_lysis.C * self.QSi
 
-    def get_sink_mortality(self, t):
+    def get_sink_mortality(self, t, time_idx=None):
         # Optimization: Use pre-computed temperature limitation for grazing
-        time_idx = self.setup.dates_to_index[t]
         grazing_loss = (self.grazing_loss_max *
                         self.limT_grazing_array[time_idx] *
                         self.C / (self.K_grazing + self.C))
