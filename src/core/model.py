@@ -537,16 +537,21 @@ class Model:
 
         y = self.initial_state.copy()
 
+        # Optimization: Check for NaN every 5 days instead of every timestep
+        nan_check_interval = int(5.0 / self.used_dt)
+
         for t_idx, t in enumerate(self.dates[1:], start=1):
             is_slow_step = self.is_slow_dt[t_idx] if self.two_dt else True
             derivatives = self._compute_derivatives(t, y, t_idx=t_idx, is_slow_step=is_slow_step)
 
-            if np.isnan(derivatives).any():
+            # Check for NaN periodically and at final timestep (critical for optimization workflow)
+            should_check_nan = (t_idx % nan_check_interval == 0) or (t_idx == n_steps - 1)
+            if should_check_nan and np.isnan(derivatives).any():
                 if self.verbose:
-                    print(f'STOP MODEL: NaN values in derivatives: {derivatives}')
-                states[t_idx:] = np.nan
-                if self.do_diagnostics:
-                    diagnostics[t_idx:] = np.nan
+                    print(f'STOP MODEL: NaN values in derivatives at t_idx={t_idx}')
+                # states[t_idx:] = np.nan
+                # if self.do_diagnostics:
+                #     diagnostics[t_idx:] = np.nan
                 self.error = True
                 self.name += '-ERROR'
                 break
