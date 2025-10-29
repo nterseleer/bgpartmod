@@ -85,7 +85,7 @@ class DOM(BaseOrg):
         self.coupled_aggregate = coupled_aggregate
 
 
-    def get_coupled_processes_indepent_sinks_sources(self, t=None):
+    def get_coupled_processes_indepent_sinks_sources(self, t=None, t_idx=None):
         """
         Get those sinks and sources that do not depend on sinks/sources from couples state variables.
         --> they can be computed first and then be available elsewhere for coupling.
@@ -100,7 +100,7 @@ class DOM(BaseOrg):
         self.get_sink_leakage_out()
 
 
-    def get_sources(self, t=None):
+    def get_sources(self, t=None, t_idx=None):
         # SOURCES
         self.get_source_exudation()
         self.get_source_breakdown()
@@ -129,7 +129,7 @@ class DOM(BaseOrg):
         return np.array(
             [sources for sources in (self.C_sources, self.N_sources, self.P_sources) if sources is not None])
 
-    def get_sinks(self, t=None):
+    def get_sinks(self, t=None, t_idx=None):
         # SINKS
         self.get_sink_ingestion()
         self.get_sink_vertical_loss()

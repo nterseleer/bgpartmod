@@ -86,7 +86,7 @@ class Detritus(BaseOrg):
         self.coupled_aggregate = coupled_aggregate
         self.coupled_remin_products = coupled_remin_products
 
-    def get_coupled_processes_indepent_sinks_sources(self, t=None):
+    def get_coupled_processes_indepent_sinks_sources(self, t=None, t_idx=None):
         """
         Get those sinks and sources that do not depend on sinks/sources from couples state variables.
         --> they can be computed first and then be available elsewhere for coupling.
@@ -98,7 +98,7 @@ class Detritus(BaseOrg):
         # SINKS
         self.get_sink_remineralization()
 
-    def get_sources(self, t=None):
+    def get_sources(self, t=None, t_idx=None):
         # SOURCES
         self.get_source_aggregation()
         self.get_source_mortality()
@@ -124,7 +124,7 @@ class Detritus(BaseOrg):
             [sources for sources in (self.C_sources, self.N_sources, self.P_sources, self.Si_sources) if
              sources is not None])
 
-    def get_sinks(self, t=None):
+    def get_sinks(self, t=None, t_idx=None):
         # SINKS
         self.get_sink_breakdown()
         self.get_sink_aggregation()

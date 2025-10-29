@@ -136,6 +136,12 @@ ref_values = {
         'units': 'm3 mmolC-1 d-1',
         'complete_name': 'DOC_L-TEP collision kernel for A1'
     },
+    'DetL+kleak': {
+        'reference_value': 0.0,
+        'symbol': 'k_{leak}^{DetL}',
+        'units': 'd-1',
+        'complete_name': 'DetL leakage rate'
+    },
     'DetL+beta_max': {
         'reference_value': 0.033,
         'symbol': '\\beta^{A2}_{max}',
@@ -144,9 +150,15 @@ ref_values = {
     },
     'TEPC+rho_TEP': {
         'reference_value': 0.1,
-        'symbol': 'r^{TEP}',
+        'symbol': '\\rho^{TEP}',
         'units': 'd-1',
         'complete_name': 'Specific degradation rate of TEP'
+    },
+    'TEPC+kleak': {
+        'reference_value': 0.,
+        'symbol': 'k_{leak}^{TEP}',
+        'units': 'd-1',
+        'complete_name': 'TEP leakage rate'
     },
     'Microflocs+applyalphafact_PP': {
         'reference_value': 0.,
@@ -285,6 +297,12 @@ ref_values = {
         'symbol': 'Δ \\tau_{cr}^{base}',
         'units': 'Pa',
         'complete_name': "Max TEP-increased Critical shear stress"
+    },
+    'Microflocs+delta_nf_fractal_dim': {
+        'reference_value': 0.,
+        'symbol': 'Δnf',
+        'units': '-',
+        'complete_name': "Max TEP-induced decrease in fractal dimension"
     },
 
 

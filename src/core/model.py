@@ -109,11 +109,16 @@ class Model:
             self.dates1 = self.dates[::self.dt_ratio]
             self.two_dt = True
             self.dates1_set = set(self.dates1)
+
+            # Pre-compute boolean mask for slow timesteps (optimization)
+            self.is_slow_dt = np.zeros(len(self.dates), dtype=bool)
+            self.is_slow_dt[::self.dt_ratio] = True
         else:
             self.dates1 = None
             self.used_dt = self.setup.dt
             self.dt_ratio = None
             self.two_dt = False
+            self.is_slow_dt = None
         self.t_span = self.setup.t_span
 
     def _initialize_tracking_variables(self):
@@ -319,13 +324,14 @@ class Model:
         ])
 
     @_track_time
-    def _compute_derivatives(self, t: float, y: np.ndarray) -> np.ndarray:
+    def _compute_derivatives(self, t: float, y: np.ndarray, t_idx: int = None, is_slow_step: bool = True) -> np.ndarray:
         """Highly vectorized derivative computation."""
         # Update component states
         for key, component in self.components.items():
             update_map = self.component_update_maps[key]
             component.update_val(
                 t=t,
+                t_idx=t_idx,
                 debugverbose=self.debug_budgets,
                 **{name: y[idx] for name, idx in update_map.items()}
             )
@@ -335,68 +341,64 @@ class Model:
         self.setup.Cphy_tot = y[self.cphy_tot_indices].sum()
 
         if self.two_dt:
-            return self._compute_two_timestep_derivatives(t)
-        return self._compute_single_timestep_derivatives(t)
+            return self._compute_two_timestep_derivatives(t, t_idx, is_slow_step)
+        return self._compute_single_timestep_derivatives(t, t_idx)
 
     @_track_time
-    def _compute_single_timestep_derivatives(self, t: float) -> np.ndarray:
+    def _compute_single_timestep_derivatives(self, t: float, t_idx: int = None) -> np.ndarray:
         """Compute derivatives for single timestep case"""
         for component in self.components.values():
             try:
-                component.get_coupled_processes_indepent_sinks_sources(t)
+                component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
             except AttributeError:
                 pass
 
         sources = np.hstack([
-            comp.get_sources(t)
+            comp.get_sources(t, t_idx=t_idx)
             for comp in self.components.values()
         ])
 
         sinks = np.hstack([
-            comp.get_sinks(t)
+            comp.get_sinks(t, t_idx=t_idx)
             for comp in self.components.values()
         ])
 
         return sources - sinks
 
     @_track_time
-    def _compute_two_timestep_derivatives(self, t: float) -> np.ndarray:
-        """Compute derivatives for two timestep case"""
-        if t in self.dates1_set:
-            active_components = self.components.values()
-        else:
-            active_components = self.fast_components
+    def _compute_two_timestep_derivatives(self, t: float, t_idx: int, is_slow_step: bool) -> np.ndarray:
+        """Compute derivatives for two timestep case using index-based branching"""
+        active_components = self.components.values() if is_slow_step else self.fast_components
 
         for component in active_components:
             try:
-                component.get_coupled_processes_indepent_sinks_sources(t)
+                component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
             except AttributeError:
                 continue
 
-        if t in self.dates1_set:
+        if is_slow_step:
             sources = np.hstack([
-                comp.get_sources(t)
+                comp.get_sources(t, t_idx=t_idx)
                 for comp in self.components.values()
             ])
             sinks = np.hstack([
-                comp.get_sinks(t)
+                comp.get_sinks(t, t_idx=t_idx)
                 for comp in self.components.values()
             ])
         else:
             sources = np.hstack([
-                comp.get_sources(t) if comp in self.fast_components
+                comp.get_sources(t, t_idx=t_idx) if comp in self.fast_components
                 else self.slow_zeros[comp.name]
                 for comp in self.components.values()
             ])
             sinks = np.hstack([
-                comp.get_sinks(t) if comp in self.fast_components
+                comp.get_sinks(t, t_idx=t_idx) if comp in self.fast_components
                 else self.slow_zeros[comp.name]
                 for comp in self.components.values()
             ])
 
             if np.all(sources == 0) and np.all(sinks == 0):
                 return np.zeros_like(sources)
-
 
         return (sources - sinks) * self.dt_factors
 
@@ -481,10 +483,10 @@ class Model:
             print(f'Spin-up phase completed. Starting main simulation.')
 
     @_track_time
-    def _compute_diagnostics(self, t: float) -> np.ndarray:
-        """Compute diagnostic variables"""
+    def _compute_diagnostics(self, t: float, t_idx: int = None, is_slow_step: bool = True) -> np.ndarray:
+        """Compute diagnostic variables using index-based branching"""
         if self.two_dt:
-            if t in self.dates1_set:
+            if is_slow_step:
                 return np.hstack([
                     comp.get_diagnostic_variables()
                     for comp in self.components.values()
@@ -520,41 +522,54 @@ class Model:
 
     @_track_time
     def _run_euler_integration(self) -> None:
-        """Run model using Euler integration"""
-        y = self.initial_state
+        """Run model using Euler integration with pre-allocated arrays"""
+        n_steps = len(self.dates)
+        n_vars = len(self.initial_state)
 
-
-        states = [y]
+        # Pre-allocate result arrays
+        states = np.empty((n_steps, n_vars), dtype=np.float64)
+        states[0] = self.initial_state
 
         if self.do_diagnostics:
-            diagnostics = [self._compute_diagnostics(self.setup.dates[0])]
+            n_diags = len(self.diag_pool_names)
+            diagnostics = np.empty((n_steps, n_diags), dtype=np.float64)
+            diagnostics[0] = self._compute_diagnostics(self.setup.dates[0], t_idx=0, is_slow_step=True)
 
+        y = self.initial_state.copy()
 
-        for t in self.dates[1:]:
-            derivatives = self._compute_derivatives(t, y)
+        # Optimization: Check for NaN every 5 days instead of every timestep
+        nan_check_interval = int(5.0 / self.used_dt)
 
-            if np.isnan(derivatives).any():
+        for t_idx, t in enumerate(self.dates[1:], start=1):
+            is_slow_step = self.is_slow_dt[t_idx] if self.two_dt else True
+            derivatives = self._compute_derivatives(t, y, t_idx=t_idx, is_slow_step=is_slow_step)
+
+            # Check for NaN periodically and at final timestep (critical for optimization workflow)
+            should_check_nan = (t_idx % nan_check_interval == 0) or (t_idx == n_steps - 1)
+            if should_check_nan and np.isnan(derivatives).any():
                 if self.verbose:
-                    print(f'STOP MODEL: NaN values in derivatives: {derivatives}')
+                    print(f'STOP MODEL: NaN values in derivatives at t_idx={t_idx}')
+                # states[t_idx:] = np.nan
+                # if self.do_diagnostics:
+                #     diagnostics[t_idx:] = np.nan
                 self.error = True
                 self.name += '-ERROR'
                 break
 
             y = y + self.used_dt * derivatives
-            states.append(y)
+            states[t_idx] = y
 
             if self.do_diagnostics:
-                diags = self._compute_diagnostics(t)
-                diagnostics.append(diags)
+                diagnostics[t_idx] = self._compute_diagnostics(t, t_idx=t_idx, is_slow_step=is_slow_step)
 
             if self.verbose and t in self.dates[::int(1 / self.used_dt)]:
                 print(f'Eulerian integration for t = {t}')
 
         self.t = self.dates
-        self.y = np.vstack(states).T
+        self.y = states.T
 
         if self.do_diagnostics:
-            self.diagnostics = np.vstack(diagnostics).T
+            self.diagnostics = diagnostics.T
 
     @_track_time
     def _run_ode_integration(self) -> None:

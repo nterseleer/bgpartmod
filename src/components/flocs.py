@@ -359,6 +359,7 @@ class Flocs(BaseStateVar):
 
     def update_val(self, numconc,
                    t=None,
+                   t_idx=None,
                    debugverbose=False):
         self.numconc = numconc
 
@@ -376,7 +377,7 @@ class Flocs(BaseStateVar):
         return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics])
 
 
-    def get_sources(self, t=None):
+    def get_sources(self, t=None, t_idx=None):
         """
         Note: the "FABM" and "get_sources/get_sinks" approach is not adopted here - for simplicity and also
         with some mathematical simplifications within the SMS equations to enhance computational efficiency
@@ -384,21 +385,20 @@ class Flocs(BaseStateVar):
         """
 
         # Optimization: Use pre-computed arrays for faster access
-        time_idx = self.setup.dates_to_index[t]
-        self.g_shear_rate_at_t = self.setup.g_shear_rate_array[time_idx]
-        self.bed_shear_stress_at_t = self.setup.bed_shear_stress_array[time_idx]
-        self.water_depth_at_t = self.setup.water_depth_array[time_idx]
+        self.g_shear_rate_at_t = self.setup.g_shear_rate_array[t_idx]
+        self.bed_shear_stress_at_t = self.setup.bed_shear_stress_array[t_idx]
+        self.water_depth_at_t = self.setup.water_depth_array[t_idx]
 
         # Optimization: Calculate Ncnum once (Microflocs calculates, others reuse)
         if self.name == 'Microflocs':
             # Calculate shared Ncnum once per timestep
             self._shared_ncnum = self.coupled_Nt.numconc / self.coupled_Nf.numconc
 
-            # Compute expensive fractal terms once per timestep
+            # Compute expensive fractal terms once per timestep (optimized: reuse via multiplication)
             frac_inv_nf = 1.0 / self.nf_fractal_dim
             self._ncnum_frac_1_div_nf = self._shared_ncnum ** frac_inv_nf
-            self._ncnum_frac_2_div_nf = self._shared_ncnum ** (2.0 * frac_inv_nf)
-            self._ncnum_frac_3_div_nf = self._shared_ncnum ** (3.0 * frac_inv_nf)
+            self._ncnum_frac_2_div_nf = self._ncnum_frac_1_div_nf * self._ncnum_frac_1_div_nf
+            self._ncnum_frac_3_div_nf = self._ncnum_frac_2_div_nf * self._ncnum_frac_1_div_nf
 
             # Compute derived fractal terms
             self._ncnum_frac_1_div_nf_plus_1_cubed = (self._ncnum_frac_1_div_nf + 1.0) ** 3.0
@@ -572,7 +572,7 @@ class Flocs(BaseStateVar):
         return np.array(self.SMS)
 
 
-    def get_sinks(self, t=None):
+    def get_sinks(self, t=None, t_idx=None):
         return np.array([0])
 
     """

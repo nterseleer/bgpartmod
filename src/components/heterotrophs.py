@@ -113,10 +113,9 @@ class Heterotrophs(BaseOrg):
                 bound_temp_to_1=self.bound_temp_to_1, suffix=''
             )
 
-    def get_sources(self, t=None):
+    def get_sources(self, t=None, t_idx=None):
         # Optimization: Use pre-computed temperature limitation
-        time_idx = self.setup.dates_to_index[t]
-        self.lim_T = self.limT_array[time_idx]
+        self.lim_T = self.limT_array[t_idx]
 
         # SOURCES
         self.get_source_ingestion()
@@ -174,7 +173,7 @@ class Heterotrophs(BaseOrg):
 
         return np.array((self.C_sources, self.N_sources, self.P_sources))
 
-    def get_sinks(self, t=None):
+    def get_sinks(self, t=None, t_idx=None):
         # SINKS
         self.get_sink_ingestion()
         self.get_sink_vertical_loss()

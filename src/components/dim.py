@@ -85,22 +85,22 @@ class DIM(BaseStateVar):
 
     def update_val(self, concentration,
                    t=None,
+                   t_idx=None,
                    debugverbose=False):
         self.concentration = concentration
         # Calculate remineralization rate (available for all subsequent steps)
         if self.k_remin > 0 and t is not None:
             # Optimization: Use pre-computed temperature limitation
-            time_idx = self.setup.dates_to_index[t]
-            self.remineralization_rate = self.k_remin * self.limT_array[time_idx]
+            self.remineralization_rate = self.k_remin * self.limT_array[t_idx]
         else:
             self.remineralization_rate = 0.
 
-    def get_sources(self, t=None):
+    def get_sources(self, t=None, t_idx=None):
         # SOURCES
         self.get_source_remineralization(t)
         self.get_source_respiration()
         self.get_source_airseaexchange()
-        self.get_source_redox(t)
+        self.get_source_redox(t, t_idx=t_idx)
         self.get_source_sloppy_feeding()
         self.get_source_exudation()
         self.get_source_riverine_loads(t)
@@ -116,7 +116,7 @@ class DIM(BaseStateVar):
 
         return np.array(self.sources)
 
-    def get_sinks(self, t=None):
+    def get_sinks(self, t=None, t_idx=None):
         # SINKS
         self.get_sink_uptake()
         self.get_sink_redox()
@@ -151,12 +151,11 @@ class DIM(BaseStateVar):
         else:
             self.source_airseaexchange = 0.
 
-    def get_source_redox(self, t):
+    def get_source_redox(self, t, t_idx=None):
         # Onur22
         if self.name == 'NO3':
             # Optimization: Use pre-computed temperature limitation
-            time_idx = self.setup.dates_to_index[t]
-            self.source_redox = self.r_nit * self.limT_array[time_idx] * self.coupled_NH4.concentration
+            self.source_redox = self.r_nit * self.limT_array[t_idx] * self.coupled_NH4.concentration
         else:
             self.source_redox = 0.
 
