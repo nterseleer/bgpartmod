@@ -109,11 +109,16 @@ class Model:
             self.dates1 = self.dates[::self.dt_ratio]
             self.two_dt = True
             self.dates1_set = set(self.dates1)
+
+            # Pre-compute boolean mask for slow timesteps (optimization)
+            self.is_slow_dt = np.zeros(len(self.dates), dtype=bool)
+            self.is_slow_dt[::self.dt_ratio] = True
         else:
             self.dates1 = None
             self.used_dt = self.setup.dt
             self.dt_ratio = None
             self.two_dt = False
+            self.is_slow_dt = None
         self.t_span = self.setup.t_span
 
     def _initialize_tracking_variables(self):
@@ -319,7 +324,7 @@ class Model:
         ])
 
     @_track_time
-    def _compute_derivatives(self, t: float, y: np.ndarray, t_idx: int = None) -> np.ndarray:
+    def _compute_derivatives(self, t: float, y: np.ndarray, t_idx: int = None, is_slow_step: bool = True) -> np.ndarray:
         """Highly vectorized derivative computation."""
         # Update component states
         for key, component in self.components.items():
@@ -336,7 +341,7 @@ class Model:
         self.setup.Cphy_tot = y[self.cphy_tot_indices].sum()
 
         if self.two_dt:
-            return self._compute_two_timestep_derivatives(t, t_idx)
+            return self._compute_two_timestep_derivatives(t, t_idx, is_slow_step)
         return self._compute_single_timestep_derivatives(t, t_idx)
 
     @_track_time
@@ -361,12 +366,9 @@ class Model:
         return sources - sinks
 
     @_track_time
-    def _compute_two_timestep_derivatives(self, t: float, t_idx: int = None) -> np.ndarray:
-        """Compute derivatives for two timestep case"""
-        if t in self.dates1_set:
-            active_components = self.components.values()
-        else:
-            active_components = self.fast_components
+    def _compute_two_timestep_derivatives(self, t: float, t_idx: int, is_slow_step: bool) -> np.ndarray:
+        """Compute derivatives for two timestep case using index-based branching"""
+        active_components = self.components.values() if is_slow_step else self.fast_components
 
         for component in active_components:
             try:
@@ -374,7 +376,7 @@ class Model:
             except AttributeError:
                 continue
 
-        if t in self.dates1_set:
+        if is_slow_step:
             sources = np.hstack([
                 comp.get_sources(t, t_idx=t_idx)
                 for comp in self.components.values()
@@ -397,7 +399,6 @@ class Model:
 
             if np.all(sources == 0) and np.all(sinks == 0):
                 return np.zeros_like(sources)
-
 
         return (sources - sinks) * self.dt_factors
 
@@ -482,10 +483,10 @@ class Model:
             print(f'Spin-up phase completed. Starting main simulation.')
 
     @_track_time
-    def _compute_diagnostics(self, t: float, t_idx: int = None) -> np.ndarray:
-        """Compute diagnostic variables"""
+    def _compute_diagnostics(self, t: float, t_idx: int = None, is_slow_step: bool = True) -> np.ndarray:
+        """Compute diagnostic variables using index-based branching"""
         if self.two_dt:
-            if t in self.dates1_set:
+            if is_slow_step:
                 return np.hstack([
                     comp.get_diagnostic_variables()
                     for comp in self.components.values()
@@ -532,12 +533,13 @@ class Model:
         if self.do_diagnostics:
             n_diags = len(self.diag_pool_names)
             diagnostics = np.empty((n_steps, n_diags), dtype=np.float64)
-            diagnostics[0] = self._compute_diagnostics(self.setup.dates[0], t_idx=0)
+            diagnostics[0] = self._compute_diagnostics(self.setup.dates[0], t_idx=0, is_slow_step=True)
 
         y = self.initial_state.copy()
 
         for t_idx, t in enumerate(self.dates[1:], start=1):
-            derivatives = self._compute_derivatives(t, y, t_idx=t_idx)
+            is_slow_step = self.is_slow_dt[t_idx] if self.two_dt else True
+            derivatives = self._compute_derivatives(t, y, t_idx=t_idx, is_slow_step=is_slow_step)
 
             if np.isnan(derivatives).any():
                 if self.verbose:
@@ -553,7 +555,7 @@ class Model:
             states[t_idx] = y
 
             if self.do_diagnostics:
-                diagnostics[t_idx] = self._compute_diagnostics(t, t_idx=t_idx)
+                diagnostics[t_idx] = self._compute_diagnostics(t, t_idx=t_idx, is_slow_step=is_slow_step)
 
             if self.verbose and t in self.dates[::int(1 / self.used_dt)]:
                 print(f'Eulerian integration for t = {t}')
