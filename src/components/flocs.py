@@ -394,11 +394,11 @@ class Flocs(BaseStateVar):
             # Calculate shared Ncnum once per timestep
             self._shared_ncnum = self.coupled_Nt.numconc / self.coupled_Nf.numconc
 
-            # Compute expensive fractal terms once per timestep
+            # Compute expensive fractal terms once per timestep (optimized: reuse via multiplication)
             frac_inv_nf = 1.0 / self.nf_fractal_dim
             self._ncnum_frac_1_div_nf = self._shared_ncnum ** frac_inv_nf
-            self._ncnum_frac_2_div_nf = self._shared_ncnum ** (2.0 * frac_inv_nf)
-            self._ncnum_frac_3_div_nf = self._shared_ncnum ** (3.0 * frac_inv_nf)
+            self._ncnum_frac_2_div_nf = self._ncnum_frac_1_div_nf * self._ncnum_frac_1_div_nf
+            self._ncnum_frac_3_div_nf = self._ncnum_frac_2_div_nf * self._ncnum_frac_1_div_nf
 
             # Compute derived fractal terms
             self._ncnum_frac_1_div_nf_plus_1_cubed = (self._ncnum_frac_1_div_nf + 1.0) ** 3.0
