@@ -5,7 +5,8 @@ from src.config_model import varinfos
 
 
 class BaseStateVar:
-    def __init__(self):
+    def __init__(self, dtype=np.float64):
+        self.dtype = dtype
         self.setup = None
         self.time_conversion_factor = 1
         self.default_diagnostics = True
@@ -22,7 +23,7 @@ class BaseStateVar:
         return self._diagnostic_attrs
 
     def get_diagnostic_variables(self):
-        return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics])
+        return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics], dtype=self.dtype)
 
     def _precompute_temp_limitation(self, A_E, T_ref, boltz=False,
                                    bound_temp_to_1=True, suffix=''):
@@ -50,9 +51,9 @@ class BaseStateVar:
 
 
 class BaseOrg(BaseStateVar):
-    def __init__(self):
+    def __init__(self, dtype=np.float64):
 
-        super().__init__()
+        super().__init__(dtype=dtype)
 
         self.C = None
         self.N = None
@@ -133,7 +134,7 @@ class BaseOrg(BaseStateVar):
         if self.Chl is not None:
             self.thetaC = self.Chl / self.C #
 
-        self.ICs = [pool for pool in [self.C, self.N, self.Chl, self.P, self.Si] if pool is not None]
+        self.ICs = np.array([pool for pool in [self.C, self.N, self.Chl, self.P, self.Si] if pool is not None], dtype=self.dtype)
 
     def update_val(self, C,
                    N=None,

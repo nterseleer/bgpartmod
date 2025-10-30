@@ -14,10 +14,11 @@ class DOM(BaseOrg):
                  beta_TEPC=0.064,  # [m3 mmolC-1 d-1] Collision kernel DOC-TEPC (Onur22)
                  kleak=0.,           # [d-1] Specific leakage rate (out of the system)
                  dt2=False,
+                 dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
 
-        super().__init__()
+        super().__init__(dtype=dtype)
 
         self.formulation = None
         self.classname = 'DOM'  # Name used as prefix for variables (used in Model.finalizeres vs varinfos)
@@ -127,7 +128,7 @@ class DOM(BaseOrg):
                               self.source_sloppy_feeding.P)
 
         return np.array(
-            [sources for sources in (self.C_sources, self.N_sources, self.P_sources) if sources is not None])
+            [sources for sources in (self.C_sources, self.N_sources, self.P_sources) if sources is not None], dtype=self.dtype)
 
     def get_sinks(self, t=None, t_idx=None):
         # SINKS
@@ -162,7 +163,7 @@ class DOM(BaseOrg):
                         self.sink_leakage_out.N)
 
         return np.array(
-            [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks) if sinks is not None])
+            [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks) if sinks is not None], dtype=self.dtype)
 
     def get_source_exudation(self):
         """Calculate exudation sources for Onur22 formulation."""

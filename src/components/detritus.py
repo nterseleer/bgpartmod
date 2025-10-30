@@ -13,10 +13,11 @@ class Detritus(BaseOrg):
                  beta_max=0.033,  # [m3 mmolC-1 d-1] Max collision kernel for A2 (Onur22)
                  KA2=57.48,  # [mmolC m-3] Half saturation cst for TEP dependence of A2 (Onur22)
                  dt2=False,
+                 dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
 
-        super().__init__()
+        super().__init__(dtype=dtype)
 
         self.formulation = None
         self.aggTEP_C = None
@@ -122,7 +123,7 @@ class Detritus(BaseOrg):
                                self.source_sloppy_feeding.Si)
         return np.array(
             [sources for sources in (self.C_sources, self.N_sources, self.P_sources, self.Si_sources) if
-             sources is not None])
+             sources is not None], dtype=self.dtype)
 
     def get_sinks(self, t=None, t_idx=None):
         # SINKS
@@ -165,7 +166,7 @@ class Detritus(BaseOrg):
                              self.sink_vertical_loss.Si)
 
         return np.array(
-            [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks, self.Si_sinks) if sinks is not None])
+            [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks, self.Si_sinks) if sinks is not None], dtype=self.dtype)
 
     def get_source_aggregation(self):
         """Calculate aggregation sources for Onur22 formulation."""

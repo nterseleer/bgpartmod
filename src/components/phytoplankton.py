@@ -43,11 +43,12 @@ class Phyto(BaseOrg):
                  eps_kd=8e-4 * varinfos.molmass_C,  # Diffuse attenuation cross section of phytoplankton [m2 mgC-1]
                  divide_water_depth_ratio=1.,  # ratio to divide water depth to restrain light attenuation
                  dt2=False,
+                 dtype=np.float64,
                  name='DefaultPhyto',
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
 
-        super().__init__()
+        super().__init__(dtype=dtype)
 
         self.frac_exud_small = None
         self.rho_Chl = None
@@ -199,7 +200,7 @@ class Phyto(BaseOrg):
 
         return np.array(
             [sources for sources in (self.C_sources, self.N_sources, self.Chl_sources, self.P_sources, self.Si_sources)
-             if sources is not None])
+             if sources is not None], dtype=self.dtype)
 
     # TODO priority1 this is dangerous: if for some reason self.P is not None but self.P_sources is None then
     #       it will not be passed. Normally this should cause a fatal issue but still it can continue silently!
@@ -253,10 +254,10 @@ class Phyto(BaseOrg):
 
         return np.array(
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.Chl_sinks, self.P_sinks, self.Si_sinks) if
-             sinks is not None])
+             sinks is not None], dtype=self.dtype)
 
     def get_diagnostic_variables(self):
-        return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics])
+        return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics], dtype=self.dtype)
 
     def get_limNUT(self):
         """Calculate nutrient limitations for Onur22 formulation."""

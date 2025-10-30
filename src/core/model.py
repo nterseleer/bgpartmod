@@ -30,6 +30,7 @@ class Model:
             self,
             config_dict: Dict[str, Any],
             setup: phys.Setup = phys.Setup(dt=0.001, tmax=20),
+            dtype: type = np.float64,
             euler: bool = True,
             output_time_offset: float = 0,
             output_config: Optional[Dict] = None,
@@ -45,6 +46,7 @@ class Model:
     ):
         # Basic attributes
         self.setup = setup
+        self.dtype = dtype
         self.name = name
         self.verbose = verbose
         self.debug_budgets = debug_budgets
@@ -158,7 +160,7 @@ class Model:
             if key == 'formulation':  # Skip the formulation key
                 continue
 
-            instance = cfg['class'](name=key, **cfg.get('parameters', {}))
+            instance = cfg['class'](name=key, dtype=self.dtype, **cfg.get('parameters', {}))
             instance.formulation = self.config.get('formulation', 'default')
             instance.set_ICs(**cfg.get('initialization', {}))
 
@@ -309,11 +311,11 @@ class Model:
                 # Multiply by component's time conversion factor
                 factor *= comp.time_conversion_factor
                 self.dt_factors.extend([factor] * len(self.ipools[comp.name]))
-            self.dt_factors = np.array(self.dt_factors)
+            self.dt_factors = np.array(self.dt_factors, dtype=self.dtype)
 
             # Pre-compute zero arrays for slow components
             self.slow_zeros = {
-                comp.name: np.zeros(len(self.ipools[comp.name]))
+                comp.name: np.zeros(len(self.ipools[comp.name]), dtype=self.dtype)
                 for comp in self.slow_components
             }
 
@@ -527,15 +529,15 @@ class Model:
         n_vars = len(self.initial_state)
 
         # Pre-allocate result arrays
-        states = np.empty((n_steps, n_vars), dtype=np.float64)
+        states = np.empty((n_steps, n_vars), dtype=self.dtype)
         states[0] = self.initial_state
 
         if self.do_diagnostics:
             n_diags = len(self.diag_pool_names)
-            diagnostics = np.empty((n_steps, n_diags), dtype=np.float64)
+            diagnostics = np.empty((n_steps, n_diags), dtype=self.dtype)
             diagnostics[0] = self._compute_diagnostics(self.setup.dates[0], t_idx=0, is_slow_step=True)
 
-        y = self.initial_state.copy()
+        y = self.initial_state.astype(self.dtype, copy=True)
 
         # Optimization: Check for NaN every 5 days instead of every timestep
         nan_check_interval = int(5.0 / self.used_dt)
@@ -620,7 +622,7 @@ class Model:
         transform_factors = np.array([
             self.output_config.get(pool, {}).get('trsfrm', 1)
             for pool in self.df.columns
-        ])
+        ], dtype=self.dtype)
         # self.df.iloc[:, :len(self.pool_names)] *= transform_factors
         self.df.iloc[:, :] *= transform_factors
 
