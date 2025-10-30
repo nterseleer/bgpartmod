@@ -539,6 +539,9 @@ class Model:
 
         y = self.initial_state.astype(self.dtype, copy=True)
 
+        # Cast used_dt to model dtype to avoid implicit conversions in hot loop
+        used_dt = self.dtype(self.used_dt)
+
         # Optimization: Check for NaN every 5 days instead of every timestep
         nan_check_interval = int(5.0 / self.used_dt)
 
@@ -558,7 +561,7 @@ class Model:
                 self.name += '-ERROR'
                 break
 
-            y = y + self.used_dt * derivatives
+            y = y + used_dt * derivatives
             states[t_idx] = y
 
             if self.do_diagnostics:
