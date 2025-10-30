@@ -83,6 +83,7 @@ class Setup:
                  dt: float = 0.001,
                  dt2: Optional[float] = None,
                  dt2_s_to_d_ratio: float = 3600 * 24,
+                 dtype: type = np.float64,
                  start_date: str = '2023-02-01 10:00:00',
                  PARfromfile: bool = False,
                  I: float = 100. * 3600. * 24.,
@@ -115,7 +116,7 @@ class Setup:
                  spring_neap_period: float = 14.7,
                  # Configurable phase shifts for tidal parameters
                  water_depth_phase_shift: float = 0.0,           # High tide at t=0 (cosine)
-                 shear_rate_phase_shift: float = np.pi / 2,      # Max at mid-tide (sine) 
+                 shear_rate_phase_shift: float = np.pi / 2,      # Max at mid-tide (sine)
                  bed_shear_stress_phase_shift: float = np.pi / 2, # Max at mid-tide (sine)
                  riverine_loads: bool = False,
                  riverine_loads_file: str = 'riverine_loads.feather',
@@ -129,6 +130,7 @@ class Setup:
         self.constants = PhysicalConstants()
         self.name = name
         self.verbose = verbose
+        self.dtype = dtype
 
         # Store time parameters
         self.tmin = tmin
@@ -153,7 +155,7 @@ class Setup:
             self.two_dt = False
 
         # Create time arrays
-        self.t_eval = np.arange(tmin, tmax, self.used_dt)
+        self.t_eval = np.arange(tmin, tmax, self.used_dt, dtype=self.dtype)
         self.dates = pd.date_range(start=self.start_date, end=self.end_date, periods=len(self.t_eval))
 
         # Now initialize two timestep specific arrays
@@ -250,11 +252,11 @@ class Setup:
         )
 
         # Optimization: Pre-compute arrays for faster access during component calculations
-        self.g_shear_rate_array = self.g_shear_rate['ShearRate'].values
-        self.bed_shear_stress_array = self.bed_shear_stress['BedShearStress'].values
-        self.water_depth_array = self.water_depth['WaterDepth'].values
-        self.T_array = self.T['T'].values
-        self.PAR_array = self.PAR['PAR'].values
+        self.g_shear_rate_array = self.g_shear_rate['ShearRate'].values.astype(self.dtype)
+        self.bed_shear_stress_array = self.bed_shear_stress['BedShearStress'].values.astype(self.dtype)
+        self.water_depth_array = self.water_depth['WaterDepth'].values.astype(self.dtype)
+        self.T_array = self.T['T'].values.astype(self.dtype)
+        self.PAR_array = self.PAR['PAR'].values.astype(self.dtype)
 
         # Calculate temperature bounds for efficient access
         self.T_max = self.T['T'].max()
@@ -336,20 +338,22 @@ class Setup:
         """Initialize Photosynthetically Active Radiation data."""
         if not self.PARfromfile:
             if self.lightfirst:
-                light_starts = np.linspace(self.tmin, self.tmax - 1, self.tmax - self.tmin)
+                light_starts = np.linspace(self.tmin, self.tmax - 1, self.tmax - self.tmin, dtype=self.dtype)
                 dark_starts = np.linspace(
                     self.tmin + self.light_prop,
                     self.tmax - 1 + self.light_prop,
-                    self.tmax - self.tmin
+                    self.tmax - self.tmin,
+                    dtype=self.dtype
                 )
             else:
                 firstL = (1 - self.light_prop)
                 light_starts = np.linspace(
                     self.tmin + firstL,
                     self.tmax + firstL - 1,
-                    self.tmax - self.tmin
+                    self.tmax - self.tmin,
+                    dtype=self.dtype
                 )
-                dark_starts = np.linspace(self.tmin + 1, self.tmax, self.tmax - self.tmin)
+                dark_starts = np.linspace(self.tmin + 1, self.tmax, self.tmax - self.tmin, dtype=self.dtype)
 
             light = np.array([
                 np.any((light_starts <= t) & (t <= dark_starts))
@@ -411,7 +415,7 @@ class Setup:
         """Initialize temperature data as DataFrame."""
         if not self.varyingTEMP:
             # Constant temperature - create DataFrame with constant values
-            temp_values = np.full(len(self.t_eval), self.base_T + self.constants.degCtoK)
+            temp_values = np.full(len(self.t_eval), self.base_T + self.constants.degCtoK, dtype=self.dtype)
             return pd.DataFrame(temp_values, index=self.dates, columns=['T'])
         else:
             # Time-varying temperature using cosine function
@@ -516,7 +520,7 @@ class Setup:
         """
         if not vary_flag:
             # Constant parameter - create DataFrame with constant values
-            values = np.full(len(self.t_eval), base_value)
+            values = np.full(len(self.t_eval), base_value, dtype=self.dtype)
             return pd.DataFrame(values, index=self.dates, columns=[column_name])
         
         # Use unified tidal approach if water depth varies, otherwise backward compatibility
@@ -528,7 +532,7 @@ class Setup:
                     period, phase_shift, additive_mode
                 )
                 for t in self.t_eval
-            ])
+            ], dtype=self.dtype)
             return pd.DataFrame(values, index=self.dates, columns=[column_name])
         else:
             # Backward compatibility - use legacy parameters
@@ -536,15 +540,15 @@ class Setup:
                 values = np.array([
                     base_value + self.gshearfact * np.cos(t / self.gshearper * 2. * np.pi) * base_value
                     for t in self.t_eval
-                ])
+                ], dtype=self.dtype)
             elif column_name == 'BedShearStress':
                 values = np.array([
                     base_value + self.bed_shear_fact * np.cos(t / self.bed_shear_per * 2. * np.pi) * base_value
                     for t in self.t_eval
-                ])
+                ], dtype=self.dtype)
             else:  # WaterDepth
-                values = np.full(len(self.t_eval), base_value)
-            
+                values = np.full(len(self.t_eval), base_value, dtype=self.dtype)
+
             return pd.DataFrame(values, index=self.dates, columns=[column_name])
 
     def _calculate_tidal_parameter(self, t: float, base_value: float, 

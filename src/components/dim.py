@@ -12,10 +12,11 @@ class DIM(BaseStateVar):
                  T_ref=283.15,  # [K] Reference temperature (denitrification) (Onur22)
                  k_remin=0.0, # [d-1] "external" remineralization rate (i.e., not related to simulated processes and state variables)
                  dt2=False,
+                 dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  ):
 
-        super().__init__()
+        super().__init__(dtype=dtype)
 
         self.source_exudation = None
         self.source_sloppy_feeding = None
@@ -114,7 +115,7 @@ class DIM(BaseStateVar):
                         self.source_exudation +
                         self.source_riverine_loads)
 
-        return np.array(self.sources)
+        return np.array(self.sources, dtype=self.dtype)
 
     def get_sinks(self, t=None, t_idx=None):
         # SINKS
@@ -125,7 +126,7 @@ class DIM(BaseStateVar):
         self.sinks = (self.sink_uptake +
                       self.sink_redox)
 
-        return np.array(self.sinks)
+        return np.array(self.sinks, dtype=self.dtype)
 
     def get_source_remineralization(self, t=None):
         """Calculate remineralization sources for Onur22 formulation."""

@@ -24,11 +24,12 @@ class Heterotrophs(BaseOrg):
                  eps_kd=0.012,  # [m2 mmolC-1] Specific attenuation coefficient
 
                  dt2=False,
+                 dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  **kwargs,
                  ):
 
-        super().__init__()
+        super().__init__(dtype=dtype)
 
         self.source_ing_P_unassimilated_to_dim = None
         self.source_ing_N_unassimilated_to_dim = None
@@ -171,7 +172,7 @@ class Heterotrophs(BaseOrg):
         self.N_sources = self.source_ing_N_assimilated
         self.P_sources = self.source_ing_P_assimilated
 
-        return np.array((self.C_sources, self.N_sources, self.P_sources))
+        return np.array((self.C_sources, self.N_sources, self.P_sources), dtype=self.dtype)
 
     def get_sinks(self, t=None, t_idx=None):
         # SINKS
@@ -200,7 +201,7 @@ class Heterotrophs(BaseOrg):
                         self.sink_mortality.P +
                         self.sink_vertical_loss.P)
 
-        return np.array((self.C_sinks, self.N_sinks, self.P_sinks))
+        return np.array((self.C_sinks, self.N_sinks, self.P_sinks), dtype=self.dtype)
 
     def get_source_ingestion(self):
         """Calculate ingestion with vectorized operations for Onur22 formulation."""

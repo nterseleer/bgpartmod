@@ -146,11 +146,12 @@ class Flocs(BaseStateVar):
                  sinking_leak=0,
 
                  dt2=True,
+                 dtype=np.float64,
                  time_conversion_factor = 86400,   # Flocs run in s-1 while the rest of the model is in d-1
                  spinup_days = 0,   # Days of spin-up before interactions with biological components
                  ):
 
-        super().__init__()
+        super().__init__(dtype=dtype)
 
         # Additive formulation parameters
         self.alpha_FF_base = alpha_FF_base
@@ -374,7 +375,7 @@ class Flocs(BaseStateVar):
 
 
     def get_diagnostic_variables(self):
-        return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics])
+        return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics], dtype=self.dtype)
 
 
     def get_sources(self, t=None, t_idx=None):
@@ -569,11 +570,11 @@ class Flocs(BaseStateVar):
             self.apply_settling = original_apply_settling
             self.resuspension_rate = original_resuspension_rate
 
-        return np.array(self.SMS)
+        return np.array(self.SMS, dtype=self.dtype)
 
 
     def get_sinks(self, t=None, t_idx=None):
-        return np.array([0])
+        return np.array([0], dtype=self.dtype)
 
     """
     def get_beta(self, i, j):
