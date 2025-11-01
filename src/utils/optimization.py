@@ -323,9 +323,9 @@ class Optimization:
 
     def _save_setup(self):
         """Save setup separately from modkwargs."""
-        # setup_path = os.path.join(self.optdir, f"{self.name}_setup.pkl")
-        # with open(setup_path, 'wb') as f:
-        #     pickle.dump(self.setup, f)
+        setup_path = os.path.join(self.optdir, f"{self.name}_setup.pkl")
+        with open(setup_path, 'wb') as f:
+            pickle.dump(self.setup, f)
 
         # Save human-readable version using Setup's to_dict method
         try:
@@ -334,8 +334,8 @@ class Optimization:
         except Exception as e:
             print(f"Could not save human-readable setup: {e}")
 
-        # if self.verbose:
-        #     print(f'Setup saved to {setup_path}')
+        if self.verbose:
+            print(f'Setup saved to {setup_path}')
 
     def _load_setup(self):
         """Load setup separately with backward compatibility."""
