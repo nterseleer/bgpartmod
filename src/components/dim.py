@@ -104,7 +104,7 @@ class DIM(BaseStateVar):
         self.get_source_redox(t, t_idx=t_idx)
         self.get_source_sloppy_feeding()
         self.get_source_exudation()
-        self.get_source_riverine_loads(t)
+        self.get_source_riverine_loads(t, t_idx=t_idx)
 
         # SOURCE terms of the state equation
         self.sources = (self.source_respiration +
@@ -184,16 +184,22 @@ class DIM(BaseStateVar):
         else:
             self.source_exudation = 0.
 
-    def get_source_riverine_loads(self, t=None):
-        """Get riverine nutrient loads for current timestep."""
+    def get_source_riverine_loads(self, t=None, t_idx=None):
+        """Get riverine nutrient loads for current timestep.
+
+        Optimization: Uses pre-computed arrays indexed by t_idx instead of DataFrame .loc lookups.
+        """
         if not self.setup.riverine_loads:
             self.source_riverine_loads = 0.
             return
 
-        if self.name in self.setup.loads.columns:
-            self.source_riverine_loads = self.setup.loads.loc[t][self.name]
-        else:
-            self.source_riverine_loads = 0.
+        # if self.name in self.setup.loads.columns:
+        #     self.source_riverine_loads = self.setup.loads.loc[t][self.name]
+        # else:
+        #     self.source_riverine_loads = 0.
+
+        loads_array = getattr(self.setup, f'loads_{self.name}_array', None)
+        self.source_riverine_loads = loads_array[t_idx] if loads_array is not None else 0.
 
 
     def get_sink_uptake(self):

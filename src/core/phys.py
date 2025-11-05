@@ -298,7 +298,14 @@ class Setup:
             year_df.index = year_df.index + pd.DateOffset(years=year_offset)
             cycled_dfs.append(year_df)
 
-        return pd.concat(cycled_dfs)
+        # Concatenate and remove any duplicate indices that may occur at year boundaries
+        result = pd.concat(cycled_dfs)
+
+        # Keep first occurrence of duplicates (in chronological order)
+        if result.index.duplicated().any():
+            result = result[~result.index.duplicated(keep='first')]
+
+        return result
 
     def _load_riverine_loads(self):
         """Load riverine nutrient loads data and cycle for multi-year simulations."""
@@ -314,14 +321,34 @@ class Setup:
 
         loads_df = pd.read_feather(loads_file)
 
+        # Normalize dates to the simulation start year (keep day/month/time, change year)
+        # This ensures proper alignment regardless of the original data year
+        original_dates = loads_df.index
+        normalized_dates = pd.to_datetime({
+            'year': self.start_date.year,
+            'month': original_dates.month,
+            'day': original_dates.day,
+            'hour': original_dates.hour,
+            'minute': original_dates.minute,
+            'second': original_dates.second,
+            'microsecond': original_dates.microsecond
+        })
+        loads_df.index = normalized_dates
+
+        # Remove any duplicates created during normalization
+        # (e.g., 2023-01-01 and 2024-01-01 both become 2023-01-01)
+        if loads_df.index.duplicated().any():
+            loads_df = loads_df[~loads_df.index.duplicated(keep='first')]
+
         # Cycle for multi-year simulations if needed
         years_needed = int(np.ceil(self.tmax / 365))
         loads_df = self._cycle_yearly_dataframe(loads_df, years_needed)
 
-        # Filter to our simulation time window
-        loads_df = loads_df[self.start_date:self.end_date]
+        # Ensure index is sorted (required for reindex with method='nearest')
+        loads_df = loads_df.sort_index()
 
         # Reindex to match setup.dates exactly, using nearest time interpolation
+        # This also handles edge cases where data doesn't cover the full year
         loads_df = loads_df.reindex(self.dates, method='nearest')
 
         self.loads = loads_df.rename(columns={
@@ -330,6 +357,12 @@ class Setup:
             'DIP_loads': 'DIP',
             'DSi_loads': 'DSi'
         })
+
+        # Optimization: Pre-compute arrays for faster access (avoid DataFrame .loc lookups)
+        self.loads_NH4_array = self.loads['NH4'].values.astype(self.dtype) if 'NH4' in self.loads.columns else None
+        self.loads_NO3_array = self.loads['NO3'].values.astype(self.dtype) if 'NO3' in self.loads.columns else None
+        self.loads_DIP_array = self.loads['DIP'].values.astype(self.dtype) if 'DIP' in self.loads.columns else None
+        self.loads_DSi_array = self.loads['DSi'].values.astype(self.dtype) if 'DSi' in self.loads.columns else None
 
         if self.verbose:
             print(f"Loaded riverine loads for {len(loads_df)} time steps")
@@ -472,7 +505,7 @@ class Setup:
 
             mow1 = Obs(read_df=False)
             mow1readdict = {'sep': '\s+', 'skiprows': [0, 1, 2, 4], 'engine': 'python'}
-            mow1.df = mow1.read_obs(obsinfos.mow1fname, readdic=mow1readdict)
+            mow1.df = mow1.read_obs(obsinfos.MAIN_DATA_FILE, readdic=mow1readdict)
             temp_obs = mow1.df[mow1.df['T@pH'] > 1]['T@pH']
 
             if len(temp_obs) > 0:
@@ -653,7 +686,22 @@ class Setup:
                 'ylabel': 'Bed Shear Stress (Pa)',
                 'title': 'Bed Shear Stress'
             }
-        
+
+        # Riverine loads data
+        if hasattr(self, 'loads') and self.riverine_loads:
+            # We'll plot all 4 nutrients in a single subplot
+            plot_data['Riverine Loads'] = {
+                'values': {
+                    'NH4': self.loads['NH4'].values[:end_idx],
+                    'NO3': self.loads['NO3'].values[:end_idx],
+                    'DIP': self.loads['DIP'].values[:end_idx],
+                    'DSi': self.loads['DSi'].values[:end_idx]
+                },
+                'ylabel': 'Load (mmol N/P/Si m⁻² d⁻¹)',
+                'title': 'Riverine Nutrient Loads',
+                'multi': True  # Flag to indicate multiple lines
+            }
+
         # Create subplot layout
         n_plots = len(plot_data)
         if n_plots == 0:
@@ -665,16 +713,28 @@ class Setup:
             axes = [axes]  # Make it iterable
         
         # Plot each variable
-        colors = ['blue', 'red', 'green', 'orange', 'purple']
+        colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink']
+        load_colors = {'NH4': 'blue', 'NO3': 'green', 'DIP': 'red', 'DSi': 'orange'}
+
         for i, (var_name, data) in enumerate(plot_data.items()):
             ax = axes[i]
-            color = colors[i % len(colors)]
-            
-            ax.plot(t_plot, data['values'], color=color, linewidth=2)
+
+            # Check if this is a multi-line plot (riverine loads)
+            if data.get('multi', False):
+                # Plot each nutrient load separately
+                for nutrient, values in data['values'].items():
+                    ax.plot(t_plot, values, color=load_colors[nutrient],
+                           linewidth=1.5, label=nutrient, alpha=0.8)
+                ax.legend(loc='best', framealpha=0.9)
+            else:
+                # Single line plot
+                color = colors[i % len(colors)]
+                ax.plot(t_plot, data['values'], color=color, linewidth=2)
+
             ax.set_ylabel(data['ylabel'])
             ax.set_title(data['title'])
             ax.grid(True, alpha=0.3)
-            
+
             # Only show x-label on bottom plot
             if i == n_plots - 1:
                 ax.set_xlabel('Time (days)')
@@ -693,19 +753,26 @@ class Setup:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Plot saved to: {save_path}")
             
-        # plt.show()
+        plt.show()
         
         # Print summary statistics
         print(f"\nSetup Summary ({days_to_plot:.1f} days plotted):")
         print(f"{'Variable':<20} {'Min':<10} {'Max':<10} {'Mean':<10} {'Unit'}")
         print("-" * 60)
-        
+
         for var_name, data in plot_data.items():
             values = data['values']
             unit = data['ylabel'].split('(')[-1].rstrip(')')
-            
-            print(f"{var_name:<20} {np.min(values):<10.2f} {np.max(values):<10.2f} "
-                  f"{np.mean(values):<10.2f} {unit}")
+
+            # Handle multi-line data (e.g., riverine loads)
+            if data.get('multi', False):
+                for nutrient, nutrient_values in values.items():
+                    full_name = f"{var_name} ({nutrient})"
+                    print(f"{full_name:<20} {np.min(nutrient_values):<10.2f} {np.max(nutrient_values):<10.2f} "
+                          f"{np.mean(nutrient_values):<10.2f} {unit}")
+            else:
+                print(f"{var_name:<20} {np.min(values):<10.2f} {np.max(values):<10.2f} "
+                      f"{np.mean(values):<10.2f} {unit}")
 
     def get_physical_state(self) -> Dict[str, Any]:
         """
@@ -764,19 +831,6 @@ class Setup:
 
 
 if __name__ == "__main__":
-
-    from config_model import phys_setup
-
-    setup1 = Setup(**phys_setup.MOW1_Jan1)
-    setup1.plot_setup(save_path="MOW1.png")
-    setup2 = Setup(**phys_setup.MOW1_Jan1_additive)
-    setup2.plot_setup(save_path="MOW1_additive.png")
-    plt.show()
-
-    input()
-
-
-
 
     """Test the tidal implementation with MOW1_STATION configuration."""
     print("Testing Tidal Implementation in BGC Physical Setup")
