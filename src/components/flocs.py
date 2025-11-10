@@ -104,7 +104,8 @@ class Flocs(BaseStateVar):
                  efficiency_break=2e-4,
                  mu_viscosity=1e-6,
 
-                 d_p_microflocdiam=18e-6,
+                 # d_p_microflocdiam=18e-6,
+                 d_p_microflocdiam=5e-6,
                  nf_fractal_dim=2,
 
                  density=2500,  # [kg/m3]
@@ -296,6 +297,14 @@ class Flocs(BaseStateVar):
         if self.name != 'Microflocs':
             self.nf_fractal_dim = self.coupled_Np.nf_fractal_dim
             self.f_frac_floc_break = self.coupled_Np.f_frac_floc_break
+
+            self.p_exp = self.coupled_Np.p_exp
+            self.q_exp = self.coupled_Np.q_exp
+            self.mu_viscosity = self.coupled_Np.mu_viscosity
+            self.d_p_microflocdiam = self.coupled_Np.d_p_microflocdiam
+            self.sinking_leak = self.coupled_Np.sinking_leak
+            self.diam = self.coupled_Np.diam
+
             self.efficiency_break = self.coupled_Np.efficiency_break
             # Initialize with base value (will be updated by TEP coupling if active)
             self.fyflocstrength = self.coupled_Np.fyflocstrength_base
@@ -369,7 +378,8 @@ class Flocs(BaseStateVar):
             self.diam = self._calculate_macrofloc_diameter()
 
         self.volconcentration = numconc * np.pi / 6. * self.diam * self.diam * self.diam
-        
+
+
         if self.name == "Microflocs" or self.name == "Micro_in_Macro":
             self.massconcentration = numconc * np.pi / 6. * self.diam*self.diam*self.diam * self.density
 
@@ -384,6 +394,8 @@ class Flocs(BaseStateVar):
         with some mathematical simplifications within the SMS equations to enhance computational efficiency
         (since the floc module is run at smaller time step)
         """
+
+
 
         # Optimization: Use pre-computed arrays for faster access
         self.g_shear_rate_at_t = self.setup.g_shear_rate_array[t_idx]
@@ -517,7 +529,6 @@ class Flocs(BaseStateVar):
                 self.net_vertical_loss_rate = self.settling_loss / self.numconc  # [s-1]
             else:
                 self.net_vertical_loss_rate = 0.0
-
 
             # Formation from microfloc-microfloc collisions
             self.ppsource = (2. / 3. * self.alpha_PP * np_diam_cubed *
