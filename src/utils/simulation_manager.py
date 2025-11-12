@@ -562,7 +562,7 @@ def run_or_load_simulation(config_dict: Dict,
     return simulation
 
 
-def load_simulation(name: str, simulation_type: SimulationTypes = SimulationTypes.MODEL_RUN) -> Any:
+def load_simulation(name: str, simulation_type: SimulationTypes = SimulationTypes.REFERENCES_SIMULATION) -> Any:
     """
     Load a saved simulation
 
