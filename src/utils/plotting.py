@@ -44,7 +44,7 @@ DEFAULT_COLORS = [
 # Line styles: 3 distinct styles to combine with 14 colors
 # Avoiding dot-only ':' style as it becomes too discrete
 # Using solid, dashed, and dash-dot for good visibility
-DEFAULT_LINESTYLES = ['-', '--', '-.']
+DEFAULT_LINESTYLES = ['-', '--', '-.', ':']
 
 DEFAULT_LEGEND_FONTSIZE = 8
 DEFAULT_FIGURE_DPI = 300
