@@ -37,6 +37,7 @@ class Model:
             output_vars: Optional[List[str]] = None,
             name: str = 'Model',
             verbose: bool = True,
+            force_performance_report: bool = False,
             debug_budgets: bool = False,
             aggregate_vars: Optional[List[str]] = None,
             do_diagnostics: bool = True,
@@ -90,7 +91,7 @@ class Model:
         self._process_results()
 
         # Print performance statistics if verbose
-        if verbose:
+        if verbose or force_performance_report:
             self._report_performance()
 
     def _initialize_all(self):
