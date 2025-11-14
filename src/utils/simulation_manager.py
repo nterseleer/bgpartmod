@@ -23,8 +23,6 @@ from src.config_system import path_config as path_cfg
 # Optimization log columns (human-readable names)
 OPTIMIZATION_LOG_COLUMNS = [
     'ID',
-    'Date',
-    'Env',
     '#pars',
     '#vars',
     'UserNote_PRE',
@@ -40,7 +38,9 @@ OPTIMIZATION_LOG_COLUMNS = [
     'FirstValidGen',
     'BoundHit%',
     'Ref_Opt',
-    'PlannedGen'
+    'PlannedGen',
+    'Date',
+    'Env'
 ]
 
 class SimulationTypes(Enum):
@@ -202,8 +202,6 @@ def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, refer
 
     new_entry = pd.DataFrame([{
         'ID': opt_id,
-        'Date': datetime.now().strftime('%Y-%m-%d'),
-        'Env': environment,
         '#pars': param_count,
         '#vars': calibrated_vars_count if calibrated_vars_count is not None else '',
         'UserNote_PRE': user_note,
@@ -219,7 +217,9 @@ def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, refer
         'FirstValidGen': '',
         'BoundHit%': boundary_hit_threshold_percent,
         'Ref_Opt': reference_opt,
-        'PlannedGen': ''
+        'PlannedGen': '',
+        'Date': datetime.now().strftime('%Y-%m-%d'),
+        'Env': environment
     }])
 
     log_df = pd.concat([log_df, new_entry], ignore_index=True)
