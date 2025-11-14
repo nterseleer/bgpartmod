@@ -23,8 +23,6 @@ from src.config_system import path_config as path_cfg
 # Optimization log columns (human-readable names)
 OPTIMIZATION_LOG_COLUMNS = [
     'ID',
-    'Date',
-    'Env',
     '#pars',
     '#vars',
     'UserNote_PRE',
@@ -39,8 +37,11 @@ OPTIMIZATION_LOG_COLUMNS = [
     'lnl_improvement',
     'FirstValidGen',
     'BoundHit%',
+    'Case',
     'Ref_Opt',
-    'PlannedGen'
+    'PlannedGen',
+    'Date',
+    'Env'
 ]
 
 class SimulationTypes(Enum):
@@ -164,7 +165,16 @@ def get_optimization_log() -> pd.DataFrame:
         df = pd.DataFrame(columns=OPTIMIZATION_LOG_COLUMNS)
         df.to_csv(path_cfg.PRIVATE_OPT_LOG_FILE, index=False)
         return df
-    return pd.read_csv(path_cfg.PRIVATE_OPT_LOG_FILE)
+
+    df = pd.read_csv(path_cfg.PRIVATE_OPT_LOG_FILE)
+
+    # Ensure 'Case' column exists (backward compatibility)
+    if 'Case' not in df.columns:
+        # Add Case column after BoundHit% (before Ref_Opt)
+        case_col_idx = OPTIMIZATION_LOG_COLUMNS.index('Case')
+        df.insert(case_col_idx, 'Case', 'Single')  # Default to 'Single' for existing entries
+
+    return df
 
 
 def save_optimization_log(df: pd.DataFrame):
@@ -186,7 +196,8 @@ def get_next_optimization_id() -> str:
 
 
 def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, reference_opt: str = None,
-                           boundary_hit_threshold_percent: float = 5.0, calibrated_vars_count: int = None):
+                           boundary_hit_threshold_percent: float = 5.0, calibrated_vars_count: int = None,
+                           case_mode: str = "Single"):
     """Add new optimization entry to log."""
     log_df = get_optimization_log()
 
@@ -202,8 +213,6 @@ def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, refer
 
     new_entry = pd.DataFrame([{
         'ID': opt_id,
-        'Date': datetime.now().strftime('%Y-%m-%d'),
-        'Env': environment,
         '#pars': param_count,
         '#vars': calibrated_vars_count if calibrated_vars_count is not None else '',
         'UserNote_PRE': user_note,
@@ -218,8 +227,11 @@ def add_optimization_to_log(opt_id: str, param_count: int, user_note: str, refer
         'lnl_improvement': '',
         'FirstValidGen': '',
         'BoundHit%': boundary_hit_threshold_percent,
+        'Case': case_mode,
         'Ref_Opt': reference_opt,
-        'PlannedGen': ''
+        'PlannedGen': '',
+        'Date': datetime.now().strftime('%Y-%m-%d'),
+        'Env': environment
     }])
 
     log_df = pd.concat([log_df, new_entry], ignore_index=True)

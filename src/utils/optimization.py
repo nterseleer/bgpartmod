@@ -7,6 +7,7 @@ import time
 import pickle
 import json
 import dill
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -26,6 +27,34 @@ OPTIMIZATIONS_DIR = path_cfg.OPTIM_DIR
 LOG_FILE = path_cfg.OPT_LOG_FILE
 
 
+@dataclass
+class ModelCase:
+    """
+    Configuration for a single evaluation case in optimization.
+
+    A case represents one model configuration to evaluate: different station,
+    species, time period, formulation, or any combination.
+
+    Attributes:
+        case_id: Unique identifier
+        dconf: Model configuration dictionary
+        setup: Physical setup instance
+        obs: Observation data instance
+        calibrated_vars: Variables for likelihood calculation
+        weight: Weight in aggregated score
+        case_label: Optional human-readable description
+    """
+    case_id: str
+    dconf: Dict[str, Any]
+    setup: Any
+    obs: Any
+    calibrated_vars: List[str]
+    weight: float = 1.0
+    case_label: Optional[str] = None
+
+    def __post_init__(self):
+        if self.case_label is None:
+            self.case_label = self.case_id
 
 
 class Optimization:
@@ -35,19 +64,35 @@ class Optimization:
         """Initialize optimization container."""
         self.name = None
         self.optdir = None
-        self.files = None  # Will store all file paths
+        self.files = None
         self.config = None
         self.setup = None
         self.obs = None
         self.calibrated_vars = None
         self.verbose = verbose
-    
+        self.cases = None
+        self.is_multi_case = False
+        self.param_metadata = None
+
+    @staticmethod
+    def _parse_parameter_name(param_name: str) -> Tuple[str, Optional[str]]:
+        """
+        Parse parameter name to extract base name and case_id.
+
+        Returns:
+            (base_param_name, case_id or None)
+        """
+        if '@' in param_name:
+            base, case_id = param_name.rsplit('@', 1)
+            return base, case_id
+        return param_name, None
+
     @classmethod
     def _get_next_id(cls) -> str:
         """Get next available optimization ID from the shared log."""
         return sim_manager.get_next_optimization_id()
     
-    @classmethod 
+    @classmethod
     def _prompt_user_note(cls) -> str:
         """Prompt user for optimization note."""
         print("\n" + "="*60)
@@ -55,6 +100,62 @@ class Optimization:
         print("="*60)
         note = input("Please describe this optimization (purpose, approach, expectations):\n> ")
         return note.strip()
+
+    @classmethod
+    def _validate_case_specific_params(cls, optimized_parameters: List[str],
+                                       cases: List[ModelCase]):
+        """Validate that all @case_id references exist."""
+        case_ids = {c.case_id for c in cases}
+        for param_name in optimized_parameters:
+            _, case_id = cls._parse_parameter_name(param_name)
+            if case_id is not None and case_id not in case_ids:
+                raise ValueError(
+                    f"Parameter '{param_name}' references case_id '{case_id}', "
+                    f"but no case with that ID exists. Available: {case_ids}"
+                )
+
+    def _categorize_parameters(self, optimized_parameters: List[str],
+                               bounds: Tuple[List[float], List[float]]):
+        """Categorize parameters into shared vs case-specific with metadata."""
+        self.param_metadata = []
+        for i, param_name in enumerate(optimized_parameters):
+            base_name, case_id = self._parse_parameter_name(param_name)
+            self.param_metadata.append({
+                'full_name': param_name,
+                'base_name': base_name,
+                'case_id': case_id,
+                'index': i,
+                'bounds': (bounds[0][i], bounds[1][i])
+            })
+
+    def _build_case_param_dict(self, parameters: np.ndarray, case_id: str) -> Dict[str, float]:
+        """
+        Build parameter dictionary for a specific case.
+
+        Includes shared parameters and case-specific parameters matching case_id.
+        """
+        param_dict = {}
+        for meta in self.param_metadata:
+            if meta['case_id'] is None:
+                # Shared parameter
+                param_dict[meta['base_name']] = parameters[meta['index']]
+            elif meta['case_id'] == case_id:
+                # Case-specific parameter for this case
+                param_dict[meta['base_name']] = parameters[meta['index']]
+        return param_dict
+
+    def _group_parameters_by_case(self) -> Dict[str, Dict[str, float]]:
+        """Group best parameters by case for readability."""
+        grouped = {'shared': {}}
+        for meta in self.param_metadata:
+            value = self.summary['best_parameters'][meta['full_name']]
+            if meta['case_id'] is None:
+                grouped['shared'][meta['base_name']] = value
+            else:
+                if meta['case_id'] not in grouped:
+                    grouped[meta['case_id']] = {}
+                grouped[meta['case_id']][meta['base_name']] = value
+        return grouped
 
     @classmethod
     def run_new(cls,
@@ -106,7 +207,8 @@ class Optimization:
             instance.name,
             len(optimized_parameters),
             user_note,
-            calibrated_vars_count=len(instance.calibrated_vars)
+            calibrated_vars_count=len(instance.calibrated_vars),
+            case_mode="Single"
         )
 
         instance.obs = obs
@@ -152,37 +254,128 @@ class Optimization:
         return instance
 
     @classmethod
+    def run_new_multi_case(cls,
+                           cases: List[ModelCase],
+                           modkwargs: Dict,
+                           optimized_parameters: List[str],
+                           bounds: Tuple[List[float], List[float]],
+                           name: Optional[str] = None,
+                           user_note: Optional[str] = None,
+                           population_size: int = 90,
+                           num_cpus: int = 30,
+                           num_generations: int = 100,
+                           badlnl: float = -100000.,
+                           **solver_kwargs) -> 'Optimization':
+        """
+        Run multi-case optimization.
+
+        Args:
+            cases: List of ModelCase instances
+            modkwargs: Model kwargs (shared across cases)
+            optimized_parameters: Parameters to optimize (shared)
+            bounds: Parameter bounds (shared)
+            name: Optional name
+            user_note: Optional note
+            population_size: DE population size
+            num_generations: Number of generations
+            badlnl: Score for failed evaluations
+            **solver_kwargs: Additional solver parameters
+        """
+        instance = cls()
+        instance.is_multi_case = True
+        instance.cases = cases
+
+        # Validate and categorize parameters
+        cls._validate_case_specific_params(optimized_parameters, cases)
+        instance._categorize_parameters(optimized_parameters, bounds)
+
+        # Setup optimization log
+        instance.name = name or cls._get_next_id()
+        if user_note is None:
+            user_note = cls._prompt_user_note()
+
+        # Count total calibrated vars (sum across cases)
+        total_calibrated_vars_count = sum(len(c.calibrated_vars) for c in cases)
+
+        sim_manager.add_optimization_to_log(
+            instance.name,
+            len(optimized_parameters),
+            f"**MULTI X{len(cases)} ** | {user_note}",
+            calibrated_vars_count=total_calibrated_vars_count,
+            case_mode="Multi"
+        )
+
+        instance._setup_directories()
+
+        # Store configuration
+        instance.config = {
+            'modkwargs': modkwargs,
+            'optimized_parameters': optimized_parameters,
+            'bounds': bounds,
+            'population_size': population_size,
+            'num_cpus': num_cpus,
+            'num_generations': num_generations,
+            'badlnl': badlnl,
+            'solver_kwargs': solver_kwargs,
+            'cases_info': [
+                {
+                    'case_id': c.case_id,
+                    'case_label': c.case_label,
+                    'calibrated_vars': c.calibrated_vars,
+                    'observation_info': {'station': c.obs.station, 'name': c.obs.name},
+                    'weight': c.weight
+                }
+                for c in cases
+            ]
+        }
+
+        # Save initial state
+        instance._save_configuration_multi_case()
+        instance._save_cases()
+
+        # Run optimization
+        instance._run_optimization_multi_case()
+
+        return instance
+
+    @classmethod
     def load_existing(cls, name: str) -> 'Optimization':
-        """Load existing optimization results."""
+        """Load existing optimization (single-case or multi-case)."""
         instance = cls()
         instance.name = name
-
-        # Set up directories and file paths
         instance._setup_directories()
 
         if not os.path.exists(instance.optdir):
             raise FileNotFoundError(f"Optimization {name} not found in {OPTIMIZATIONS_DIR}")
 
-        # Load configuration
         if not os.path.exists(instance.files['config']):
             raise FileNotFoundError(f"Configuration file not found: {instance.files['config']}")
 
         with open(instance.files['config'], 'rb') as f:
             instance.config = pickle.load(f)
-            instance.calibrated_vars = instance.config['calibrated_vars']
 
-        # Load setup
-        instance._load_setup()
-
-        # Load Observations
-        obs_path = os.path.join(instance.optdir,
-                                f"{instance.name}_observations",
-                                f"{instance.name}_observations.pkl")
-        if os.path.exists(obs_path):
-            with open(obs_path, 'rb') as f:
-                instance.obs = pickle.load(f)
+        # Detect mode
+        if 'cases_info' in instance.config:
+            # Multi-case mode
+            instance.is_multi_case = True
+            instance._load_cases()
+            # Rebuild param_metadata for loaded optimization
+            instance._categorize_parameters(
+                instance.config['optimized_parameters'],
+                instance.config['bounds']
+            )
         else:
-            print(f"Warning: Could not load original observations from {obs_path}")
+            # Single-case mode
+            instance.is_multi_case = False
+            instance.calibrated_vars = instance.config['calibrated_vars']
+            instance._load_setup()
+            obs_path = os.path.join(instance.optdir, f"{instance.name}_observations",
+                                    f"{instance.name}_observations.pkl")
+            if os.path.exists(obs_path):
+                with open(obs_path, 'rb') as f:
+                    instance.obs = pickle.load(f)
+            else:
+                print(f"Warning: Could not load observations from {obs_path}")
 
         return instance
 
@@ -214,20 +407,14 @@ class Optimization:
         }
 
     def _save_overview(self):
-        """Save optimization overview file (replaces README and calibration_info)."""
-        # Detect environment
+        """Save single-case optimization overview."""
         environment = "ecmwf" if "ecmwf" in os.getcwd().lower() or "copernicus" in os.getcwd().lower() else "local"
 
-        # Build parameter bounds dictionary (compact format)
         parameter_bounds = {
-            param: {
-                "min": self.config['bounds'][0][i],
-                "max": self.config['bounds'][1][i]
-            }
+            param: {"min": self.config['bounds'][0][i], "max": self.config['bounds'][1][i]}
             for i, param in enumerate(self.config['optimized_parameters'])
         }
 
-        # Extract essential setup info
         setup_info = {
             "tmin": self.setup.tmin,
             "tmax": self.setup.tmax,
@@ -238,31 +425,22 @@ class Optimization:
 
         overview = {
             "optimization_id": self.name,
+            "mode": "single-case",
             "created": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "environment": environment,
-
             "parameters": parameter_bounds,
-
             "calibrated_variables": self.calibrated_vars,
-
             "optimization_settings": {
                 "population_size": self.config['population_size'],
                 "generations_planned": self.config['num_generations'],
                 "num_cpus": self.config['num_cpus'],
                 "badlnl": self.config['badlnl']
             },
-
             "setup": setup_info,
-
             "observations": self.config['observation_info'],
-
-            "user_notes": {
-                "pre": "",
-                "post": ""
-            }
+            "user_notes": {"pre": "", "post": ""}
         }
 
-        # Save as JSON
         overview_path = os.path.join(self.optdir, f"{self.name}_OVERVIEW.json")
         with open(overview_path, 'w') as f:
             json.dump(overview, f, indent=2)
@@ -351,6 +529,131 @@ class Optimization:
             else:
                 print(f"Loaded setup from legacy modkwargs for optimization {self.name}")
 
+    def _save_cases(self):
+        """Save all case configurations."""
+        cases_dir = os.path.join(self.optdir, f"{self.name}_cases")
+        os.makedirs(cases_dir, exist_ok=True)
+
+        for case in self.cases:
+            case_subdir = os.path.join(cases_dir, case.case_id)
+            os.makedirs(case_subdir, exist_ok=True)
+
+            with open(os.path.join(case_subdir, "dconf.pkl"), 'wb') as f:
+                pickle.dump(case.dconf, f)
+            fns.write_dict_to_file(case.dconf, f"{case.case_id}_dconf", fdir=case_subdir)
+
+            with open(os.path.join(case_subdir, "setup.pkl"), 'wb') as f:
+                pickle.dump(case.setup, f)
+
+            with open(os.path.join(case_subdir, "observations.pkl"), 'wb') as f:
+                pickle.dump(case.obs, f)
+
+            with open(os.path.join(case_subdir, "calibrated_vars.json"), 'w') as f:
+                json.dump(case.calibrated_vars, f, indent=2)
+
+            metadata = {
+                'case_id': case.case_id,
+                'case_label': case.case_label,
+                'weight': case.weight,
+                'obs_station': case.obs.station,
+                'obs_name': case.obs.name
+            }
+            with open(os.path.join(case_subdir, "metadata.json"), 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+    def _load_cases(self):
+        """Load all case configurations."""
+        cases_dir = os.path.join(self.optdir, f"{self.name}_cases")
+        self.cases = []
+
+        for case_info in self.config['cases_info']:
+            case_id = case_info['case_id']
+            case_subdir = os.path.join(cases_dir, case_id)
+
+            with open(os.path.join(case_subdir, "dconf.pkl"), 'rb') as f:
+                dconf = pickle.load(f)
+
+            with open(os.path.join(case_subdir, "setup.pkl"), 'rb') as f:
+                setup = pickle.load(f)
+
+            with open(os.path.join(case_subdir, "observations.pkl"), 'rb') as f:
+                obs = pickle.load(f)
+
+            case = ModelCase(
+                case_id=case_id,
+                dconf=dconf,
+                setup=setup,
+                obs=obs,
+                calibrated_vars=case_info['calibrated_vars'],
+                weight=case_info.get('weight', 1.0),
+                case_label=case_info.get('case_label', case_id)
+            )
+            self.cases.append(case)
+
+    def _save_configuration_multi_case(self):
+        """Save multi-case configuration."""
+        with open(os.path.join(self.optdir, f"{self.name}_config.pkl"), 'wb') as f:
+            pickle.dump(self.config, f)
+
+        fns.write_dict_to_file(self.config['modkwargs'], f"{self.name}_modkwargs",
+                               fdir=self.optdir, serialize_objects=False)
+
+        self._save_overview_multi_case()
+
+    def _save_overview_multi_case(self):
+        """Save multi-case optimization overview."""
+        environment = "ecmwf" if "ecmwf" in os.getcwd().lower() or "copernicus" in os.getcwd().lower() else "local"
+
+        parameter_bounds = {
+            param: {"min": self.config['bounds'][0][i], "max": self.config['bounds'][1][i]}
+            for i, param in enumerate(self.config['optimized_parameters'])
+        }
+
+        overview = {
+            "optimization_id": self.name,
+            "mode": "multi-case",
+            "created": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "environment": environment,
+            "cases": [
+                {
+                    "case_id": c.case_id,
+                    "case_label": c.case_label,
+                    "weight": c.weight,
+                    "obs_file": c.obs.station,
+                    "calibrated_vars": c.calibrated_vars
+                }
+                for c in self.cases
+            ],
+            "parameters": parameter_bounds,
+            "optimization_settings": {
+                "population_size": self.config['population_size'],
+                "generations_planned": self.config['num_generations'],
+                "num_cpus": self.config['num_cpus'],
+                "badlnl": self.config['badlnl']
+            }
+        }
+
+        with open(os.path.join(self.optdir, f"{self.name}_OVERVIEW.json"), 'w') as f:
+            json.dump(overview, f, indent=2)
+
+    def _run_optimization_multi_case(self):
+        """Run multi-case optimization using DESolver."""
+        min_bounds, max_bounds = self.config['bounds']
+
+        solver = desolver.DESolver(
+            job=self,
+            populationSize=self.config['population_size'],
+            maxGenerations=self.config['num_generations'],
+            minInitialValue=min_bounds,
+            maxInitialValue=max_bounds,
+            num_cpus=self.config['num_cpus'],
+            **self.config['solver_kwargs']
+        )
+
+        start_time = time.time()
+        self.solver_results = solver.Solve()
+        self.runtime = time.time() - start_time
+
     def _run_optimization(self, obs):
         """Run the optimization using DESolver."""
         self.obs = obs  # Store observation data for evaluation
@@ -373,33 +676,42 @@ class Optimization:
         self.runtime = time.time() - start_time
 
     def evaluate_model(self, parameters):
-        """Evaluate a parameter set (called by solver)."""
+        """Evaluate parameter set (single-case or multi-case mode)."""
         try:
-            # Create parameter dictionary from names and values
-            param_dict = dict(zip(self.config['optimized_parameters'], parameters))
-
-            # Create new configuration with updated parameters
-            newconfig = fns.update_config(self.config['dconf'], param_dict)
-
-            # Run the model
-            trial = model.Model(newconfig, setup=self.setup, **self.config['modkwargs'])
-
-            # Calculate likelihood using calibrated_vars
-            lnl = trial.get_likelihood(
-                self.obs,
-                calibrated_vars=self.calibrated_vars,
-                verbose=False,
-                _cached_obs=self.obs.df
-            )
-
-            # Handle invalid results
-            if lnl is None or np.isinf(lnl) or np.isnan(lnl):
-                return self.config['badlnl']
-
-            return lnl
+            if not self.is_multi_case:
+                # Single-case mode
+                param_dict = dict(zip(self.config['optimized_parameters'], parameters))
+                newconfig = fns.update_config(self.config['dconf'], param_dict)
+                trial = model.Model(newconfig, setup=self.setup, **self.config['modkwargs'])
+                lnl = trial.get_likelihood(
+                    self.obs,
+                    calibrated_vars=self.calibrated_vars,
+                    verbose=False,
+                    _cached_obs=self.obs.df
+                )
+                if lnl is None or np.isinf(lnl) or np.isnan(lnl):
+                    return self.config['badlnl']
+                return lnl
+            else:
+                # Multi-case mode: aggregate scores across all cases
+                total_lnl = 0.0
+                for case in self.cases:
+                    # Build case-specific parameter dict (handles @case_id suffixes)
+                    case_param_dict = self._build_case_param_dict(parameters, case.case_id)
+                    case_dconf = fns.update_config(case.dconf, case_param_dict)
+                    trial = model.Model(case_dconf, setup=case.setup, **self.config['modkwargs'])
+                    lnl = trial.get_likelihood(
+                        case.obs,
+                        calibrated_vars=case.calibrated_vars,
+                        verbose=False,
+                        _cached_obs=case.obs.df
+                    )
+                    if lnl is None or np.isinf(lnl) or np.isnan(lnl):
+                        return self.config['badlnl']
+                    total_lnl += case.weight * lnl
+                return total_lnl
 
         except (RuntimeWarning, FloatingPointError, ValueError, ZeroDivisionError) as e:
-            # If warnings are treated as errors, they'll be caught here
             if self.verbose:
                 print(f"Model evaluation failed with error: {e}")
             return self.config['badlnl']
@@ -448,19 +760,29 @@ class Optimization:
             'parameter_ranges': self._analyze_parameter_ranges()
         }
 
+        # Add grouped parameters for multi-case
+        if self.is_multi_case and self.param_metadata is not None:
+            self.summary['best_parameters_grouped'] = self._group_parameters_by_case()
+
         # Save winning configuration (only if it doesn't exist)
         winning_config_path = os.path.join(self.optdir, f"{self.name}_WINNING_CONFIG.json")
         if not os.path.exists(winning_config_path):
-            # self.summary['best_parameters'] is already a dict
-            winning_config = fns.update_config(
-                self.config['dconf'],
-                self.summary['best_parameters']
-            )
-            fns.write_dict_to_file(
-                winning_config,
-                f"{self.name}_WINNING_CONFIG",
-                fdir=self.optdir
-            )
+            if not self.is_multi_case:
+                # Single-case: save one winning config
+                winning_config = fns.update_config(
+                    self.config['dconf'],
+                    self.summary['best_parameters']
+                )
+                fns.write_dict_to_file(winning_config, f"{self.name}_WINNING_CONFIG", fdir=self.optdir)
+            else:
+                # Multi-case: save winning config per case
+                for case in self.cases:
+                    winning_config = fns.update_config(case.dconf, self.summary['best_parameters'])
+                    fns.write_dict_to_file(
+                        winning_config,
+                        f"{self.name}_WINNING_CONFIG_{case.case_id}",
+                        fdir=self.optdir
+                    )
 
         # Save summary stats (only if it doesn't exist)
         summary_path = os.path.join(self.optdir, f"{self.name}_SUMMARY.json")
@@ -577,52 +899,77 @@ class Optimization:
             'params_at_upper_bound': ', '.join(upper_hits) if upper_hits else ''
         }
 
-    def get_best_model(self, force_rerun: bool = False, savemodel: bool = False) -> Any:
+    def get_best_model(self, case_id: Optional[str] = None,
+                       force_rerun: bool = False, savemodel: bool = False) -> Any:
         """
         Get best model from optimization.
 
         Args:
-            force_rerun: Whether to rerun model even if saved version exists
-            savemodel: Whether to save (dill) the model to pkl object
+            case_id: For multi-case, which case to reconstruct (None = all)
+            force_rerun: Whether to rerun model
+            savemodel: Whether to save model
 
         Returns:
-            Best model instance
+            Best model instance (or dict of models if multi-case and case_id=None)
         """
         if not hasattr(self, 'summary'):
             self.process_results()
 
-        model_file = os.path.join(self.optdir, f"{self.name}_best_model.pkl")
+        if not self.is_multi_case:
+            # Single-case mode
+            model_file = os.path.join(self.optdir, f"{self.name}_best_model.pkl")
+            if os.path.exists(model_file) and not force_rerun:
+                with open(model_file, 'rb') as f:
+                    return dill.load(f)
 
-        # Return existing unless forced rerun
-        if os.path.exists(model_file) and not force_rerun:
-            with open(model_file, 'rb') as f:
-                return dill.load(f)
+            best_config = fns.update_config(self.config['dconf'], self.summary['best_parameters'])
+            best_config = fns.deep_update(best_config, config.plotting_diagnostics)
+            model_kwargs = {
+                **self.config['modkwargs'],
+                'verbose': True,
+                'do_diagnostics': True,
+                'full_diagnostics': False
+            }
+            best_model = model.Model(best_config, setup=self.setup, name=self.name, **model_kwargs)
 
-        # Create and run best model
-        best_config = fns.update_config(
-            self.config['dconf'],
-            self.summary['best_parameters']
-        )
+            if savemodel:
+                with open(model_file, 'wb') as f:
+                    dill.dump(best_model, f)
+            return best_model
 
-        # add all diagnostics for subsequent plots and post-processing
-        best_config = fns.deep_update(best_config, config.plotting_diagnostics)
+        else:
+            # Multi-case mode
+            if case_id is not None:
+                # Reconstruct for one specific case
+                case = next(c for c in self.cases if c.case_id == case_id)
+                model_file = os.path.join(self.optdir, f"{self.name}_best_model_{case_id}.pkl")
 
-        # Add additional diagnostics for best model
-        model_kwargs = {
-            **self.config['modkwargs'],
-            'verbose': True,
-            'do_diagnostics': True,
-            'full_diagnostics': False
-        }
+                if os.path.exists(model_file) and not force_rerun:
+                    with open(model_file, 'rb') as f:
+                        return dill.load(f)
 
-        best_model = model.Model(best_config, setup=self.setup, name=self.name, **model_kwargs)
+                best_config = fns.update_config(case.dconf, self.summary['best_parameters'])
+                best_config = fns.deep_update(best_config, config.plotting_diagnostics)
+                model_kwargs = {
+                    **self.config['modkwargs'],
+                    'verbose': True,
+                    'do_diagnostics': True,
+                    'full_diagnostics': False
+                }
+                best_model = model.Model(best_config, setup=case.setup,
+                                         name=f"{self.name}_{case_id}", **model_kwargs)
 
-        # Save model
-        if savemodel:
-            with open(model_file, 'wb') as f:
-                dill.dump(best_model, f)
+                if savemodel:
+                    with open(model_file, 'wb') as f:
+                        dill.dump(best_model, f)
+                return best_model
 
-        return best_model
+            else:
+                # Reconstruct for all cases
+                return {c.case_id: self.get_best_model(case_id=c.case_id,
+                                                       force_rerun=force_rerun,
+                                                       savemodel=savemodel)
+                        for c in self.cases}
 
     def compare_model_vs_optim(self, obs, rerun: bool = False):
         """Compare rerun model likelihood with optimization results."""
