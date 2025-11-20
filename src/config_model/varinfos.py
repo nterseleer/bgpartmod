@@ -112,6 +112,12 @@ ref_values = {
         'units': '[mmolC m-3 d-1]',
         'complete_name': 'Max Grazing loss by zooplankton'
     },
+    'Phy+KDIP': {
+        'reference_value': 0.05,
+        'symbol': 'K^{Phy}_{DIP}',
+        'units': '[mmolP m-3 d-1]',
+        'complete_name': 'Phytoplankton half-saturation constant for DIP uptake'
+    },
     'DOCS+alpha_TEPC': {
         'reference_value': 0.85,
         'symbol': '\\alpha^{A1}_{DOC_S-TEP}',
@@ -180,7 +186,7 @@ ref_values = {
     },
     'Microflocs+nf_fractal_dim': {
         'reference_value': 2.1,
-        'symbol': 'n{f}',
+        'symbol': 'n_f',
         'units': '-',
         'complete_name': "Fractal dimension of macroflocs [-]"
     },
@@ -210,7 +216,7 @@ ref_values = {
     },
     'Microflocs+delta_alpha_PP': {
         'reference_value': 0.028,
-        'symbol': '\\Delta\\alpha_{PP}',
+        'symbol': 'Δ \\alpha_{PP}^{base}',
         'units': '-',
         'complete_name': "TEP increment for PP collision efficiency [-]"
     },
@@ -270,15 +276,15 @@ ref_values = {
     },
     'Microflocs+K_glue': {
         'reference_value': 15,
-        'symbol': 'K_glue',
+        'symbol': 'K_{glue}',
         'units': 'mmol TEP_C m-3',
         'complete_name': "Half saturation constant for TEP effect on flocculation"
     },
     'Microflocs+deltaFymax': {
         'reference_value': 1e-9,
-        'symbol': 'deltaFymax',
+        'symbol': 'Δ F_{y}^{max} ',
         'units': '---',
-        'complete_name': "deltaFymax"
+        'complete_name': "Max TEP-increased Floc strength"
     },
     'Microflocs+eps_kd': {
         'reference_value': 0.066 * 1e3,
@@ -312,21 +318,36 @@ ref_values = {
         'units': '[]',
         'complete_name': "Resuspension rate"
     },
+
+    'Macroflocs+settling_vel_min_fraction': {
+        'reference_value': 0.001,
+        'symbol': 'frac^{v_{settl}}_{min}',
+        'units': '[]',
+        'complete_name': "Min v_{settl} fraction"
+    },
+
+    'Macroflocs+settling_vel_max_fraction': {
+        'reference_value': 0.01,
+        'symbol': 'frac^{v_{settl}}_{max}',
+        'units': '[]',
+        'complete_name': "Max v_{settl} fraction"
+    },
+
     'NH4+k_remin': {
         'reference_value': 0,
-        'symbol': 'K_remin^{NH_4}',
+        'symbol': 'K_{remin}^{NH_4}',
         'units': '--',
         'complete_name': "k_remin_NH4"
     },
     'DIP+k_remin': {
         'reference_value': 0,
-        'symbol': 'K_remin^{DIP}',
+        'symbol': 'K_{remin}^{DIP}',
         'units': '--',
         'complete_name': "k_remin_DIP"
     },
     'DSi+k_remin': {
         'reference_value': 0,
-        'symbol': 'K_remin^{DSi}',
+        'symbol': 'K_{remin}^{DSi}',
         'units': '--',
         'complete_name': "k_remin_DSi"
     }

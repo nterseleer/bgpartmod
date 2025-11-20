@@ -88,6 +88,52 @@ class Optimization:
         return param_name, None
 
     @classmethod
+    def _filter_parameters_for_case(cls, param_dict: Dict[str, float],
+                                     case_id: str) -> Dict[str, float]:
+        """
+        Filter and clean parameters for a specific case.
+
+        For multi-case optimizations, parameters can be:
+        - Global (no @): apply to all cases
+        - Case-specific (@case_id): apply only to that case
+
+        This method:
+        1. Keeps all global parameters (no @)
+        2. Keeps only case-specific parameters matching the given case_id
+        3. Removes the @case_id suffix from parameter names
+
+        Args:
+            param_dict: Dictionary of parameters, potentially with @case_id suffixes
+            case_id: The case ID to filter for
+
+        Returns:
+            Filtered dictionary with cleaned parameter names
+
+        Example:
+            >>> params = {
+            ...     'Phy+mu_max': 1.5,                          # global
+            ...     'Phy+divide_water_depth_ratio@MOW1': 0.8,  # case-specific
+            ...     'Phy+divide_water_depth_ratio@W05': 0.6    # other case
+            ... }
+            >>> _filter_parameters_for_case(params, 'MOW1')
+            {'Phy+mu_max': 1.5, 'Phy+divide_water_depth_ratio': 0.8}
+        """
+        filtered_params = {}
+
+        for param_name, value in param_dict.items():
+            base_name, param_case_id = cls._parse_parameter_name(param_name)
+
+            if param_case_id is None:
+                # Global parameter - include for all cases
+                filtered_params[param_name] = value
+            elif param_case_id == case_id:
+                # Case-specific parameter matching this case - include with cleaned name
+                filtered_params[base_name] = value
+            # else: parameter for another case - skip
+
+        return filtered_params
+
+    @classmethod
     def _get_next_id(cls) -> str:
         """Get next available optimization ID from the shared log."""
         return sim_manager.get_next_optimization_id()
@@ -777,7 +823,11 @@ class Optimization:
             else:
                 # Multi-case: save winning config per case
                 for case in self.cases:
-                    winning_config = fns.update_config(case.dconf, self.summary['best_parameters'])
+                    # Filter parameters for this specific case
+                    filtered_params = self._filter_parameters_for_case(
+                        self.summary['best_parameters'], case.case_id
+                    )
+                    winning_config = fns.update_config(case.dconf, filtered_params)
                     fns.write_dict_to_file(
                         winning_config,
                         f"{self.name}_WINNING_CONFIG_{case.case_id}",
@@ -948,7 +998,11 @@ class Optimization:
                     with open(model_file, 'rb') as f:
                         return dill.load(f)
 
-                best_config = fns.update_config(case.dconf, self.summary['best_parameters'])
+                # Filter parameters for this specific case (removes @case_id suffixes)
+                filtered_params = self._filter_parameters_for_case(
+                    self.summary['best_parameters'], case_id
+                )
+                best_config = fns.update_config(case.dconf, filtered_params)
                 best_config = fns.deep_update(best_config, config.plotting_diagnostics)
                 model_kwargs = {
                     **self.config['modkwargs'],
