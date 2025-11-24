@@ -84,18 +84,19 @@ def prepare_likelihood_data(
 
 
 def calculate_likelihood(
-        model_results: pd.DataFrame,
+        model_results: Any, #pd.DataFrame,
         observations: Any,
         calibrated_vars: Optional[List[str]] = None,
         daily_mean: bool = True,
         plot: bool = False,
+        name: Optional[str] = None,
         save_plots: bool = False,
         plot_size: Tuple[int, int] = (10, 6),
         verbose: bool = True,
         veryverbose: bool = False,
         _cached_obs: Optional[pd.DataFrame] = None
 ) -> Optional[float]:
-    """[docstring unchanged]"""
+    """[docstring]"""
     if calibrated_vars is None:
         calibrated_vars = [
             'Phy_Chl', 'NH4_concentration', 'NO3_concentration',
@@ -104,7 +105,7 @@ def calculate_likelihood(
 
     # Use streamlined data preparation
     merged_data = prepare_likelihood_data(
-        model_results,
+        model_results.df,
         observations,
         daily_mean,
         _cached_obs

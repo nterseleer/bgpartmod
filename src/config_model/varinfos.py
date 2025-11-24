@@ -112,6 +112,12 @@ ref_values = {
         'units': '[mmolC m-3 d-1]',
         'complete_name': 'Max Grazing loss by zooplankton'
     },
+    'Phy+K_grazing': {
+        'reference_value': 20.,
+        'symbol': 'K_{grazing}^{Phy}',
+        'units': '[mmolC m-3]',
+        'complete_name': 'Half-saturation constant for Phyto grazing'
+    },
     'Phy+KDIP': {
         'reference_value': 0.05,
         'symbol': 'K^{Phy}_{DIP}',
@@ -165,6 +171,12 @@ ref_values = {
         'symbol': 'k_{leak}^{TEP}',
         'units': 'd-1',
         'complete_name': 'TEP leakage rate'
+    },
+    'TEPC+breakdown_rate': {
+        'reference_value': 0.,
+        'symbol': 'r_{breakdown}^{TEP}',
+        'units': 'd-1',
+        'complete_name': 'TEP "biological" breakdown rate"'
     },
     'Microflocs+applyalphafact_PP': {
         'reference_value': 0.,

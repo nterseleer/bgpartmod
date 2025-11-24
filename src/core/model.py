@@ -753,6 +753,6 @@ class Model:
     def get_likelihood(self, obs, verbose=False, calibrated_vars=None, **kwargs):
         if self.error:
             return None
-        lnl = evaluation.calculate_likelihood(self.df, obs, calibrated_vars=calibrated_vars, verbose=verbose, **kwargs)
+        lnl = evaluation.calculate_likelihood(self, obs, calibrated_vars=calibrated_vars, verbose=verbose, **kwargs)
         return lnl
 
