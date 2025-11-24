@@ -193,11 +193,6 @@ class DIM(BaseStateVar):
             self.source_riverine_loads = 0.
             return
 
-        # if self.name in self.setup.loads.columns:
-        #     self.source_riverine_loads = self.setup.loads.loc[t][self.name]
-        # else:
-        #     self.source_riverine_loads = 0.
-
         loads_array = getattr(self.setup, f'loads_{self.name}_array', None)
         self.source_riverine_loads = loads_array[t_idx] if loads_array is not None else 0.
 
