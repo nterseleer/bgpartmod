@@ -13,6 +13,9 @@ class DOM(BaseOrg):
                  beta=0.86,  # [m3 mmolC-1 d-1] Self collision kernel (Onur22)
                  beta_TEPC=0.064,  # [m3 mmolC-1 d-1] Collision kernel DOC-TEPC (Onur22)
                  kleak=0.,           # [d-1] Specific leakage rate (out of the system)
+                 breakdown_rate=0., # [d-1] Additional "biological" breakdown rate
+                 A_E=0.65,  # [-] Activation Energy for temperature scaling (denitrification) (Onur22)
+                 T_ref=283.15,  # [K] Reference temperature (denitrification) (Onur22)
                  dt2=False,
                  dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
@@ -29,6 +32,9 @@ class DOM(BaseOrg):
         self.beta = beta
         self.beta_TEPC = beta_TEPC
         self.kleak = kleak
+        self.breakdown_rate = breakdown_rate
+        self.A_E = A_E
+        self.T_ref = T_ref
         self.dt2 = dt2
         self.bound_temp_to_1 = bound_temp_to_1
 
@@ -85,6 +91,13 @@ class DOM(BaseOrg):
         self.coupled_remin_products = coupled_remin_products
         self.coupled_aggregate = coupled_aggregate
 
+        # Optimization: Pre-compute temperature limitation array for entire simulation
+        if self.setup is not None:
+            self._precompute_temp_limitation(
+                A_E=self.A_E, T_ref=self.T_ref, boltz=True,
+                bound_temp_to_1=self.bound_temp_to_1, suffix=''
+            )
+
 
     def get_coupled_processes_indepent_sinks_sources(self, t=None, t_idx=None):
         """
@@ -96,7 +109,7 @@ class DOM(BaseOrg):
         # SOURCES
 
         # SINKS
-        self.get_sink_breakdown()
+        self.get_sink_breakdown(t_idx=t_idx)
         self.get_sink_remineralization()
         self.get_sink_leakage_out()
 
@@ -243,17 +256,17 @@ class DOM(BaseOrg):
                 elif product.name == 'DIP' and hasattr(self, 'P'):
                     self.sink_remineralization.P = product.remineralization_rate * self.P
 
-    def get_sink_breakdown(self, t=None):
-        """Calculate breakdown sinks for Onur22 formulation."""
+    def get_sink_breakdown(self, t_idx=None):
+        """Calculate breakdown sinks"""
         if self.name == 'TEPC':
-            self.sink_breakdown.C = self.rho_TEP * self.C
+            self.sink_breakdown.C = self.rho_TEP * self.C + self.breakdown_rate * self.limT_array[t_idx] * self.C
         else:
             self.sink_breakdown.C = 0.
         self.sink_breakdown.N = 0.
         self.sink_breakdown.P = 0.
 
     def get_sink_aggregation(self):
-        """Calculate aggregation sinks for Onur22 formulation."""
+        """Calculate aggregation sinks"""
         if self.name == 'DOCL':
             self.sink_aggregation.C = (self.alpha * self.beta * self.C ** 2 +
                                        self.alpha_TEPC * self.beta_TEPC * self.C * self.coupled_TEPC.C)

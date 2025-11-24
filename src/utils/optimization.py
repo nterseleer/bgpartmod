@@ -425,6 +425,36 @@ class Optimization:
 
         return instance
 
+    @classmethod
+    def resume_existing(cls, name: str) -> 'Optimization':
+        """Resume interrupted optimization from last generation."""
+        instance = cls.load_existing(name)
+
+        # Reconstruct state from results file
+        df = pd.read_csv(instance.files['results'])
+        last_gen = df['generation'].max()
+        last_gen_data = df[df['generation'] == last_gen]
+
+        population = last_gen_data[instance.config['optimized_parameters']].values
+        costs = -last_gen_data['cost'].values  # Negate for DE minimization
+
+        # Resume optimization
+        print(f"Resuming optimization {name} from generation {last_gen}")
+        if instance.is_multi_case:
+            instance._run_optimization_multi_case(
+                initial_population=population,
+                initial_costs=costs,
+                start_generation=last_gen
+            )
+        else:
+            instance._run_optimization_resume(
+                population=population,
+                costs=costs,
+                start_gen=last_gen
+            )
+
+        return instance
+
     def _get_next_name(self) -> str:
         """Generate next available optimization name."""
         if not os.path.exists(OPTIMIZATIONS_DIR):
@@ -682,7 +712,7 @@ class Optimization:
         with open(os.path.join(self.optdir, f"{self.name}_OVERVIEW.json"), 'w') as f:
             json.dump(overview, f, indent=2)
 
-    def _run_optimization_multi_case(self):
+    def _run_optimization_multi_case(self, initial_population=None, initial_costs=None, start_generation=0):
         """Run multi-case optimization using DESolver."""
         min_bounds, max_bounds = self.config['bounds']
 
@@ -692,6 +722,9 @@ class Optimization:
             maxGenerations=self.config['num_generations'],
             minInitialValue=min_bounds,
             maxInitialValue=max_bounds,
+            initialpopulation=initial_population,
+            initial_costs=initial_costs,
+            start_generation=start_generation,
             num_cpus=self.config['num_cpus'],
             **self.config['solver_kwargs']
         )
@@ -717,6 +750,27 @@ class Optimization:
         )
 
         # Run optimization
+        start_time = time.time()
+        self.solver_results = solver.Solve()
+        self.runtime = time.time() - start_time
+
+    def _run_optimization_resume(self, population, costs, start_gen):
+        """Continue optimization from given state."""
+        min_bounds, max_bounds = self.config['bounds']
+
+        solver = desolver.DESolver(
+            job=self,
+            populationSize=self.config['population_size'],
+            maxGenerations=self.config['num_generations'],
+            minInitialValue=min_bounds,
+            maxInitialValue=max_bounds,
+            initialpopulation=population,
+            initial_costs=costs,
+            start_generation=start_gen,
+            num_cpus=self.config['num_cpus'],
+            **self.config['solver_kwargs']
+        )
+
         start_time = time.time()
         self.solver_results = solver.Solve()
         self.runtime = time.time() - start_time

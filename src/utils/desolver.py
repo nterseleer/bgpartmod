@@ -19,6 +19,8 @@ class DESolver:
                  diffScale: float = 0.5,
                  crossoverProb: float = 0.9,
                  initialpopulation: Optional[np.ndarray] = None,
+                 initial_costs: Optional[np.ndarray] = None,
+                 start_generation: int = 0,
                  num_cpus: Optional[int] = 30,
                  n_unused_cpu: int = 2):
         """
@@ -75,6 +77,10 @@ class DESolver:
             self.populationSize = jobsperworker * self.num_cpus
             print(f'Adjusted population size to {self.populationSize} to match {self.num_cpus} CPUs')
 
+        # Resume optimization support
+        self.initial_costs = initial_costs
+        self.start_generation = start_generation
+
     def evaluate_trial(self, trial: np.ndarray) -> Tuple[np.ndarray, float]:
         """
         Evaluate a trial solution.
@@ -103,13 +109,17 @@ class DESolver:
                 size=(self.populationSize, self.parameterCount)
             )
 
-        cost = np.full(self.population.shape[0], np.inf)
-        ibest = None
-        file_exists = False
+        if self.initial_costs is not None:
+            cost = self.initial_costs.copy()
+            ibest = np.argmin(cost)
+        else:
+            cost = np.full(self.population.shape[0], np.inf)
+            ibest = None
+        file_exists = os.path.exists(self.job.files['results'])
 
         try:
             with concurrent.futures.ProcessPoolExecutor(max_workers=self.num_cpus) as executor:
-                for generation in range(self.maxGenerations):
+                for generation in range(self.start_generation, self.start_generation + self.maxGenerations):
                     print(f'Processing generation {generation}')
                     results = []
 
@@ -156,7 +166,7 @@ class DESolver:
                     newdf['generation'] = generation + 1
 
                     # Save results using actual likelihoods
-                    if generation == 0:
+                    if generation == self.start_generation:
                         resdf = newdf
                     else:
                         newwinning = newdf['cost'] > olddf['cost']  # Higher likelihood is better
