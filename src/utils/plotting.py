@@ -106,11 +106,47 @@ def get_model_styles(n_models: int, custom_styles: Optional[List[Dict]] = None) 
 
     return list(_get_cached_model_styles(n_models))
 
+def _filter_by_time(df: pd.DataFrame, time_filter) -> pd.DataFrame:
+    """
+    Filter DataFrame by time index.
+
+    Args:
+        df: DataFrame with DatetimeIndex
+        time_filter: Time filtering criterion
+            - None: no filtering
+            - str (year): e.g., "2023" filters to that year
+            - tuple: (start, end) date strings
+            - slice: pandas slice for advanced filtering
+
+    Returns:
+        Filtered DataFrame
+    """
+    if time_filter is None:
+        return df
+
+    if isinstance(time_filter, str):
+        # Assume it's a year
+        return df[df.index.year == int(time_filter)]
+
+    elif isinstance(time_filter, tuple) and len(time_filter) == 2:
+        # Date range
+        start, end = time_filter
+        return df.loc[start:end]
+
+    elif isinstance(time_filter, slice):
+        # Direct slice
+        return df.loc[time_filter]
+
+    else:
+        raise ValueError(f"Unsupported time_filter type: {type(time_filter)}")
+
+
 def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
         observations: Optional[Any] = None,
         daily_mean: bool = True,
-        variables_to_plot: Optional[List[str]] = None
+        variables_to_plot: Optional[List[str]] = None,
+        time_filter = None
 ) -> Tuple[List[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], List[str]]:
     """
     Prepare model and observation data for plotting.
@@ -123,6 +159,7 @@ def prepare_model_obs_data(
         observations: Observation data object (with DatetimeIndex)
         daily_mean: Whether to use daily means (uses resample)
         variables_to_plot: List of variables that will be plotted (for column standardization)
+        time_filter: Time filtering criterion (None, year string, date range tuple, or slice)
 
     Returns:
         Tuple of (model_data_list, merged_data, full_obs_data, model_names)
@@ -167,6 +204,10 @@ def prepare_model_obs_data(
             counter += 1
             name = f"{original_name} ({counter})"
 
+        # Apply time filtering BEFORE daily_mean to preserve temporal resolution
+        if time_filter is not None:
+            model_data = _filter_by_time(model_data, time_filter)
+
         # Apply daily_mean using resample (assumes DatetimeIndex)
         if daily_mean:
             model_data = model_data.resample('D').mean()
@@ -195,6 +236,10 @@ def prepare_model_obs_data(
     # Prepare observation data (assumes DatetimeIndex, no automatic cycling)
     obs_data = observations.df.copy()
 
+    # Apply same time filtering to observations
+    if time_filter is not None:
+        obs_data = _filter_by_time(obs_data, time_filter)
+
     # Merge with first model - the DatetimeIndex merge will handle temporal alignment automatically
     merged_data = pd.merge(
         model_data_list[0],
@@ -216,15 +261,25 @@ def plot_variable(
         merged_data: Optional[pd.DataFrame] = None,
         model_styles: Optional[List[Dict]] = None,
         obs_kwargs: Optional[Dict] = None,
+        obs_kwargs_calibrated: Optional[Dict] = None,
+        obs_kwargs_non_calibrated: Optional[Dict] = None,
         add_labels: bool = True,
-        calibrated_vars: Optional[List[str]] = None
+        calibrated_vars: Optional[List[str]] = None,
+        show_subplot_titles: bool = True,
+        ylabel_pad: Optional[float] = None,
+        ylabel_fontsize: Optional[float] = None,
+        tick_label_pad: Optional[float] = None,
+        tick_labelsize: Optional[float] = None,
+        tick_length: Optional[float] = None,
+        tick_width: Optional[float] = None,
+        spine_width: Optional[float] = None
 ) -> None:
     """Plot a single variable with model results and optional observations."""
     # Default styles
     if model_styles is None:
         model_styles = get_model_styles(len(model_data_list))
 
-    # Default observation kwargs (will be overridden by calibration-specific styles)
+    # Default observation kwargs
     base_obs_kwargs = obs_kwargs or {}
 
     # Plot each model
@@ -240,24 +295,43 @@ def plot_variable(
         obs_style_key = 'calibrated' if is_calibrated else 'non_calibrated'
         selected_obs_style = OBS_STYLES[obs_style_key]
 
-        # Merge with any user-provided obs_kwargs, giving priority to calibration-specific styles
-        final_obs_style = {**base_obs_kwargs, **selected_obs_style}
+        # Build final style with proper priority:
+        # 1. Default style from OBS_STYLES (base)
+        # 2. Common obs_kwargs (overrides defaults)
+        # 3. Specific obs_kwargs_calibrated/non_calibrated (highest priority)
+        final_obs_style = {**selected_obs_style, **base_obs_kwargs}
+
+        # Apply calibration-specific overrides if provided
+        if is_calibrated and obs_kwargs_calibrated is not None:
+            final_obs_style.update(obs_kwargs_calibrated)
+        elif not is_calibrated and obs_kwargs_non_calibrated is not None:
+            final_obs_style.update(obs_kwargs_non_calibrated)
 
         # Check if std data is available for error bars
         std_col = f"{var_name}_std"
         if std_col in merged_data.columns:
             # Use errorbar for observations with std
+            # Extract errorbar-specific parameters with defaults
+            elinewidth = final_obs_style.get('elinewidth', 1.5)
+            capsize = final_obs_style.get('capsize', 3.)
+            capthick = final_obs_style.get('capthick', 1.5)
+            solid_capstyle = final_obs_style.get('solid_capstyle', 'round')
+
+            # Filter out errorbar-specific params to avoid duplication
+            errorbar_params = ['marker', 'linestyle', 's', 'elinewidth', 'capsize', 'capthick', 'solid_capstyle']
+            filtered_style = {k: v for k, v in final_obs_style.items() if k not in errorbar_params}
+
             ax.errorbar(
                 merged_data.index,
                 merged_data[f'{var_name}_OBS'],
                 yerr=merged_data[std_col],
                 label='Observations' if add_labels else "_Used observations",
                 fmt=final_obs_style['marker'],
-                elinewidth=1.5,
-                capsize=3.,
-                capthick=1.5,
-                solid_capstyle='round',
-                **{k: v for k, v in final_obs_style.items() if k not in ['marker', 'linestyle', 's']}
+                elinewidth=elinewidth,
+                capsize=capsize,
+                capthick=capthick,
+                solid_capstyle=solid_capstyle,
+                **filtered_style
             )
         else:
             ax.scatter(
@@ -273,8 +347,34 @@ def plot_variable(
     units = var_info.get('munits' if var_name.startswith('m') else 'units', '')
     long_name = var_info.get('longname', var_name)
 
-    ax.set_ylabel(f'{fns.cleantext(clean_name)} [{fns.cleantext(units)}]')
-    ax.set_title(fns.cleantext(long_name))
+    # Set ylabel with optional custom padding and fontsize
+    ylabel_kwargs = {}
+    if ylabel_pad is not None:
+        ylabel_kwargs['labelpad'] = ylabel_pad
+    if ylabel_fontsize is not None:
+        ylabel_kwargs['fontsize'] = ylabel_fontsize
+    ax.set_ylabel(f'{fns.cleantext(clean_name)} [{fns.cleantext(units)}]', **ylabel_kwargs)
+
+    # Adjust tick label padding, fontsize, length and width if specified
+    tick_params_kwargs = {}
+    if tick_label_pad is not None:
+        tick_params_kwargs['pad'] = tick_label_pad
+    if tick_labelsize is not None:
+        tick_params_kwargs['labelsize'] = tick_labelsize
+    if tick_length is not None:
+        tick_params_kwargs['length'] = tick_length
+    if tick_width is not None:
+        tick_params_kwargs['width'] = tick_width
+    if tick_params_kwargs:
+        ax.tick_params(axis='both', **tick_params_kwargs)
+
+    # Adjust spine (frame) width if specified
+    if spine_width is not None:
+        for spine in ax.spines.values():
+            spine.set_linewidth(spine_width)
+
+    if show_subplot_titles:
+        ax.set_title(fns.cleantext(long_name))
 
 
 def plot_results(
@@ -283,13 +383,29 @@ def plot_results(
         observations: Optional[Any] = observations.Obs(station='MOW1_biweekly_202509_noPhaeo'),
         calibrated_vars: Optional[List[str]] = None,
         daily_mean: bool = True,
+        time_filter = None,
         ncols: Optional[int] = None,
         figsize: Optional[Tuple[int, int]] = None,
         model_styles: Optional[List[Dict]] = None,
         subplot_labels: bool = True,
+        subplot_label_fontsize: int = 10,
         label_position: str = 'top_left',
+        show_subplot_titles: bool = True,
+        date_format: str = '%d/%m',
+        xlabel_rotation: float = 45,
+        ylabel_pad: Optional[float] = None,
+        ylabel_fontsize: Optional[float] = None,
+        tick_label_pad: Optional[float] = None,
+        tick_labelsize: Optional[float] = None,
+        tick_length: Optional[float] = None,
+        tick_width: Optional[float] = None,
+        spine_width: Optional[float] = None,
+        tight_layout: bool = True,
+        hspace: Optional[float] = None,
+        wspace: Optional[float] = None,
         save: bool = False,
         filename: Optional[str] = None,
+        figdir: Optional[str] = None,
         fnametimestamp: bool = True,
         **plot_kwargs
 ) -> Tuple[plt.Figure, np.ndarray]:
@@ -302,13 +418,30 @@ def plot_results(
         observations: Optional observation data
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
         daily_mean: Whether to use daily means
+        time_filter: Time filtering criterion (None, year string, date range tuple, or slice)
         ncols: Number of columns in subplot grid (auto-detected from PlottedVariablesSet if None)
         figsize: Figure size (auto-detected from PlottedVariablesSet if None, otherwise auto-calculated)
         model_styles: List of style dictionaries for each model
         subplot_labels: Whether to add subplot labels (a, b, c, etc.)
+        subplot_label_fontsize: Font size for subplot labels
         label_position: Position for subplot labels
+        show_subplot_titles: Whether to show titles above each subplot
+        date_format: Format string for x-axis dates (e.g., '%d/%m', '%b %d', '%Y-%m-%d')
+        xlabel_rotation: Rotation angle for x-axis labels in degrees
+        ylabel_pad: Padding between ylabel and tick labels (None = matplotlib default, typically 4.0)
+        ylabel_fontsize: Font size for y-axis labels (None = use rcParams default)
+        tick_label_pad: Padding between tick marks and tick labels (None = matplotlib default, typically 3.0)
+        tick_labelsize: Font size for tick labels on both axes (None = use rcParams default)
+        tick_length: Length of tick marks in points (None = matplotlib default, typically 3.5)
+        tick_width: Width of tick marks in points (None = matplotlib default, typically 0.8)
+        spine_width: Width of subplot frame (spines) in points (None = matplotlib default, typically 0.8)
+        tight_layout: Whether to apply tight_layout for better spacing
+        hspace: Height space between subplots (None = matplotlib default)
+        wspace: Width space between subplots (None = matplotlib default)
         save: Whether to save the figure
         filename: Filename for saved figure (auto-generated from PlottedVariablesSet.name if None)
+        figdir: directory for saved figures
+        fnametimestamp: Whether to add timestamp to saved filename
         **plot_kwargs: Additional plotting parameters
 
     Returns:
@@ -355,7 +488,7 @@ def plot_results(
 
     # Prepare data
     model_data_list, merged_data, _, model_names = prepare_model_obs_data(
-        models, observations, daily_mean, variables_list
+        models, observations, daily_mean, variables_list, time_filter
     )
 
     # Calculate grid dimensions
@@ -373,9 +506,11 @@ def plot_results(
     if isinstance(variables, PlottedVariablesSet):
         fig.canvas.manager.set_window_title(variables.name.replace('_', ' ').title())
 
-    # Extract legend-related kwargs before passing to plot_variable
+    # Extract legend-related and obs-specific kwargs before passing to plot_variable
+    legend_kwargs = ['add_legend', 'legend_fontsize', 'legend_position']
+    obs_specific_kwargs = ['obs_kwargs_calibrated', 'obs_kwargs_non_calibrated']
     plot_var_kwargs = {k: v for k, v in plot_kwargs.items()
-                       if k not in ['add_legend', 'legend_fontsize', 'legend_position']}
+                       if k not in legend_kwargs}
     
     # Plot each variable
     for i, var in enumerate(variables_list):
@@ -389,17 +524,25 @@ def plot_results(
                 model_styles,
                 add_labels=(i == 0),  # Only add labels on the first subplot
                 calibrated_vars=calibrated_vars,
+                show_subplot_titles=show_subplot_titles,
+                ylabel_pad=ylabel_pad,
+                ylabel_fontsize=ylabel_fontsize,
+                tick_label_pad=tick_label_pad,
+                tick_labelsize=tick_labelsize,
+                tick_length=tick_length,
+                tick_width=tick_width,
+                spine_width=spine_width,
                 **plot_var_kwargs
             )
 
             # Format x-axis
-            axes[i].xaxis.set_major_formatter(mdates.DateFormatter('%d/%m'))
+            axes[i].xaxis.set_major_formatter(mdates.DateFormatter(date_format))
             for label in axes[i].get_xticklabels():
-                label.set_rotation(45)
+                label.set_rotation(xlabel_rotation)
 
             # Add subplot label if requested
             if subplot_labels:
-                add_subplot_label(axes[i], i, position=label_position)
+                add_subplot_label(axes[i], i, position=label_position, fontsize=subplot_label_fontsize)
         else:
             axes[i].set_visible(False)
 
@@ -457,13 +600,24 @@ def plot_results(
             fontsize=plot_kwargs.get('legend_fontsize', DEFAULT_LEGEND_FONTSIZE)
         )
 
-    # plt.tight_layout()
+    # Apply layout adjustments
+    if tight_layout:
+        plt.tight_layout()
+
+    # Apply custom spacing if provided
+    if hspace is not None or wspace is not None:
+        plt.subplots_adjust(
+            hspace=hspace if hspace is not None else plt.rcParams['figure.subplot.hspace'],
+            wspace=wspace if wspace is not None else plt.rcParams['figure.subplot.wspace']
+        )
 
     # Save figure using centralized function
     if save:
+        if figdir is None:
+            figdir = FIGURE_PATH
         # Extract PlottedVariablesSet for intelligent naming
         var_set = variables if isinstance(variables, PlottedVariablesSet) else None
-        save_figure(fig, filename=filename, variable_set=var_set, add_timestamp=fnametimestamp)
+        save_figure(fig, filename=filename, variable_set=var_set, figdir=figdir, add_timestamp=fnametimestamp)
 
     return fig, axes
 
