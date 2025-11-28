@@ -384,9 +384,10 @@ Notes:
 """
 doutput = {"Phy_C": {'units': 'mmol C m-3',
                      'munits': 'mmol C m-3',
+                     'cleanname': 'Phy^{C}',
                      'longname': 'Phytoplankton C'},
-           "Phy_Chl": {'units': 'mg Chla m-3',
-                       'cleanname': 'Phy_{Chla}',
+           "Phy_Chl": {'units': 'mg Chl a m-3',
+                       'cleanname': 'Phy^{Chl a}',
                        'longname': 'Phytoplankton Chla'},
            "Phy_N": {'units': 'mmol N m-3',
                      'munits': 'mmol N m-3',
