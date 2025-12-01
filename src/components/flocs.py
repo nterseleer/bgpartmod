@@ -195,11 +195,18 @@ class Flocs(BaseStateVar):
         self.source_breakdown = None
         self.ICs = None
         self.source_aggregation = None
+        self.sink_breakage = None
+        self.source_PF_collision = None
+        self.source_PP_collision = None
+        self.source_breakage = None
+        self.sink_FF_collision = None
+        self.sink_PF_collision = None
+        self.sink_PP_collision = None
         self.numconc = None
         self.massconcentration = None
         self.volconcentration = None
-        self.sedimentation = None
-        self.resuspension = None
+        self.sink_sedimentation = None
+        self.source_resuspension = None
         self.diagnostics = None
         self.classname = 'Floc'
         self.name = name
@@ -367,9 +374,9 @@ class Flocs(BaseStateVar):
     def get_diagnostic_variables(self):
         return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics], dtype=self.dtype)
 
-    def _compute_settling(self):
+    def _compute_net_vertical_flux(self):
         """
-        Compute settling velocity and net settling loss for Macroflocs.
+        Compute net vertical flux for Macroflocs (sedimentation and resuspension).
         Called once per timestep, results stored in self.settling_loss.
         Reused by Micro_in_Macro via coupled_Nf.settling_loss.
         """
@@ -401,10 +408,10 @@ class Flocs(BaseStateVar):
 
         if self.resuspension_rate > 0:
             # Physical settling and resuspension
-            self.sedimentation = self.settling_vel * self.numconc / self.water_depth_at_t
+            self.sink_sedimentation = self.settling_vel * self.numconc / self.water_depth_at_t
             self.erosion_factor = max(0, (self.bed_shear_stress_at_t / self.tau_cr - 1))
-            self.resuspension = self.resuspension_rate * self.erosion_factor / self.water_depth_at_t
-            self.settling_loss = self.sedimentation - self.resuspension
+            self.source_resuspension = self.resuspension_rate * self.erosion_factor / self.water_depth_at_t
+            self.settling_loss = self.sink_sedimentation - self.source_resuspension
         else:
             # Fallback to original formulation
             self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
@@ -524,8 +531,8 @@ class Flocs(BaseStateVar):
             self.tau_cr = self.shared_alphas.current_tau_cr
             self.nf_fractal_dim = self.shared_alphas.current_nf_fractal_dim
 
-            # Compute settling dynamics (stored in self.settling_loss)
-            self._compute_settling()
+            # Compute net vertical flux (stored in self.settling_loss)
+            self._compute_net_vertical_flux()
 
             # Flux assembly for Macroflocs
             self.source_PP_collision = self.coupled_Np._PP_collision_base * self.coupled_Np._factor_inverse
@@ -543,6 +550,8 @@ class Flocs(BaseStateVar):
             self.source_PF_collision = self.coupled_Np._PF_collision_base
             self.sink_breakage = self.f_frac_floc_break * self.Ncnum * self.coupled_Np._breakage_base
             self.settling_loss = self.coupled_Nf.settling_loss * self.Ncnum
+            self.sink_sedimentation = self.coupled_Nf.sink_sedimentation * self.Ncnum
+            self.source_resuspension = self.coupled_Nf.source_resuspension * self.Ncnum
 
             self.SMS = (self.source_PP_collision +
                         self.source_PF_collision -

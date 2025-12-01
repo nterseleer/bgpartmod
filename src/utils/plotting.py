@@ -46,6 +46,10 @@ DEFAULT_COLORS = [
 # Using solid, dashed, and dash-dot for good visibility
 DEFAULT_LINESTYLES = ['-', '--', '-.', ':']
 
+# Budget plot color palettes (cool colors for sources, warm colors for sinks)
+BUDGET_SOURCE_COLORS = ['#2E86AB', '#06A77D', '#81B214', '#A7C957', '#4ECDC4', '#45B7D1']
+BUDGET_SINK_COLORS = ['#D62828', '#F77F00', '#FCBF49', '#EE6C4D', '#E63946', '#F4A261']
+
 DEFAULT_LEGEND_FONTSIZE = 8
 DEFAULT_FIGURE_DPI = 300
 
@@ -343,7 +347,13 @@ def plot_variable(
 
     # Format labels and title
     var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
-    clean_name = var_info.get('cleanname', var_name)
+    clean_name = var_info.get('cleanname', None)
+
+    # If cleanname not defined in varinfos, use var_name but escape underscores
+    # to prevent matplotlib mathtext errors (double subscript issues)
+    if clean_name is None:
+        clean_name = var_name.replace('_', r'\_')
+
     units = var_info.get('munits' if var_name.startswith('m') else 'units', '')
     long_name = var_info.get('longname', var_name)
 
@@ -642,6 +652,7 @@ def plot_sinks_sources(
         models: Union[Any, List[Any]],
         sources: List[str],
         sinks: List[str],
+        time_filter = None,
         observations: Optional[Any] = None,
         daily_mean: bool = True,
         increase_resolution_factor: int = 2,
@@ -685,7 +696,7 @@ def plot_sinks_sources(
     """
     # Prepare model data
     model_data_list, _, _, model_names = prepare_model_obs_data(
-        models, observations, daily_mean
+        models, observations, daily_mean, time_filter=time_filter,
     )
 
     # Create subplots
@@ -742,25 +753,15 @@ def plot_sinks_sources(
             continue
 
         # Create high-resolution index for smoother visualization
-        if daily_mean:
-            # For julian day indices (daily_mean=True)
-            min_day = df.index.min()
-            max_day = df.index.max()
-            new_index = np.linspace(min_day, max_day,
-                                    num=len(df.index) * increase_resolution_factor)
-            df_high_res = pd.DataFrame(index=new_index).join(
-                df[valid_sources + valid_sinks].astype(float),
-                how='outer').interpolate(method='linear')
-        else:
-            # For datetime indices (daily_mean=False)
-            new_index = pd.date_range(
-                start=df.index.min(),
-                end=df.index.max(),
-                periods=len(df.index) * increase_resolution_factor
-            )
-            df_high_res = pd.DataFrame(index=new_index).join(
-                df[valid_sources + valid_sinks].astype(float),
-                how='outer').interpolate(method='time')
+        new_index = pd.date_range(
+            start=df.index.min(),
+            end=df.index.max(),
+            periods=len(df.index) * increase_resolution_factor
+        )
+        df_high_res = pd.DataFrame(index=new_index).join(
+            df[valid_sources + valid_sinks].astype(float),
+            how='outer'
+        ).interpolate(method='time')
 
         df_high_res_list.append(df_high_res)
 
@@ -779,6 +780,7 @@ def plot_sinks_sources(
                     df_high_res.index,
                     0,
                     cumulative_sources[source],
+                    color=BUDGET_SOURCE_COLORS[j % len(BUDGET_SOURCE_COLORS)],
                     label=source,
                     alpha=0.7
                 )
@@ -787,6 +789,7 @@ def plot_sinks_sources(
                     df_high_res.index,
                     cumulative_sources[valid_sources[j - 1]],
                     cumulative_sources[source],
+                    color=BUDGET_SOURCE_COLORS[j % len(BUDGET_SOURCE_COLORS)],
                     label=source,
                     alpha=0.7
                 )
@@ -798,6 +801,7 @@ def plot_sinks_sources(
                     df_high_res.index,
                     0,
                     -cumulative_sinks[sink],
+                    color=BUDGET_SINK_COLORS[j % len(BUDGET_SINK_COLORS)],
                     label=sink,
                     alpha=0.7
                 )
@@ -806,6 +810,7 @@ def plot_sinks_sources(
                     df_high_res.index,
                     -cumulative_sinks[valid_sinks[j - 1]],
                     -cumulative_sinks[sink],
+                    color=BUDGET_SINK_COLORS[j % len(BUDGET_SINK_COLORS)],
                     label=sink,
                     alpha=0.7
                 )
@@ -859,6 +864,7 @@ def plot_sinks_sources(
 def plot_budget(
         models: Union[Any, List[Any]],
         budget: Dict[str, List[str]],
+        time_filter = None,
         **kwargs
 ) -> Tuple[plt.Figure, List[pd.DataFrame]]:
     """
@@ -876,6 +882,7 @@ def plot_budget(
         models=models,
         sources=budget['sources'],
         sinks=budget['sinks'],
+        time_filter=time_filter,
         **kwargs
     )
 
@@ -1060,6 +1067,228 @@ def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, **kwargs):
         savepath = kwargs.get('savepath', 'kd_contributions_stacked.png')
         fig.savefig(savepath, dpi=300, bbox_inches='tight')
         print(f"Figure saved to {savepath}")
+
+    return fig, ax
+
+
+def plot_par_vs_depth(
+        model: Any,
+        depth_range: Tuple[float, float] = (0, 1.), #(0, 12.5),
+        par_units: str = 'percent',
+        photic_threshold: float = 0.01,
+        show_minmax: bool = True,
+        xscale: Optional[str] = 'linear',
+        seasons_definition: Optional[Dict[str, List[int]]] = None,
+        figsize: Tuple[float, float] = (8, 6),
+        save: bool = False,
+        filename: str = 'PAR_vs_depth',
+        figdir: Optional[str] = None,
+        fnametimestamp: bool = True,
+        **kwargs
+) -> Tuple[plt.Figure, plt.Axes]:
+    """
+    Plot PAR intensity vs depth showing light extinction in the water column.
+
+    Visualizes the vertical light regime by plotting PAR profiles for different
+    light attenuation coefficients (kd) across seasons. Shows photic depth
+    (depth where specified % of surface PAR remains).
+
+    Args:
+        model: Model simulation object with df attribute containing 'Phy_kd' and PAR data
+        depth_range: Tuple of (min_depth, max_depth) in meters for the plot
+        par_units: 'percent' for % of surface PAR, 'absolute' for actual PAR values
+        photic_threshold: Fraction of surface PAR defining photic depth (default: 0.01 = 1%)
+        show_minmax: Whether to show min and max kd curves in addition to seasonal means
+        xscale: scale of the x axis (e.g. 'linear' or 'log')
+        seasons_definition: Dict mapping season names to month lists. If None, uses Silori et al. 2025:
+            {'Winter': [12, 1, 2], 'Spring': [3, 4, 5], 'Summer': [6, 7, 8], 'Autumn': [9, 10, 11]}
+        figsize: Figure size as (width, height)
+        save: Whether to save the figure
+        filename: Base filename for saved figure
+        figdir: Directory to save figure (uses FIGURE_PATH if None)
+        fnametimestamp: Whether to add timestamp to filename
+        **kwargs: Additional plotting parameters
+
+    Returns:
+        Tuple of (figure, axes)
+
+    Examples:
+        >>> # Plot with PAR as % of surface (default)
+        >>> fig, ax = plot_par_vs_depth(sim0, par_units='percent')
+        >>>
+        >>> # Plot with absolute PAR values
+        >>> fig, ax = plot_par_vs_depth(sim0, par_units='absolute')
+        >>>
+        >>> # Show only seasonal means without min/max
+        >>> fig, ax = plot_par_vs_depth(sim0, show_minmax=False)
+    """
+    # Default season definition from Silori et al. 2025
+    if seasons_definition is None:
+        seasons_definition = {
+            'Winter': [12, 1, 2],
+            'Spring': [3, 4, 5],
+            'Summer': [6, 7, 8],
+            'Autumn': [9, 10, 11]
+        }
+
+    # Extract data from model
+    if isinstance(model, pd.DataFrame):
+        df = model
+    else:
+        df = model.df
+
+    # Check required columns
+    if 'Phy_kd' not in df.columns:
+        raise ValueError("Model output must contain 'Phy_kd' column")
+
+    # Get PAR data - try to find PAR column (might be in setup or derived)
+    # PAR surface is typically stored in setup, but we need average values
+    if hasattr(model, 'setup') and hasattr(model.setup, 'PAR_array'):
+        # Get average PAR per season from setup
+        par_surface_values = model.setup.PAR_array
+        time_index = df.index
+    else:
+        # Fallback: assume constant PAR or extract from available data
+        par_surface_values = np.ones(len(df)) * 100  # Default placeholder
+        time_index = df.index
+
+    # Create depth array
+    depths = np.linspace(depth_range[0], depth_range[1], 1000)
+
+    # Calculate seasonal kd statistics
+    seasonal_data = {}
+    for season_name, months in seasons_definition.items():
+        # Filter by season
+        mask = df.index.month.isin(months)
+        season_df = df[mask]
+
+        if len(season_df) > 0:
+            kd_mean = season_df['Phy_kd'].mean()
+
+            # Calculate average PAR for this season
+            if hasattr(model, 'setup') and hasattr(model.setup, 'PAR_array'):
+                season_par_indices = np.where(mask)[0]
+                par_mean = np.mean(par_surface_values[season_par_indices])
+            else:
+                par_mean = 100  # Default
+
+            # Calculate photic depth
+            z_photic = -np.log(photic_threshold) / kd_mean if kd_mean > 0 else np.inf
+
+            seasonal_data[season_name] = {
+                'kd_mean': kd_mean,
+                'par_mean': par_mean,
+                'z_photic': z_photic
+            }
+
+    # Global min and max kd
+    if show_minmax:
+        kd_min = df['Phy_kd'].min()
+        kd_max = df['Phy_kd'].max()
+        z_photic_max = -np.log(photic_threshold) / kd_min if kd_min > 0 else np.inf
+        z_photic_min = -np.log(photic_threshold) / kd_max if kd_max > 0 else np.inf
+
+        # Use overall mean PAR for min/max curves
+        if hasattr(model, 'setup') and hasattr(model.setup, 'PAR_array'):
+            par_overall = np.mean(par_surface_values)
+        else:
+            par_overall = 100
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Define colors for seasons
+    season_colors = {
+        'Winter': '#3498db',
+        'Spring': '#2ecc71',
+        'Summer': '#f39c12',
+        'Autumn': '#e74c3c'
+    }
+
+    # Plot seasonal profiles
+    for season_name, data in seasonal_data.items():
+        kd = data['kd_mean']
+        par_0 = data['par_mean']
+        z_photic = data['z_photic']
+
+        # Calculate PAR profile: PAR(z) = PAR_0 * exp(-kd * z)
+        if par_units == 'percent':
+            par_profile = 100 * np.exp(-kd * depths)
+            par_photic = 100 * photic_threshold
+        else:  # absolute
+            par_profile = par_0 * np.exp(-kd * depths)
+            par_photic = par_0 * photic_threshold
+
+        # Plot profile
+        color = season_colors.get(season_name, 'gray')
+        label = f'{season_name} (kd={kd:.3f} m$^{{-1}}$)'
+        ax.plot(par_profile, depths, color=color, linewidth=2, label=label)
+
+        # Mark photic depth
+        if z_photic <= depth_range[1]:
+            ax.plot(par_photic, z_photic, 'o', color=color, markersize=8,
+                   markeredgecolor='black', markeredgewidth=1, zorder=10)
+            ax.axhline(z_photic, color=color, linestyle='--', alpha=0.3, linewidth=1)
+
+    # Plot min/max profiles
+    if show_minmax:
+        # Min kd (maximum light penetration)
+        if par_units == 'percent':
+            par_profile_max = 100 * np.exp(-kd_min * depths)
+            par_photic_val = 100 * photic_threshold
+        else:
+            par_profile_max = par_overall * np.exp(-kd_min * depths)
+            par_photic_val = par_overall * photic_threshold
+
+        ax.plot(par_profile_max, depths, color='lightgreen', linewidth=1.5,
+               linestyle=':', label=f'Min kd={kd_min:.3f} m$^{{-1}}$', alpha=0.7)
+        if z_photic_max <= depth_range[1]:
+            ax.plot(par_photic_val, z_photic_max, 's', color='lightgreen',
+                   markersize=6, markeredgecolor='black', markeredgewidth=0.5, alpha=0.7)
+
+        # Max kd (minimum light penetration)
+        if par_units == 'percent':
+            par_profile_min = 100 * np.exp(-kd_max * depths)
+        else:
+            par_profile_min = par_overall * np.exp(-kd_max * depths)
+
+        ax.plot(par_profile_min, depths, color='darkred', linewidth=1.5,
+               linestyle=':', label=f'Max kd={kd_max:.3f} m$^{{-1}}$', alpha=0.7)
+        if z_photic_min <= depth_range[1]:
+            ax.plot(par_photic_val, z_photic_min, 's', color='darkred',
+                   markersize=6, markeredgecolor='black', markeredgewidth=0.5, alpha=0.7)
+
+    # Format axes
+    ax.invert_yaxis()  # Depth increases downward
+    ax.set_ylabel('Depth [m]', fontsize=12)
+
+    if par_units == 'percent':
+        ax.set_xlabel('PAR [% of surface]', fontsize=12)
+        # ax.set_xlim(0, 100)
+    else:
+        ax.set_xlabel('PAR [µmol photons m$^{-2}$ s$^{-1}$]', fontsize=12)
+        # ax.set_xlim(left=0)
+
+    ax.set_xscale(xscale)
+    ax.set_ylim(depth_range[1], depth_range[0])
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.legend(loc='best', fontsize=9, framealpha=0.9)
+
+    # Add photic depth reference line
+    ax.axvline(100 * photic_threshold if par_units == 'percent' else par_overall * photic_threshold,
+              color='gray', linestyle='-.', alpha=0.5, linewidth=1,
+              label=f'Photic threshold ({photic_threshold*100:.1f}%)')
+
+    title = f'PAR Extinction in Water Column (photic depth at {photic_threshold*100:.0f}% PAR)'
+    ax.set_title(title, fontsize=13, fontweight='bold')
+
+    plt.tight_layout()
+
+    # Save if requested
+    if save:
+        if figdir is None:
+            figdir = FIGURE_PATH
+        save_figure(fig, filename=filename, figdir=figdir, add_timestamp=fnametimestamp)
 
     return fig, ax
 

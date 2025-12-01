@@ -110,6 +110,7 @@ class Phyto(BaseOrg):
         self.limI = None
         self.PAR_t = None
         self.PAR_t_water_column = None
+        self.PAR_t_water_column_theoretical = None
 
         self.limQUOTA = Elms()
         self.limQUOTAmin = Elms()
@@ -295,6 +296,7 @@ class Phyto(BaseOrg):
         self.PAR_t = self.setup.PAR_array[t_idx]
         if self.kdvar:
             self.get_kd()
+            self.PAR_t_water_column_theoretical = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx])
             self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx] /
                                                           self.divide_water_depth_ratio)
 
