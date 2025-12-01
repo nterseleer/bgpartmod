@@ -680,6 +680,80 @@ class Model:
                         print(f'KeyError in output preparation for {var}')
                     self.df[var] = np.nan
 
+    def compute_derived_variables(self, var_list: Optional[List[str]] = None,
+                                  output_config: Optional[Dict] = None,
+                                  verbose: bool = True) -> None:
+        """
+        Compute derived variables from expressions, even after model instantiation.
+
+        This method allows recalculating derived variables that were added to varinfos.py
+        after the model was run, or variables that were not initially in output_vars.
+
+        Args:
+            var_list: List of specific variables to compute. If None, attempts to compute
+                     all variables defined in output_config that are missing from df.
+            output_config: Alternative output configuration dict. If None, uses self.output_config.
+            verbose: Whether to print status messages.
+
+        Example:
+            >>> model = sim_manager.load_simulation('my_simulation')
+            >>> model.compute_derived_variables(['TEPtoC', 'TEPtoChl'])
+            >>> # Now you can plot these variables
+        """
+        config = output_config or self.output_config
+
+        # Determine which variables to compute
+        if var_list is None:
+            # Compute all variables in config that have 'oprt' and are missing from df
+            vars_to_compute = [
+                var for var in config.keys()
+                if var not in self.df.columns and config.get(var, {}).get('oprt')
+            ]
+        else:
+            # Compute only requested variables that are missing from df
+            vars_to_compute = [var for var in var_list if var not in self.df.columns]
+
+        if not vars_to_compute:
+            if verbose:
+                print("All requested derived variables are already present in the model dataframe.")
+            return
+
+        if verbose:
+            print(f"Computing {len(vars_to_compute)} derived variable(s): {vars_to_compute}")
+
+        # Compute each variable
+        computed = []
+        failed = []
+        for var in vars_to_compute:
+            if expression := config.get(var, {}).get('oprt'):
+                try:
+                    self.df[var] = fns.eval_expr(
+                        expression,
+                        subdf=self.df,
+                        fulldf=self.df,
+                        setup=self.setup,
+                        model=self
+                    )
+                    computed.append(var)
+                    if verbose:
+                        print(f"  ✓ Successfully computed '{var}'")
+                except KeyError as e:
+                    failed.append((var, str(e)))
+                    if verbose:
+                        print(f"  ✗ Failed to compute '{var}': missing dependency {e}")
+                    self.df[var] = np.nan
+                except Exception as e:
+                    failed.append((var, str(e)))
+                    if verbose:
+                        print(f"  ✗ Failed to compute '{var}': {e}")
+                    self.df[var] = np.nan
+            else:
+                if verbose:
+                    print(f"  ⚠ Variable '{var}' has no 'oprt' expression in output_config")
+
+        if verbose and (computed or failed):
+            print(f"\nSummary: {len(computed)} computed, {len(failed)} failed")
+
     @_track_time
     def _add_diagnostics(self) -> None:
         """Add diagnostic variables to the results DataFrame efficiently."""
