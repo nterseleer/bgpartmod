@@ -41,17 +41,25 @@ DEFAULT_COLORS = [
     '#9edae5',  # Light cyan
 ]
 
+# DEFAULT_COLORS = [
+#     'darkolivegreen',
+#     'purple',
+#     'darkgoldenrod',
+#
+# ]
+
 # Line styles: 3 distinct styles to combine with 14 colors
 # Avoiding dot-only ':' style as it becomes too discrete
 # Using solid, dashed, and dash-dot for good visibility
 DEFAULT_LINESTYLES = ['-', '--', '-.', ':']
+# DEFAULT_LINESTYLES = ['-', '-', '--',]
 
 # Budget plot color palettes (cool colors for sources, warm colors for sinks)
 BUDGET_SOURCE_COLORS = ['#2E86AB', '#06A77D', '#81B214', '#A7C957', '#4ECDC4', '#45B7D1']
 BUDGET_SINK_COLORS = ['#D62828', '#F77F00', '#FCBF49', '#EE6C4D', '#E63946', '#F4A261']
 
 DEFAULT_LEGEND_FONTSIZE = 8
-DEFAULT_FIGURE_DPI = 300
+DEFAULT_FIGURE_DPI = 500
 
 # General plotting setup
 plt.rcParams["font.family"] = "Times New Roman"
@@ -65,7 +73,7 @@ plt.rcParams['axes.prop_cycle'] = (
     cycler('color', DEFAULT_COLORS) *
     cycler('linestyle', DEFAULT_LINESTYLES)
 )
-plt.rcParams.update({'font.size': 6})
+plt.rcParams.update({'font.size': 8})
 
 # Define observation styling
 OBS_STYLES = {
@@ -264,6 +272,10 @@ def plot_variable(
         var_name: str,
         merged_data: Optional[pd.DataFrame] = None,
         model_styles: Optional[List[Dict]] = None,
+        fill_between_data: Optional[Tuple[pd.DataFrame, pd.DataFrame]] = None,
+        fill_alpha: float = 0.3,
+        fill_color: str = 'gray',
+        plot_obs: bool = True,
         obs_kwargs: Optional[Dict] = None,
         obs_kwargs_calibrated: Optional[Dict] = None,
         obs_kwargs_non_calibrated: Optional[Dict] = None,
@@ -286,6 +298,22 @@ def plot_variable(
     # Default observation kwargs
     base_obs_kwargs = obs_kwargs or {}
 
+    # Plot fill_between variability range first (behind everything)
+    if fill_between_data is not None:
+        low_data, high_data = fill_between_data
+        if var_name in low_data.columns and var_name in high_data.columns:
+            # Use common index (intersection) for fill_between
+            common_index = low_data.index.intersection(high_data.index)
+            ax.fill_between(
+                common_index,
+                low_data.loc[common_index, var_name],
+                high_data.loc[common_index, var_name],
+                alpha=fill_alpha,
+                color=fill_color,
+                zorder=1,
+                label='Uncertainty range' if add_labels else None
+            )
+
     # Plot each model
     for model_data, name, style in zip(model_data_list, model_names, model_styles):
         if var_name in model_data.columns:
@@ -293,7 +321,7 @@ def plot_variable(
                     label=name if add_labels else "_" + name, **style)
 
 
-    if merged_data is not None and f'{var_name}_OBS' in merged_data.columns:
+    if plot_obs and merged_data is not None and f'{var_name}_OBS' in merged_data.columns:
         # Determine observation style based on calibration status
         is_calibrated = calibrated_vars is not None and var_name in calibrated_vars
         obs_style_key = 'calibrated' if is_calibrated else 'non_calibrated'
@@ -345,8 +373,27 @@ def plot_variable(
                 **{k: v for k, v in final_obs_style.items() if k != 'linestyle'}
             )
 
-    # Format labels and title
+    # Apply ylim if specified and data exceeds bounds
     var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
+    plt_ylim = var_info.get('plt_ylim')
+    if plt_ylim is not None:
+        # Get actual data range from plotted elements
+        y_data = []
+        for line in ax.get_lines():
+            y_data.extend(line.get_ydata())
+        for collection in ax.collections:
+            if len(collection.get_offsets()) > 0:
+                y_data.extend(collection.get_offsets()[:, 1])
+
+        if y_data:
+            data_min, data_max = np.nanmin(y_data), np.nanmax(y_data)
+            ylim_min, ylim_max = plt_ylim
+
+            # Apply only if data exceeds specified bounds
+            if data_min < ylim_min or data_max > ylim_max:
+                ax.set_ylim(ylim_min, ylim_max)
+
+    # Format labels and title
     clean_name = var_info.get('cleanname', None)
 
     # If cleanname not defined in varinfos, use var_name but escape underscores
@@ -395,8 +442,12 @@ def plot_results(
         daily_mean: bool = True,
         time_filter = None,
         ncols: Optional[int] = None,
+        plot_obs = True,
         figsize: Optional[Tuple[int, int]] = None,
         model_styles: Optional[List[Dict]] = None,
+        fill_between_models: Optional[Tuple[Any, Any]] = None,
+        fill_alpha: float = 0.3,
+        fill_color: str = 'gray',
         subplot_labels: bool = True,
         subplot_label_fontsize: int = 10,
         label_position: str = 'top_left',
@@ -432,6 +483,9 @@ def plot_results(
         ncols: Number of columns in subplot grid (auto-detected from PlottedVariablesSet if None)
         figsize: Figure size (auto-detected from PlottedVariablesSet if None, otherwise auto-calculated)
         model_styles: List of style dictionaries for each model
+        fill_between_models: Optional tuple of (low_model, high_model) to create variability range with fill_between
+        fill_alpha: Transparency of fill_between area (default: 0.3)
+        fill_color: Color of fill_between area (default: 'gray')
         subplot_labels: Whether to add subplot labels (a, b, c, etc.)
         subplot_label_fontsize: Font size for subplot labels
         label_position: Position for subplot labels
@@ -501,6 +555,15 @@ def plot_results(
         models, observations, daily_mean, variables_list, time_filter
     )
 
+    # Prepare fill_between data if provided
+    fill_between_data = None
+    if fill_between_models is not None:
+        fill_data_list, _, _, _ = prepare_model_obs_data(
+            list(fill_between_models), None, daily_mean, variables_list, time_filter
+        )
+        if len(fill_data_list) == 2:
+            fill_between_data = (fill_data_list[0], fill_data_list[1])
+
     # Calculate grid dimensions
     nrows = (len(variables_list) + ncols - 1) // ncols
     if figsize is None:
@@ -532,7 +595,11 @@ def plot_results(
                 var,
                 merged_data,
                 model_styles,
+                fill_between_data=fill_between_data,
+                fill_alpha=fill_alpha,
+                fill_color=fill_color,
                 add_labels=(i == 0),  # Only add labels on the first subplot
+                plot_obs = plot_obs,
                 calibrated_vars=calibrated_vars,
                 show_subplot_titles=show_subplot_titles,
                 ylabel_pad=ylabel_pad,
@@ -572,6 +639,12 @@ def plot_results(
             line = plt.Line2D([0], [0], **style)
             handles.append(line)
             labels.append(name)
+
+        # Add variability range if present
+        if fill_between_data is not None:
+            patch = plt.Rectangle((0, 0), 1, 1, fc=fill_color, alpha=fill_alpha)
+            handles.append(patch)
+            labels.append('Variability')
 
         # Add observations if present (check all subplots)
         if merged_data is not None and len(axes) > 0:
@@ -888,7 +961,9 @@ def plot_budget(
 
 
 def plot_element_distribution_stacked(model_output, element_vars, element_name=None,
-                                      time_var='time', **kwargs):
+                                      time_var='time', group_by_compartment=True, relative=False,
+                                      save=False, filename='element_distribution_stacked',
+                                      figdir=None, fnametimestamp=True, **kwargs):
     """
     Create a stacked area plot showing element distribution across model compartments
 
@@ -902,6 +977,19 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
         Name of the element for labeling (auto-detected if None)
     time_var : str, default 'time'
         Name of time variable
+    group_by_compartment : bool, default True
+        If True, group variables by compartment (Phytoplankton, Heterotrophs, etc.)
+        If False, plot each variable individually
+    relative : bool, default False
+        If True, plot relative contributions (%) instead of absolute values
+    save : bool, default False
+        Whether to save the figure
+    filename : str, default 'element_distribution_stacked'
+        Base filename for saved figure
+    figdir : str, optional
+        Directory to save figure (uses FIGURE_PATH if None)
+    fnametimestamp : bool, default True
+        Whether to add timestamp to filename
     **kwargs : dict
         Additional plotting arguments
 
@@ -922,6 +1010,9 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
         elif any('_Si' in var for var in element_vars):
             element_name = 'Silicon'
             unit = 'mmol Si m⁻³'
+        elif any('_C' in var for var in element_vars):
+            element_name = 'Carbon'
+            unit = 'mmol C m⁻³'
         else:
             element_name = 'Element'
             unit = 'mmol m⁻³'
@@ -931,51 +1022,90 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
     # Filter available variables
     available_vars = [var for var in element_vars if var in model_output.columns]
 
-    # Define compartments based on variable naming patterns
-    compartments = {
-        'Phytoplankton': [var for var in available_vars if var.startswith('Phy_')],
-        'Heterotrophs': [var for var in available_vars if
-                         any(var.startswith(x) for x in ['BacF_', 'BacA_', 'HF_', 'Cil_'])],
-        'Dissolved Organic': [var for var in available_vars if any(x in var for x in ['DOCS_', 'DOCL_', 'TEPC_'])],
-        'Detritus': [var for var in available_vars if var.startswith('Det')],
-        'NH4': [var for var in available_vars if 'NH4' in var and 'concentration' in var],
-        'NO3': [var for var in available_vars if 'NO3' in var and 'concentration' in var],
-        'DIP': [var for var in available_vars if 'DIP' in var and 'concentration' in var],
-        'DSi': [var for var in available_vars if 'DSi' in var and 'concentration' in var]
-    }
+    if group_by_compartment:
+        # Define compartments based on variable naming patterns
+        compartments = {
+            'Phytoplankton': [var for var in available_vars if var.startswith('Phy_')],
+            'Heterotrophs': [var for var in available_vars if
+                             any(var.startswith(x) for x in ['BacF_', 'BacA_', 'HF_', 'Cil_'])],
+            'Dissolved Organic': [var for var in available_vars if any(x in var for x in ['DOCS_', 'DOCL_', 'TEPC_'])],
+            'Detritus': [var for var in available_vars if var.startswith('Det')],
+            'NH4': [var for var in available_vars if 'NH4' in var and 'concentration' in var],
+            'NO3': [var for var in available_vars if 'NO3' in var and 'concentration' in var],
+            'DIP': [var for var in available_vars if 'DIP' in var and 'concentration' in var],
+            'DSi': [var for var in available_vars if 'DSi' in var and 'concentration' in var]
+        }
 
-    # Remove empty compartments and calculate totals
-    compartment_totals = {}
-    for comp_name, variables in compartments.items():
-        if variables:  # Only include non-empty compartments
-            compartment_totals[comp_name] = sum(model_output[var] for var in variables)
+        # Remove empty compartments and calculate totals
+        compartment_totals = {}
+        for comp_name, variables in compartments.items():
+            if variables:  # Only include non-empty compartments
+                compartment_totals[comp_name] = sum(model_output[var] for var in variables)
+    else:
+        # Plot each variable individually without grouping
+        compartment_totals = {}
+        for var in available_vars:
+            # Get clean label from varinfos if available
+            var_info = varinfos.doutput.get(var.lstrip('m'), {})
+            clean_label = var_info.get('cleanname', var.replace('_', ' '))
+            compartment_totals[clean_label] = model_output[var]
 
     # Create figure
-    fig, ax = plt.subplots(figsize=(12, 8))
+    fig, ax = plt.subplots(figsize=(6, 4))
 
-    # Create stacked area plot
+    # Create stacked area plot with distinct colors
     if compartment_totals:
+        # Convert to relative contributions if requested
+        if relative:
+            # Convert dict values to array for vectorized operations
+            data_array = np.array([series.values for series in compartment_totals.values()])
+            # Calculate total at each time point
+            total = np.sum(data_array, axis=0)
+            # Avoid division by zero
+            total = np.where(total == 0, 1, total)
+            # Convert to percentages
+            data_to_plot = [(contrib / total) * 100 for contrib in data_array]
+        else:
+            data_to_plot = list(compartment_totals.values())
+
+        # Use DEFAULT_COLORS for better color distinction
+        colors = DEFAULT_COLORS[:len(compartment_totals)]
         ax.stackplot(model_output.index,
-                     *compartment_totals.values(),
+                     *data_to_plot,
                      labels=compartment_totals.keys(),
+                     colors=colors,
                      alpha=0.8)
 
         ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
     # Formatting
     ax.set_xlabel('Time [d]')
-    ax.set_ylabel(f'{element_name} concentration [{unit}]')
-    ax.set_title(f'{element_name} Distribution Across Model Compartments')
+
+    if relative:
+        ax.set_ylabel(f'{element_name} relative contribution [%]')
+        ax.set_title(f'{element_name} Relative Distribution Across Model Compartments')
+        ax.set_ylim(0, 100)
+    else:
+        ax.set_ylabel(f'{element_name} concentration [{unit}]')
+        ax.set_title(f'{element_name} Distribution Across Model Compartments')
+        ax.set_ylim(0, 250)
+
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
+    # Save if requested
+    if save:
+        if figdir is None:
+            figdir = FIGURE_PATH
+        save_figure(fig, filename=filename, figdir=figdir, add_timestamp=fnametimestamp)
+
     return fig, ax
 
 
-def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, **kwargs):
+def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, relative=False, stacked=True, time_filter=None, **kwargs):
     """
-    Create a stacked area plot showing contributions to light attenuation coefficient (kd).
+    Create a plot showing contributions to light attenuation coefficient (kd).
 
     Parameters:
     -----------
@@ -983,15 +1113,45 @@ def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, **kwargs):
         Model output containing the kd contribution variables
     kd_contrib_vars : list, optional
         List of kd contribution variables to plot. If None, uses default list.
+    relative : bool, optional
+        If True, plot relative contributions (%) instead of absolute values.
+        Default is False (absolute contributions in m^-1).
+    stacked : bool, optional
+        If True, use stackplot (stacked area). If False, overlay individual curves.
+        Default is True (stacked visualization).
+    time_filter : optional
+        Time filtering criterion (None, year string, date range tuple, or slice).
+        - None: no filtering
+        - str (year): e.g., "2023" filters to that year
+        - tuple: (start, end) date strings
+        - slice: pandas slice for advanced filtering
     **kwargs : dict
         Additional plotting arguments (figsize, save, etc.)
 
     Returns:
     --------
     fig, ax : matplotlib figure and axis objects
+
+    Examples:
+    ---------
+    >>> # Absolute contributions, stacked (default)
+    >>> fig, ax = plot_kd_contributions_stacked(model.df)
+    >>>
+    >>> # Relative contributions (%), stacked
+    >>> fig, ax = plot_kd_contributions_stacked(model.df, relative=True)
+    >>>
+    >>> # Relative contributions (%), overlaid (not stacked)
+    >>> fig, ax = plot_kd_contributions_stacked(model.df, relative=True, stacked=False)
+    >>>
+    >>> # Filter to year 2023, relative %
+    >>> fig, ax = plot_kd_contributions_stacked(model.df, relative=True, time_filter="2023")
     """
     import matplotlib.pyplot as plt
     from src.config_model import vars_to_plot
+
+    # Apply time filtering
+    if time_filter is not None:
+        model_output = _filter_by_time(model_output, time_filter)
 
     # Use default list if not provided
     if kd_contrib_vars is None:
@@ -1010,15 +1170,24 @@ def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, **kwargs):
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
 
-    # Prepare data for stacking (each variable as a separate series)
+    # Prepare data (each variable as a separate series)
     # Ensure data is numeric and handle NaN values
-    data_to_stack = []
+    data_to_plot = []
     for var in available_vars:
         # Convert to numeric, replacing any non-numeric with NaN
         series = pd.to_numeric(model_output[var], errors='coerce')
-        # Fill NaN with 0 for stacking (or you could use interpolation)
+        # Fill NaN with 0
         series = series.fillna(0)
-        data_to_stack.append(series.values)
+        data_to_plot.append(series.values)
+
+    # Convert to relative contributions if requested
+    if relative:
+        # Calculate total at each time point
+        total = np.sum(data_to_plot, axis=0)
+        # Avoid division by zero
+        total = np.where(total == 0, 1, total)
+        # Convert to percentages
+        data_to_plot = [(contrib / total) * 100 for contrib in data_to_plot]
 
     # Create clean labels (remove 'kd_contrib_' prefix and format nicely)
     labels = []
@@ -1037,26 +1206,47 @@ def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, **kwargs):
         # Assume it's already numeric (days)
         x_values = model_output.index.values
 
-    # Create stacked area plot with distinct colors
+    # Create color palette
     colors = plt.cm.tab10.colors[:len(available_vars)]
     if len(available_vars) > 10:
         colors = plt.cm.tab20.colors[:len(available_vars)]
 
-    ax.stackplot(x_values,
-                 *data_to_stack,
-                 labels=labels,
-                 colors=colors,
-                 alpha=0.8)
+    # Plot according to stacked option
+    if stacked:
+        # Stacked area plot
+        ax.stackplot(x_values,
+                     *data_to_plot,
+                     labels=labels,
+                     colors=colors,
+                     alpha=0.8)
+    else:
+        # Overlaid line plots
+        for i, (data, label, color) in enumerate(zip(data_to_plot, labels, colors)):
+            ax.plot(model_output.index, data,
+                   label=label,
+                   color=color,
+                   linewidth=2,
+                   alpha=0.8)
 
-    # Add total kd line if available
-    if 'Phy_kd' in model_output.columns:
+    # Add total kd line if available and not in relative mode
+    if not relative and 'Phy_kd' in model_output.columns:
         ax.plot(model_output.index, model_output['Phy_kd'],
                 'k--', linewidth=2, label='Total k$_d$', zorder=10)
 
     # Formatting
     ax.set_xlabel('Time [d]', fontsize=12)
-    ax.set_ylabel('Light attenuation coefficient [m$^{-1}$]', fontsize=12)
-    ax.set_title('Decomposition of Light Attenuation Coefficient (k$_d$)', fontsize=14)
+
+    if relative:
+        ax.set_ylabel('Relative contribution [%]', fontsize=12)
+        title_suffix = ' (Relative Contributions)'
+        if stacked:
+            ax.set_ylim(0, 100)
+    else:
+        ax.set_ylabel('Light attenuation coefficient [m$^{-1}$]', fontsize=12)
+        title_suffix = ' (Absolute Contributions)'
+
+    plot_type = 'Stacked' if stacked else 'Overlaid'
+    ax.set_title(f'{plot_type} Decomposition of k$_d${title_suffix}', fontsize=14)
     ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1), fontsize=10)
     ax.grid(True, alpha=0.3)
 
@@ -1078,6 +1268,7 @@ def plot_par_vs_depth(
         photic_threshold: float = 0.01,
         show_minmax: bool = True,
         xscale: Optional[str] = 'linear',
+        time_filter = None,
         seasons_definition: Optional[Dict[str, List[int]]] = None,
         figsize: Tuple[float, float] = (8, 6),
         save: bool = False,
@@ -1100,6 +1291,11 @@ def plot_par_vs_depth(
         photic_threshold: Fraction of surface PAR defining photic depth (default: 0.01 = 1%)
         show_minmax: Whether to show min and max kd curves in addition to seasonal means
         xscale: scale of the x axis (e.g. 'linear' or 'log')
+        time_filter: Time filtering criterion (None, year string, date range tuple, or slice).
+            - None: no filtering
+            - str (year): e.g., "2023" filters to that year
+            - tuple: (start, end) date strings
+            - slice: pandas slice for advanced filtering
         seasons_definition: Dict mapping season names to month lists. If None, uses Silori et al. 2025:
             {'Winter': [12, 1, 2], 'Spring': [3, 4, 5], 'Summer': [6, 7, 8], 'Autumn': [9, 10, 11]}
         figsize: Figure size as (width, height)
@@ -1121,6 +1317,9 @@ def plot_par_vs_depth(
         >>>
         >>> # Show only seasonal means without min/max
         >>> fig, ax = plot_par_vs_depth(sim0, show_minmax=False)
+        >>>
+        >>> # Filter to year 2023
+        >>> fig, ax = plot_par_vs_depth(sim0, time_filter="2023")
     """
     # Default season definition from Silori et al. 2025
     if seasons_definition is None:
@@ -1136,6 +1335,10 @@ def plot_par_vs_depth(
         df = model
     else:
         df = model.df
+
+    # Apply time filtering
+    if time_filter is not None:
+        df = _filter_by_time(df, time_filter)
 
     # Check required columns
     if 'Phy_kd' not in df.columns:
@@ -1529,7 +1732,7 @@ def compare_optimizations(
 
     # Dynamic ncols = n_params (one column per parameter)
     ncols = n_params
-    nrows = 2
+    nrows = 1 #2
 
     # Auto-calculate figsize if not provided
     if figsize is None:
@@ -1544,7 +1747,8 @@ def compare_optimizations(
 
     for col_idx, param in enumerate(parameters):
         ax_violin = axes[0, col_idx]
-        ax_scatter = axes[1, col_idx]
+        # ax_scatter = axes[1, col_idx]
+        # ax_violin = axes[col_idx]
 
         # === ROW 1: HORIZONTAL Violin plot ===
         violin_data = []
@@ -1631,42 +1835,42 @@ def compare_optimizations(
             ax_violin.tick_params(labelleft=False)
 
         # === ROW 2: Scatter plot (param vs cost) ===
-        for i, opt in enumerate(opts):
-            if param in opt.df.columns:
-                badlnl = opt.config.get('badlnl', -100000.)
-                plot_parameter_vs_cost(
-                    opt.df, param,
-                    ax=ax_scatter,
-                    costname='cost',
-                    alpha=alpha,
-                    color=colors[i],
-                    label=opt.name,
-                    highlight_best=True,
-                    show_reference=(i == 0),  # Only first opt shows reference
-                    show_labels=False,  # We set labels manually below
-                    filter_badlnl=badlnl
-                )
-
-        # Set labels manually (shared across all optimizations)
-        param_info = varinfos.ref_values.get(param, {})
-        symbol = param_info.get('symbol', param)
-        ax_scatter.set_xlabel(fns.cleantext(symbol) if symbol else param, fontsize=8)
-        ax_scatter.set_ylabel('Cost (log-likelihood)', fontsize=8)
-        ax_scatter.tick_params(labelsize=7)
-        ax_scatter.grid(alpha=0.3)
-
-        # Hide y tick labels except for first column
-        if col_idx > 0:
-            ax_scatter.set_ylabel('')
-            ax_scatter.tick_params(labelleft=False)
-
-        # Track if this column has all optimizations (for legend)
-        if legend_col is None and len(positions) == n_opts:
-            legend_col = col_idx
-
-        # Add legend only to first column that has ALL optimizations
-        if col_idx == legend_col:
-            ax_scatter.legend(fontsize=6, loc='best')
+        # for i, opt in enumerate(opts):
+        #     if param in opt.df.columns:
+        #         badlnl = opt.config.get('badlnl', -100000.)
+        #         plot_parameter_vs_cost(
+        #             opt.df, param,
+        #             ax=ax_scatter,
+        #             costname='cost',
+        #             alpha=alpha,
+        #             color=colors[i],
+        #             label=opt.name,
+        #             highlight_best=True,
+        #             show_reference=(i == 0),  # Only first opt shows reference
+        #             show_labels=False,  # We set labels manually below
+        #             filter_badlnl=badlnl
+        #         )
+        #
+        # # Set labels manually (shared across all optimizations)
+        # param_info = varinfos.ref_values.get(param, {})
+        # symbol = param_info.get('symbol', param)
+        # ax_scatter.set_xlabel(fns.cleantext(symbol) if symbol else param, fontsize=8)
+        # ax_scatter.set_ylabel('Cost (log-likelihood)', fontsize=8)
+        # ax_scatter.tick_params(labelsize=7)
+        # ax_scatter.grid(alpha=0.3)
+        #
+        # # Hide y tick labels except for first column
+        # if col_idx > 0:
+        #     ax_scatter.set_ylabel('')
+        #     ax_scatter.tick_params(labelleft=False)
+        #
+        # # Track if this column has all optimizations (for legend)
+        # if legend_col is None and len(positions) == n_opts:
+        #     legend_col = col_idx
+        #
+        # # Add legend only to first column that has ALL optimizations
+        # if col_idx == legend_col:
+        #     ax_scatter.legend(fontsize=6, loc='best')
 
     plt.tight_layout()
 
@@ -1732,6 +1936,143 @@ def create_parameter_table(df: pd.DataFrame,
         table[(0, i)].set_facecolor('#d6d6d6')
 
     return fig
+
+
+def plot_monthly_budget_comparison(
+        models: List[Any],
+        var_name: str = 'Phy_source_PP.C',
+        time_filter = None,
+        figsize: Tuple[float, float] = (12, 6),
+        colors: Optional[List[str]] = None,
+        ratio_color: str = 'black',
+        save: bool = False,
+        filename: str = 'monthly_budget_comparison',
+        figdir: Optional[str] = None,
+        fnametimestamp: bool = True,
+        **kwargs
+) -> Tuple[plt.Figure, plt.Axes, plt.Axes]:
+    """
+    Plot monthly integrated budget comparison between models with dual y-axes.
+
+    Creates a visualization with:
+    - Left axis: Grouped bars showing monthly integrated values for each model
+    - Right axis: Line plot showing ratio between models (model[1]/model[0])
+
+    Args:
+        models: List of model objects (with .df and .name attributes)
+        var_name: Variable name to integrate monthly (default: 'Phy_source_PP.C')
+        time_filter: Time filtering criterion (None, year string, date range tuple, or slice)
+        figsize: Figure size (width, height)
+        colors: List of colors for models (None = use DEFAULT_COLORS)
+        ratio_color: Color for ratio line (default: 'black')
+        save: Whether to save the figure
+        filename: Base filename for saving
+        figdir: Directory to save figure (uses FIGURE_PATH if None)
+        fnametimestamp: Whether to add timestamp to filename
+        **kwargs: Additional plotting parameters
+
+    Returns:
+        Tuple of (figure, left_axis, right_axis)
+
+    Example:
+        >>> fig, ax1, ax2 = plot_monthly_budget_comparison(
+        ...     [sim_ref, sim_test],
+        ...     var_name='Phy_source_PP.C',
+        ...     time_filter='2023'
+        ... )
+    """
+    # Prepare data
+    model_data_list, _, _, model_names = prepare_model_obs_data(
+        models, observations=None, daily_mean=False,
+        variables_to_plot=[var_name], time_filter=time_filter
+    )
+
+    n_models = len(model_data_list)
+    if n_models < 1:
+        raise ValueError("At least one model is required")
+
+    # Get colors
+    if colors is None:
+        colors = DEFAULT_COLORS[:n_models]
+
+    # Calculate monthly budgets for each model
+    monthly_data = {name: [] for name in model_names}
+    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+    for df, name in zip(model_data_list, model_names):
+        # Calculate timestep
+        time_diff = df.index.to_series().diff()
+        dt_days = time_diff.dt.total_seconds().median() / 86400.0
+
+        # Integrate by month
+        for month in range(1, 13):
+            df_month = df[df.index.month == month]
+            if len(df_month) > 0 and var_name in df_month.columns:
+                monthly_budget = np.sum(df_month[var_name]) * dt_days
+            else:
+                monthly_budget = 0.0
+            monthly_data[name].append(monthly_budget)
+
+    # Calculate ratio if multiple models
+    ratio = None
+    if n_models >= 2:
+        ref_vals = np.array(monthly_data[model_names[0]])
+        comp_vals = np.array(monthly_data[model_names[1]])
+        ratio = np.divide(comp_vals, ref_vals, where=ref_vals!=0, out=np.full_like(comp_vals, np.nan))
+
+    # Get variable info from varinfos
+    var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
+    clean_name = var_info.get('cleanname', None)
+    if clean_name is None:
+        clean_name = var_name.replace('_', r'\_')
+    units = var_info.get('munits' if var_name.startswith('m') else 'units', '')
+
+    # Create figure with dual axes
+    fig, ax1 = plt.subplots(figsize=figsize)
+    ax2 = ax1.twinx()
+
+    # Plot grouped bars on left axis
+    x = np.arange(len(month_names))
+    width = 0.8 / n_models
+
+    for i, name in enumerate(model_names):
+        offset = (i - n_models/2 + 0.5) * width
+        ax1.bar(x + offset, monthly_data[name], width,
+               label=name, color=colors[i], alpha=0.8)
+
+    # Plot ratio on right axis
+    if ratio is not None:
+        ax2.plot(x, ratio, color=ratio_color, marker='o', linewidth=2,
+                markersize=6, label='Ratio', zorder=10)
+        ax2.axhline(1.0, color='gray', linestyle='--', alpha=0.5, linewidth=1)
+
+    # Format axes
+    ax1.set_xlabel('Month', fontsize=11)
+    ax1.set_ylabel(f'Monthly {fns.cleantext(clean_name)}\n[{fns.cleantext(units)}]', fontsize=11, color='black')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(month_names)
+    ax1.tick_params(axis='y', labelcolor='black')
+    ax1.grid(axis='y', alpha=0.3, zorder=0)
+
+    if ratio is not None:
+        ax2.set_ylabel(f'Ratio ({model_names[1]} / {model_names[0]})', fontsize=11, color=ratio_color)
+        ax2.tick_params(axis='y', labelcolor=ratio_color)
+
+    # Legends
+    ax1.legend(loc='upper left', fontsize=9)
+    if ratio is not None:
+        ax2.legend(loc='upper right', fontsize=9)
+
+    plt.tight_layout()
+
+    # Save if requested
+    if save:
+        if figdir is None:
+            figdir = FIGURE_PATH
+        save_figure(fig, filename=filename, figdir=figdir, add_timestamp=fnametimestamp)
+
+    return fig, ax1, ax2
 
 
 def save_figure(fig: plt.Figure,

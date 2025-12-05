@@ -414,6 +414,8 @@ class Flocs(BaseStateVar):
             self.settling_loss = self.sink_sedimentation - self.source_resuspension
         else:
             # Fallback to original formulation
+            self.sink_sedimentation = self.sinking_leak * self.settling_vel * self.numconc
+            self.source_resuspension = 0
             self.settling_loss = self.sinking_leak * self.settling_vel * self.numconc
 
         # Compute net vertical loss rate for organic component coupling
