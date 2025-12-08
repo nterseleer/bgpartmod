@@ -125,6 +125,7 @@ class Flocs(BaseStateVar):
 
                  # Optimization parameter for alpha sharing
                  unified_alphas = True,    # [-] Use single alpha for FF=PP=PF (performance optimization)
+                 include_PP_collision = True,  # [-] Include PP collision term (microfloc-microfloc)
                  delta_tau_cr = 0.2,       # [Pa] TEP increment for critical shear stress
                  delta_nf_fractal_dim = 0.0,  # [-] TEP increment for fractal dimension
 
@@ -170,6 +171,7 @@ class Flocs(BaseStateVar):
 
         self.K_glue = K_glue
         self.unified_alphas = unified_alphas
+        self.include_PP_collision = include_PP_collision
 
         # SharedFlocAlphas instance (will be injected later)
         self.shared_alphas = None
@@ -498,8 +500,11 @@ class Flocs(BaseStateVar):
         # =====================================================
         if self.name == 'Microflocs':
             # Compute ALL collision flux bases (regardless of who uses them)
-            self._PP_collision_base = (2. / 3. * self.alpha_PP * self._np_diam_cubed *
-                                       self.g_shear_rate_at_t * self.coupled_Np.numconc * self.coupled_Np.numconc)
+            if self.include_PP_collision:
+                self._PP_collision_base = (2. / 3. * self.alpha_PP * self._np_diam_cubed *
+                                           self.g_shear_rate_at_t * self.coupled_Np.numconc * self.coupled_Np.numconc)
+            else:
+                self._PP_collision_base = 0.0
 
             self._PF_collision_base = (1. / 6. * self.alpha_PF * self._ncnum_frac_1_div_nf_plus_1_cubed *
                                        self._np_diam_cubed * self.g_shear_rate_at_t *
