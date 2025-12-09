@@ -186,6 +186,7 @@ class Flocs(BaseStateVar):
         self.net_vertical_loss_rate = None  # [s-1] Net vertical loss rate for organic coupling
         self.g_shear_rate_at_t = None
         self.bed_shear_stress_at_t = None
+        self.mu_water_at_t = None
         self.erosion_factor = None
         self.Ncnum = None
         self.coupled_glue = None
@@ -341,20 +342,15 @@ class Flocs(BaseStateVar):
         """
         Pre-compute settling velocity constants for Macroflocs (performance optimization).
         Called once during setup to avoid recalculating constants at each timestep.
+        Note: mu_water excluded as it may vary with temperature (Sharqawy et al. 2010).
         """
         if self.name != 'Macroflocs' or not hasattr(self, 'setup') or self.setup is None:
             return
 
-        # Pre-compute constant part of Winterwerp formula
+        # Pre-compute mu_water-independent part of Winterwerp formula
         # W_s,F = (1/18) × (ρ_s - ρ_w) / μ × g × D_p^(3-nf) × D_F^(nf-1)
-        self._settling_constant = ((1.0/18.0) * 9.81 *
-                                  (self.density - self.setup.rho_water) / self.setup.mu_water)
-
-        # # Pre-compute microfloc diameter fractal term (constant per simulation)
-        # self._dp_fractal_term = self.d_p_microflocdiam ** (3.0 - self.nf_fractal_dim)
-        #
-        # # Cache fractal dimension for diameter term
-        # self._macrofloc_fractal_exp = self.nf_fractal_dim - 1.0
+        # _settling_constant_base excludes μ to allow T-dependent viscosity
+        self._settling_constant_base = (1.0/18.0) * 9.81 * (self.density - self.setup.rho_water)
 
     def update_val(self, numconc,
                    t=None,
@@ -382,19 +378,15 @@ class Flocs(BaseStateVar):
         Called once per timestep, results stored in self.settling_loss.
         Reused by Micro_in_Macro via coupled_Nf.settling_loss.
         """
-        # Optimization: Use pre-computed constants for settling velocity calculation
-        if hasattr(self, '_settling_constant'):
-            # Optimized version using pre-computed constants
-            # self.settling_vel_base = (self._settling_constant * self._dp_fractal_term *
-            #                          (self.diam ** self._macrofloc_fractal_exp) * self.apply_settling)
-
-            self.settling_vel_base = (self._settling_constant *
+        # Settling velocity calculation (Winterwerp formula)
+        # mu_water_at_t allows T-dependent viscosity (Sharqawy et al. 2010)
+        if hasattr(self, '_settling_constant_base'):
+            self.settling_vel_base = (self._settling_constant_base / self.mu_water_at_t *
                                       self.d_p_microflocdiam ** (3.0 - self.nf_fractal_dim) *
                                       (self.diam ** (self.nf_fractal_dim - 1.0)) * self.apply_settling)
-
         else:
-            # Fallback to original calculation if constants not pre-computed
-            self.settling_vel_base = ((1/18) * (self.density - self.setup.rho_water) / self.setup.mu_water * 9.81 *
+            # Fallback if constants not pre-computed
+            self.settling_vel_base = ((1/18) * (self.density - self.setup.rho_water) / self.mu_water_at_t * 9.81 *
                                      (self.d_p_microflocdiam ** (3 - self.nf_fractal_dim)) *
                                      (self.diam ** (self.nf_fractal_dim - 1)) * self.apply_settling)
 
@@ -457,8 +449,12 @@ class Flocs(BaseStateVar):
             self.g_shear_rate_at_t = self.setup.g_shear_rate_array[t_idx]
             self.bed_shear_stress_at_t = self.setup.bed_shear_stress_array[t_idx]
             self.water_depth_at_t = self.setup.water_depth_array[t_idx]
+            if hasattr(self.setup, 'mu_water_array'):
+                self.mu_water_at_t = self.setup.mu_water_array[t_idx]
+            else:
+                self.mu_water_at_t = self.setup.mu_water
 
-        # Optimization: Calculate once (Microflocs calculates, others reuse)
+                # Optimization: Calculate once (Microflocs calculates, others reuse)
         # NOTE: Microflocs instance MUST be defined first in model configuration
         if self.name == 'Microflocs':
             # Calculate shared Ncnum once per timestep
