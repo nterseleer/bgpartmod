@@ -50,7 +50,8 @@ class Setup:
             'pCO2',  # Partial pressure CO2 in µatm
             'water_depth',  # Water depth in m (base/mean value)
             'vary_water_depth',  # Whether water depth should vary with tides
-            'mu_water',  # Dynamic viscosity of water in Pa·s
+            'base_mu_water',  # Base dynamic viscosity of water in Pa·s
+            'vary_mu_water',  # Whether viscosity varies with temperature
             'rho_water',  # Density of water in kg/m³
         ],
         'light_settings': [
@@ -120,7 +121,9 @@ class Setup:
                  bed_shear_stress_phase_shift: float = np.pi / 2, # Max at mid-tide (sine)
                  riverine_loads: bool = False,
                  riverine_loads_file: str = 'riverine_loads.feather',
-                 mu_water: float = 1.002e-3,  # Pa·s at 20°C
+                 mu_water: float = 1.002e-3,  # Pa·s at 20°C (base value)
+                 vary_mu_water: bool = False,  # Whether viscosity varies with temperature
+                 seawater_salinity: float = 0.0315,  # Salinity in kg/kg for viscosity calc (31.5 g/kg)
                  rho_water: float = 1025.,    # kg/m³
                  plotPAR: bool = False,
                  plotTEMP: bool = False,
@@ -172,7 +175,9 @@ class Setup:
         self.k_att = k_att
         self.pCO2 = pCO2
         self.kb = kb
-        self.mu_water = mu_water  # Dynamic viscosity of water
+        self.base_mu_water = mu_water  # Base dynamic viscosity of water
+        self.vary_mu_water = vary_mu_water
+        self.seawater_salinity = seawater_salinity
         self.rho_water = rho_water  # Density of water
 
         # Store base values for tidal parameters (before DataFrame conversion)
@@ -218,6 +223,9 @@ class Setup:
         self.varyingTEMP = varyingTEMP
         self.T = self._initialize_TEMP(plotTEMP)
 
+        # Dynamic viscosity (depends on T, must be after T initialization)
+        self.mu_water = self._initialize_mu_water()
+
         # Calculate temperature bounds once for efficient access
         # self.T_max = self.T['T'].max()  # Maximum temperature in setup [K]
         # self.T_min = self.T['T'].min()  # Minimum temperature in setup [K]
@@ -257,6 +265,7 @@ class Setup:
         self.water_depth_array = self.water_depth['WaterDepth'].values.astype(self.dtype)
         self.T_array = self.T['T'].values.astype(self.dtype)
         self.PAR_array = self.PAR['PAR'].values.astype(self.dtype)
+        self.mu_water_array = self.mu_water['mu_water'].values.astype(self.dtype)
 
         # Calculate temperature bounds for efficient access
         self.T_max = self.T['T'].max()
@@ -453,6 +462,33 @@ class Setup:
         else:
             # Time-varying temperature using cosine function
             return self._create_cosine_temperature(plotTEMP)
+
+    def _initialize_mu_water(self) -> pd.DataFrame:
+        """
+        Initialize dynamic viscosity of seawater.
+
+        If vary_mu_water is False, uses constant base_mu_water.
+        If True, calculates T-dependent viscosity using Sharqawy et al. (2010), Eq. 22-23.
+        Valid for 0 < t < 180°C; 0 < S < 0.15 kg/kg; accuracy ±1.5%.
+        """
+        if not self.vary_mu_water:
+            mu_values = np.full(len(self.t_eval), self.base_mu_water, dtype=self.dtype)
+        else:
+            # Temperature in Celsius (formula requirement)
+            t = self.T['T'].values - self.constants.degCtoK
+            S = self.seawater_salinity
+
+            # Pure water viscosity (IAPWS 2008, Eq. 23) [Pa·s]
+            mu_w = 4.2844e-5 + (0.157 * (t + 64.993)**2 - 91.296)**(-1)
+
+            # Seawater viscosity coefficients (Eq. 22)
+            A = 1.541 + 1.998e-2 * t - 9.52e-5 * t**2
+            B = 7.974 - 7.561e-2 * t + 4.724e-4 * t**2
+
+            # Seawater dynamic viscosity [Pa·s]
+            mu_values = mu_w * (1 + A * S + B * S**2)
+
+        return pd.DataFrame(mu_values, index=self.dates, columns=['mu_water'])
 
     def _create_cosine_temperature(self, plotTEMP: bool) -> pd.DataFrame:
         """Create time-varying temperature using cosine function fitted to observations."""
@@ -662,7 +698,15 @@ class Setup:
                 'ylabel': 'Temperature (°C)',
                 'title': 'Water Temperature'
             }
-        
+
+        # Water dynamic viscosity
+        if hasattr(self, 'mu_water'):
+            plot_data['Dynamic Viscosity'] = {
+                'values': self.mu_water['mu_water'].values[:end_idx],
+                'ylabel': 'Dynamic viscosity (Pa.s)',
+                'title': 'Seawater Dynamic Viscosity'
+            }
+
         # Water depth data
         if hasattr(self, 'water_depth'):
             plot_data['Water Depth'] = {
