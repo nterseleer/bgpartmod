@@ -127,7 +127,12 @@ class Setup:
                  rho_water: float = 1025.,    # kg/m³
                  plotPAR: bool = False,
                  plotTEMP: bool = False,
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 prescribe_TEP: bool = False,  # Whether to prescribe TEP from previous simulation
+                 TEP_sim_name: Optional[str] = None,  # Name of simulation to load TEP from
+                 TEP_column: str = 'TEPC_C',  # Column name for TEP concentration
+                 plotTEP: bool = False,
+                 tep_year: int = 2023):
         """Initialize physical setup for simulation."""
         # Store initialization parameters
         self.constants = PhysicalConstants()
@@ -211,6 +216,15 @@ class Setup:
         self.riverine_loads_file = riverine_loads_file
         if self.riverine_loads:
             self._load_riverine_loads()
+
+        # Prescribed TEP (for Flocs-only optimization with prescribed biogeochemistry)
+        self.prescribe_TEP = prescribe_TEP
+        self.TEP_sim_name = TEP_sim_name
+        self.TEP_column = TEP_column
+        self.TEP = None
+        self.TEP_array = None
+        if self.prescribe_TEP:
+            self._load_prescribed_TEP(plotTEP, tep_year)
 
         # Light settings
         self.PARfromfile = PARfromfile
@@ -315,6 +329,63 @@ class Setup:
             result = result[~result.index.duplicated(keep='first')]
 
         return result
+
+    def _load_prescribed_TEP(self, plotTEP: bool = False, tep_year: int = 2023):
+        """Load prescribed TEP from simulation, cycle backwards, interpolate to setup dates."""
+        from src.utils import simulation_manager as sim_manager
+
+        tep_sim = sim_manager.load_simulation(self.TEP_sim_name)
+        tep_df = tep_sim.df[[self.TEP_column]].copy()
+
+        # Filter reference year
+        tep_df = tep_df[tep_df.index.year == tep_year]
+
+        # Cycle backwards for multi-year simulations
+        years_needed = int(np.ceil(self.tmax / 365))
+        if years_needed > 1:
+            cycled_dfs = [tep_df.copy()]
+            for year_offset in range(1, years_needed):
+                year_df = tep_df.copy()
+                year_df.index = year_df.index - pd.DateOffset(years=year_offset)
+                cycled_dfs.insert(0, year_df)
+            tep_df = pd.concat(cycled_dfs).sort_index()
+
+        # Interpolate onto self.dates
+        newdf = pd.DataFrame(index=self.dates)
+        combined_df = tep_df.join(newdf, how='outer')
+        combined_df[self.TEP_column] = combined_df[self.TEP_column].interpolate(method='time')
+
+        # Extract array directly
+        self.TEP_array = combined_df.loc[self.dates, self.TEP_column].values.astype(self.dtype)
+
+        if plotTEP:
+            self._plot_prescribed_TEP()
+
+    def _plot_prescribed_TEP(self):
+        """Plot prescribed TEP data for verification."""
+        import matplotlib.pyplot as plt
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+
+        # Plot 1: Full time series
+        ax1.plot(self.dates, self.TEP_array, 'b-', linewidth=1.5, label='Prescribed TEP')
+        ax1.set_xlabel('Date')
+        ax1.set_ylabel('TEP C (mmol C m⁻³)')
+        ax1.set_title(f'Prescribed TEP from Simulation: {self.TEP_sim_name}')
+        ax1.grid(True, alpha=0.3)
+        ax1.legend()
+
+        # Plot 2: First 30 days detail
+        days_to_plot = min(30, self.tmax)
+        end_idx = int(days_to_plot / self.used_dt)
+        ax2.plot(self.t_eval[:end_idx], self.TEP_array[:end_idx], 'b-', linewidth=2)
+        ax2.set_xlabel('Time (days)')
+        ax2.set_ylabel('TEP C (mmol C m⁻³)')
+        ax2.set_title(f'Prescribed TEP - First {days_to_plot} days detail')
+        ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
 
     def _load_riverine_loads(self):
         """Load riverine nutrient loads data and cycle for multi-year simulations."""

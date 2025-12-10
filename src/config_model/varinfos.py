@@ -989,13 +989,13 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
 
 
 
-           "Macroflocs_sink_sedimentation": {'units': ' m^{-3} d^{-1}',
-                                             'munits': ' m^{-3} d^{-1}',
+           "Macroflocs_sink_sedimentation": {'units': ' m^{-3} s^{-1}',
+                                             'munits': ' m^{-3} s^{-1}',
                                              'longname': 'Sedimentation rate',
                                              'cleanname': 'Sedimentation'},
 
-           "Macroflocs_source_resuspension": {'units': ' m^{-3} d^{-1}',
-                                              'munits': ' m^{-3} d^{-1}',
+           "Macroflocs_source_resuspension": {'units': ' m^{-3} s^{-1}',
+                                              'munits': ' m^{-3} s^{-1}',
                                               'longname': 'Resuspension rate',
                                               'cleanname': 'Resuspension'},
           "Macroflocs_erosion_factor": {'units': '-',
