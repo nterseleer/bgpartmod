@@ -5,6 +5,16 @@ from src.config_model import varinfos
 from ..utils import functions as fns
 
 
+class PrescribedTEP:
+    """
+    Lightweight class to hold prescribed TEP concentration for Flocs-only optimization.
+    Mimics the interface of a full TEP state variable but only stores C concentration.
+    The value of C is updated at each timestep from Setup.TEP_array.
+    """
+    def __init__(self):
+        self.C = 0.0  # Will be updated at each timestep
+
+
 class SharedFlocTEPParameters:
     """
     Centralized computation of TEP-dependent parameters for flocculation.
@@ -131,6 +141,7 @@ class Flocs(BaseStateVar):
 
                  # TEP coupling parameters
                  K_glue = None,            # [mmol m-3] Half-saturation for TEP effect
+                 prescribe_tep_from_setup = False,  # [-] Use prescribed TEP from Setup instead of coupled_glue
                  #
                  resuspension_rate = 0.,       # [kg/m²/s/Pa]
                  settling_vel_min_fraction = 0.1,  # [-] Minimum fraction of settling velocity retained at max shear
@@ -172,6 +183,7 @@ class Flocs(BaseStateVar):
         self.K_glue = K_glue
         self.unified_alphas = unified_alphas
         self.include_PP_collision = include_PP_collision
+        self.prescribe_tep_from_setup = prescribe_tep_from_setup
 
         # SharedFlocAlphas instance (will be injected later)
         self.shared_alphas = None
@@ -190,6 +202,7 @@ class Flocs(BaseStateVar):
         self.erosion_factor = None
         self.Ncnum = None
         self.coupled_glue = None
+        self.coupled_glue_C = None
         self.coupled_Nt = None
         self.coupled_Nf = None
         self.coupled_Np = None
@@ -282,7 +295,6 @@ class Flocs(BaseStateVar):
         self.coupled_Np = coupled_Np if self.name != 'Microflocs' else self
         self.coupled_Nf = coupled_Nf if self.name != 'Macroflocs' else self
         self.coupled_Nt = coupled_Nt if self.name != 'Micro_in_Macro' else self
-        self.coupled_glue = coupled_glue
 
         if self.name != 'Microflocs':
             self.nf_fractal_dim = self.coupled_Np.nf_fractal_dim
@@ -306,9 +318,22 @@ class Flocs(BaseStateVar):
 
             self.spinup_days = self.coupled_Np.spinup_days
 
+            self.prescribe_tep_from_setup = self.coupled_Np.prescribe_tep_from_setup
+
         # Initialize macrofloc diameter if couplings are now established
         if self.name == 'Macroflocs':
             self.diam = self._calculate_macrofloc_diameter()
+
+        # Handle TEP coupling: either dynamic (coupled_glue) or prescribed (from Setup)
+        if self.prescribe_tep_from_setup:
+            # Create a PrescribedTEP instance that will be updated at each timestep
+            self.coupled_glue = PrescribedTEP()
+
+            # if self.name == 'Microflocs':
+            #     print(f"  {self.name}: Using prescribed TEP from simulation '{self.setup.TEP_sim_name}'")
+        else:
+            # Standard dynamic coupling
+            self.coupled_glue = coupled_glue
 
         # Setup shared alpha computation (performance optimization)
         self._setup_shared_alphas()
@@ -397,7 +422,25 @@ class Flocs(BaseStateVar):
             shear_factor = self.settling_vel_min_fraction + (self.settling_vel_max_fraction - self.settling_vel_min_fraction) * 0.5 * (
                         1 + np.cos(normalized_shear * np.pi))
             self.settling_vel = self.settling_vel_base * shear_factor
+
+
+            # # TEST ROUSE
+            # u_star = np.sqrt(self.g_shear_rate_at_t / self.setup.rho_water)
+            # Rouse = self.settling_vel_base / (0.4 * u_star)
+            #
+            # # Fraction en suspension (approximation du profil de Rouse intégré)
+            # if Rouse < 0.8:
+            #     suspension_factor = 1.0  # Wash load, totalement en suspension
+            # elif Rouse > 2.5:
+            #     suspension_factor = 0.1  # Bed load dominant
+            # else:
+            #     suspension_factor = 1.0 - 0.53 * (Rouse - 0.8)  # Interpolation linéaire
+            #
+            # w_s_effective = self.settling_vel_base * (1 - suspension_factor)
+            # print('DEBUG ROUSE', Rouse, (1 - suspension_factor), shear_factor)
+
         else:
+            # shear_factor = 1
             self.settling_vel = self.settling_vel_base
 
         if self.resuspension_rate > 0:
@@ -406,6 +449,12 @@ class Flocs(BaseStateVar):
             self.erosion_factor = max(0, (self.bed_shear_stress_at_t / self.tau_cr - 1))
             self.source_resuspension = self.resuspension_rate * self.erosion_factor / self.water_depth_at_t
             self.settling_loss = self.sink_sedimentation - self.source_resuspension
+
+            # print('DEBUG')
+            # print('sedimentation: ', self.settling_vel_base, shear_factor, self.settling_vel, self.numconc, self.water_depth_at_t, self.sink_sedimentation)
+            # print('resuspension: ', self.erosion_factor, self.resuspension_rate, self.water_depth_at_t, self.source_resuspension)
+            # print('settling_loss: ', self.settling_loss)
+
         else:
             # Fallback to original formulation
             self.sink_sedimentation = self.sinking_leak * self.settling_vel * self.numconc
@@ -425,6 +474,13 @@ class Flocs(BaseStateVar):
         (since the floc module is run at smaller time step)
         """
 
+        # Update prescribed TEP value at this timestep (if using prescribed mode)
+        # print('DEBUG', self.prescribe_tep_from_setup, isinstance(self.coupled_glue, PrescribedTEP))
+        if self.prescribe_tep_from_setup and isinstance(self.coupled_glue, PrescribedTEP):
+            self.coupled_glue.C = self.setup.TEP_array[t_idx]
+        self.coupled_glue_C = self.coupled_glue.C if self.coupled_glue else None
+        # print(self.coupled_glue_C)
+
         # Check if we're in spin-up phase
         is_spinup = hasattr(self.setup, 'in_spinup_phase') and self.setup.in_spinup_phase
 
@@ -437,7 +493,7 @@ class Flocs(BaseStateVar):
             self.apply_settling = False
             self.resuspension_rate = 0.0
         else:
-            # Normal mode: use TEP coupling if available
+            # Normal mode: use TEP coupling if available (including prescribed TEP)
             use_tep_coupling = self.coupled_glue and self.K_glue
             # Initialize variables to avoid reference errors
             original_apply_settling = None
