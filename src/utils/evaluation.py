@@ -12,7 +12,8 @@ from src.utils import plotting
 def prepare_likelihood_data(
         model_results: pd.DataFrame,
         observations: Any,
-        daily_mean: bool = True,
+        mean_window_days: Optional[int] = 1,
+        daily_mean: Optional[bool] = None,
         _cached_obs: Optional[pd.DataFrame] = None,
         method: str = 'aggregate',  # 'aggregate' or 'interpolate'
 ) -> pd.DataFrame:
@@ -23,7 +24,11 @@ def prepare_likelihood_data(
     Args:
         model_results: Model results DataFrame with DatetimeIndex
         observations: Observation data object with DatetimeIndex
-        daily_mean: Whether to use daily means
+        mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, etc.)
+                         None or 0 disables averaging. Default: 1 (daily mean)
+                         IMPORTANT: For sub-hourly data with sparse observations, pre-aggregation
+                         dramatically improves performance (~100× faster) by reducing loop iterations.
+        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         method: 'aggregate' (default) aggregates model to obs periods,
                 'interpolate' interpolates model to obs times
         _cached_obs: Optional cached observation data
@@ -31,8 +36,15 @@ def prepare_likelihood_data(
     Returns:
         DataFrame with merged model and observation data
     """
-    # Prepare model data with daily mean if requested
-    model_data = model_results.resample('D').mean() if daily_mean else model_results
+    # Legacy support: daily_mean overrides mean_window_days if explicitly provided
+    if daily_mean is not None:
+        mean_window_days = 1 if daily_mean else None
+
+    # Pre-aggregate model data for performance (critical for high-resolution data)
+    if mean_window_days is not None and mean_window_days > 0:
+        model_data = model_results.resample(f'{mean_window_days}D').mean()
+    else:
+        model_data = model_results
 
     # Use cached observations if available
     obs_data = _cached_obs if _cached_obs is not None else observations.df
@@ -87,7 +99,8 @@ def calculate_likelihood(
         model_results: Any, #pd.DataFrame,
         observations: Any,
         calibrated_vars: Optional[List[str]] = None,
-        daily_mean: bool = True,
+        mean_window_days: Optional[int] = 1,
+        daily_mean: Optional[bool] = None,
         plot: bool = False,
         name: Optional[str] = None,
         save_plots: bool = False,
@@ -96,7 +109,31 @@ def calculate_likelihood(
         veryverbose: bool = False,
         _cached_obs: Optional[pd.DataFrame] = None
 ) -> Optional[float]:
-    """[docstring]"""
+    """
+    Calculate log-likelihood between model results and observations.
+
+    Args:
+        model_results: Model simulation object with .df attribute
+        observations: Observation data object
+        calibrated_vars: List of variables to include in likelihood calculation
+        mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, etc.)
+                         Applied to both likelihood calculation and optional plotting for consistency.
+        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
+        plot: Whether to create comparison plots
+        name: Optional name for the calculation
+        save_plots: Whether to save plots to disk
+        plot_size: Figure size for plots
+        verbose: Whether to print total log-likelihood
+        veryverbose: Whether to print individual variable contributions
+        _cached_obs: Optional cached observation data for performance
+
+    Returns:
+        Total log-likelihood value
+    """
+    # Legacy support: daily_mean overrides mean_window_days if explicitly provided
+    if daily_mean is not None:
+        mean_window_days = 1 if daily_mean else None
+
     if calibrated_vars is None:
         calibrated_vars = [
             'Phy_Chl', 'NH4_concentration', 'NO3_concentration',
@@ -107,8 +144,9 @@ def calculate_likelihood(
     merged_data = prepare_likelihood_data(
         model_results.df,
         observations,
-        daily_mean,
-        _cached_obs
+        mean_window_days,
+        daily_mean=None,  # Already handled above
+        _cached_obs=_cached_obs
     )
 
     # Create comparison plots if requested (only during analysis, not optimization)
@@ -117,10 +155,10 @@ def calculate_likelihood(
             model_results,
             variables=calibrated_vars,
             observations=observations,
-            daily_mean=daily_mean,
+            mean_window_days=mean_window_days,
             figsize=plot_size,
             save=save_plots,
-            filename='likelihood_comparison'
+            filename=model_results.name + '_likelihood_comparison'
         )
 
     # Calculate likelihood
@@ -151,25 +189,34 @@ def calculate_rmse(
         model_results: pd.DataFrame,
         observations: Any,
         variables: Optional[List[str]] = None,
-        daily_mean: bool = True
+        mean_window_days: Optional[int] = 1,
+        daily_mean: Optional[bool] = None
 ) -> Dict[str, float]:
     """
-    Calculate Root Mean Square Error between model and Observations.
+    Calculate Root Mean Square Error between model and observations.
     Assumes both have DatetimeIndex.
 
     Args:
         model_results: DataFrame containing model results with DatetimeIndex
         observations: Observations object with .df attribute and DatetimeIndex
         variables: List of variables to calculate RMSE for
-        daily_mean: Whether to compare daily means
+        mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, etc.)
+        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
 
     Returns:
         Dictionary of RMSE values by variable
     """
+    # Legacy support: daily_mean overrides mean_window_days if explicitly provided
+    if daily_mean is not None:
+        mean_window_days = 1 if daily_mean else None
+
     if variables is None:
         variables = observations.df.columns
 
-    model_data = model_results.resample('D').mean() if daily_mean else model_results.copy()
+    if mean_window_days is not None and mean_window_days > 0:
+        model_data = model_results.resample(f'{mean_window_days}D').mean()
+    else:
+        model_data = model_results.copy()
 
     combined_data = pd.merge(
         model_data,

@@ -156,7 +156,8 @@ def _filter_by_time(df: pd.DataFrame, time_filter) -> pd.DataFrame:
 def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
         observations: Optional[Any] = None,
-        daily_mean: bool = True,
+        mean_window_days: Optional[int] = 1,
+        daily_mean: Optional[bool] = None,
         variables_to_plot: Optional[List[str]] = None,
         time_filter = None
 ) -> Tuple[List[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], List[str]]:
@@ -169,13 +170,18 @@ def prepare_model_obs_data(
     Args:
         models: Single model/DataFrame or list of models/DataFrames (with DatetimeIndex)
         observations: Observation data object (with DatetimeIndex)
-        daily_mean: Whether to use daily means (uses resample)
+        mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, 14 = bi-weekly, etc.)
+                         None or 0 disables averaging. Default: 1 (daily mean)
+        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         variables_to_plot: List of variables that will be plotted (for column standardization)
         time_filter: Time filtering criterion (None, year string, date range tuple, or slice)
 
     Returns:
         Tuple of (model_data_list, merged_data, full_obs_data, model_names)
     """
+    # Legacy support: daily_mean overrides mean_window_days if explicitly provided
+    if daily_mean is not None:
+        mean_window_days = 1 if daily_mean else None
     # Flatten nested lists of models
     models = fns.flatten_simulation_list(models)
 
@@ -216,13 +222,13 @@ def prepare_model_obs_data(
             counter += 1
             name = f"{original_name} ({counter})"
 
-        # Apply time filtering BEFORE daily_mean to preserve temporal resolution
+        # Apply time filtering BEFORE temporal averaging to preserve temporal resolution
         if time_filter is not None:
             model_data = _filter_by_time(model_data, time_filter)
 
-        # Apply daily_mean using resample (assumes DatetimeIndex)
-        if daily_mean:
-            model_data = model_data.resample('D').mean()
+        # Apply temporal averaging using resample (assumes DatetimeIndex)
+        if mean_window_days is not None and mean_window_days > 0:
+            model_data = model_data.resample(f'{mean_window_days}D').mean()
 
         model_data_list.append(model_data)
         model_names.append(name)
@@ -439,7 +445,8 @@ def plot_results(
         variables: Union[List[str], PlottedVariablesSet],
         observations: Optional[Any] = observations.Obs(station='MOW1_biweekly_202509_noPhaeo'),
         calibrated_vars: Optional[List[str]] = None,
-        daily_mean: bool = True,
+        mean_window_days: Optional[int] = 1,
+        daily_mean: Optional[bool] = None,
         time_filter = None,
         ncols: Optional[int] = None,
         plot_obs = True,
@@ -478,7 +485,8 @@ def plot_results(
         variables: List of variables to plot OR PlottedVariablesSet with embedded preferences
         observations: Optional observation data
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
-        daily_mean: Whether to use daily means
+        mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, 14 = bi-weekly, etc.)
+        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         time_filter: Time filtering criterion (None, year string, date range tuple, or slice)
         ncols: Number of columns in subplot grid (auto-detected from PlottedVariablesSet if None)
         figsize: Figure size (auto-detected from PlottedVariablesSet if None, otherwise auto-calculated)
@@ -552,14 +560,14 @@ def plot_results(
 
     # Prepare data
     model_data_list, merged_data, _, model_names = prepare_model_obs_data(
-        models, observations, daily_mean, variables_list, time_filter
+        models, observations, mean_window_days, daily_mean, variables_list, time_filter
     )
 
     # Prepare fill_between data if provided
     fill_between_data = None
     if fill_between_models is not None:
         fill_data_list, _, _, _ = prepare_model_obs_data(
-            list(fill_between_models), None, daily_mean, variables_list, time_filter
+            list(fill_between_models), None, mean_window_days, daily_mean, variables_list, time_filter
         )
         if len(fill_data_list) == 2:
             fill_between_data = (fill_data_list[0], fill_data_list[1])
@@ -727,7 +735,8 @@ def plot_sinks_sources(
         sinks: List[str],
         time_filter = None,
         observations: Optional[Any] = None,
-        daily_mean: bool = True,
+        mean_window_days: Optional[int] = 1,
+        daily_mean: Optional[bool] = None,
         increase_resolution_factor: int = 2,
         figsize: Optional[Tuple[float, float]] = None,
         default_subplot_size: Tuple[float, float] = (4.6, 5.7),
@@ -750,7 +759,8 @@ def plot_sinks_sources(
         sources: List of column names to be plotted as sources (positive values)
         sinks: List of column names to be plotted as sinks (negative values)
         observations: Optional observation data
-        daily_mean: Whether to use daily means
+        mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, 14 = bi-weekly, etc.)
+        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         increase_resolution_factor: Factor to increase resolution of the datetime index
         figsize: Custom figure size (if None, calculated based on default_subplot_size)
         default_subplot_size: Default size for a single subplot when auto-calculating figsize
@@ -769,7 +779,7 @@ def plot_sinks_sources(
     """
     # Prepare model data
     model_data_list, _, _, model_names = prepare_model_obs_data(
-        models, observations, daily_mean, time_filter=time_filter,
+        models, observations, mean_window_days, daily_mean, time_filter=time_filter,
     )
 
     # Create subplots
@@ -1983,7 +1993,7 @@ def plot_monthly_budget_comparison(
     """
     # Prepare data
     model_data_list, _, _, model_names = prepare_model_obs_data(
-        models, observations=None, daily_mean=False,
+        models, observations=None, mean_window_days=None,
         variables_to_plot=[var_name], time_filter=time_filter
     )
 
