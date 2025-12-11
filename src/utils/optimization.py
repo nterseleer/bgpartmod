@@ -1023,11 +1023,14 @@ class Optimization:
             # Single-case mode
             model_file = os.path.join(self.optdir, f"{self.name}_best_model.pkl")
             if os.path.exists(model_file) and not force_rerun:
+                print('Loading ', model_file, '...')
                 with open(model_file, 'rb') as f:
                     return dill.load(f)
 
             best_config = fns.update_config(self.config['dconf'], self.summary['best_parameters'])
-            best_config = fns.deep_update(best_config, config.plotting_diagnostics)
+            # Only add plotting diagnostics for components present in best_config
+            filtered_plotting_diag = {k: v for k, v in config.plotting_diagnostics.items() if k in best_config}
+            best_config = fns.deep_update(best_config, filtered_plotting_diag)
             model_kwargs = {
                 **self.config['modkwargs'],
                 'verbose': True,
@@ -1057,7 +1060,9 @@ class Optimization:
                     self.summary['best_parameters'], case_id
                 )
                 best_config = fns.update_config(case.dconf, filtered_params)
-                best_config = fns.deep_update(best_config, config.plotting_diagnostics)
+                # Only add plotting diagnostics for components present in best_config
+                filtered_plotting_diag = {k: v for k, v in config.plotting_diagnostics.items() if k in best_config}
+                best_config = fns.deep_update(best_config, filtered_plotting_diag)
                 model_kwargs = {
                     **self.config['modkwargs'],
                     'verbose': True,

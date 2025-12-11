@@ -37,6 +37,7 @@ class Model:
             output_vars: Optional[List[str]] = None,
             name: str = 'Model',
             verbose: bool = True,
+            verbose_print_tstep: float = 15.0,
             force_performance_report: bool = False,
             debug_budgets: bool = False,
             aggregate_vars: Optional[List[str]] = None,
@@ -50,6 +51,7 @@ class Model:
         self.dtype = dtype
         self.name = name
         self.verbose = verbose
+        self.verbose_print_tstep = verbose_print_tstep
         self.debug_budgets = debug_budgets
         self.do_diagnostics = do_diagnostics
         self.full_diagnostics = full_diagnostics
@@ -438,7 +440,7 @@ class Model:
         # Run spin-up using existing integration machinery
         y_spinup = self.initial_state.copy()
 
-        for t_spinup in spinup_dates[1:]:
+        for t_spinup_idx, t_spinup in enumerate(spinup_dates[1:], start=1):
             # Map spin-up time to setup time index (use first setup time for all spin-up)
             t_setup = self.setup.dates[0]
 
@@ -474,7 +476,7 @@ class Model:
 
             y_spinup = y_spinup + self.used_dt * derivatives
 
-            if self.verbose and t_spinup in spinup_dates[::int(1 / self.used_dt)]:
+            if self.verbose and t_spinup_idx % int(self.verbose_print_tstep / self.used_dt) == 0:
                 print(f'Spin-up integration for t = {t_spinup:.1f} days')
 
         self.initial_state = y_spinup
@@ -568,7 +570,7 @@ class Model:
             if self.do_diagnostics:
                 diagnostics[t_idx] = self._compute_diagnostics(t, t_idx=t_idx, is_slow_step=is_slow_step)
 
-            if self.verbose and t in self.dates[::int(1 / self.used_dt)]:
+            if self.verbose and t_idx % int(self.verbose_print_tstep / self.used_dt) == 0:
                 print(f'Eulerian integration for t = {t}')
 
         self.t = self.dates
