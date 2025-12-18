@@ -1583,7 +1583,8 @@ def plot_parameter_vs_cost(
         highlight_best: bool = True,
         show_reference: bool = True,
         show_labels: bool = True,
-        filter_badlnl: Optional[float] = None
+        filter_badlnl: Optional[float] = None,
+        ylim_percent: Optional[float] = None
 ) -> plt.Axes:
     """
     Plot parameter values against optimization cost.
@@ -1602,6 +1603,7 @@ def plot_parameter_vs_cost(
         show_reference: Whether to show reference value line
         show_labels: Whether to set title and axis labels
         filter_badlnl: If provided, filter out rows where cost_raw == this value
+        ylim_percent: If provided, zoom y-axis to top N% of cost range (default: None)
 
     Returns:
         Modified axes object
@@ -1643,6 +1645,15 @@ def plot_parameter_vs_cost(
         ax.set_xlabel(param, fontsize=8)
         ax.set_ylabel(f'{costname} (log-likelihood)', fontsize=8)
 
+    # Apply ylim zoom if requested
+    if ylim_percent is not None:
+        min_cost = df[costname].min()
+        max_cost = df[costname].max()
+        cost_range = max_cost - min_cost
+        ylim_min = max_cost - (ylim_percent / 100) * cost_range
+        ylim_max = max_cost + 0.1 * (ylim_percent / 100) * cost_range
+        ax.set_ylim(ylim_min, ylim_max)
+
     return ax
 
 
@@ -1656,9 +1667,27 @@ def plot_optimization_summary(df: pd.DataFrame,
                               savefig: bool = False,
                               rawcost: bool = False,
                               name: Optional[str] = None,
-                              dateinname: bool = False) -> plt.Figure:
+                              dateinname: bool = False,
+                              ylim_percent: Optional[float] = 10.0) -> plt.Figure:
     """
     Create comprehensive optimization summary plots.
+
+    Args:
+        df: Optimization results DataFrame
+        parameters: List of parameter names to plot
+        costname: Name of cost column (default: 'cost')
+        generationname: Name of generation column
+        ncols: Number of columns in subplot grid
+        figsize: Figure size
+        alpha: Scatter plot transparency
+        savefig: Whether to save figure
+        rawcost: Whether to plot raw cost
+        name: Optimization name for saving
+        dateinname: Whether to include date in filename
+        ylim_percent: Zoom y-axis to top N% of cost range (default: 20.0)
+
+    Returns:
+        Matplotlib figure
     """
     nrows = int(np.ceil(len(parameters) / ncols))
     fig, axs = plt.subplots(nrows, ncols, figsize=figsize)
@@ -1677,7 +1706,8 @@ def plot_optimization_summary(df: pd.DataFrame,
                 alpha=alpha,
                 show_labels=True,
                 highlight_best=True,
-                show_reference=True
+                show_reference=True,
+                ylim_percent=ylim_percent
             )
         else:
             axs[i].set_visible(False)
@@ -1746,7 +1776,7 @@ def compare_optimizations(
 
     # Auto-calculate figsize if not provided
     if figsize is None:
-        figsize = (max(12, 3.5 * ncols), 16)
+        figsize = (max(16, 3.5 * ncols), 12)
 
     fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
 
