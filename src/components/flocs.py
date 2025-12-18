@@ -148,6 +148,7 @@ class Flocs(BaseStateVar):
                  settling_vel_max_fraction = 1.0,  # [-] Maximum fraction of settling velocity retained at min shear
                  apply_settling = True, # Boolean. Whether to apply sediment settling
                  counter_settling_by_turbulence = False, # Boolean, whether to account for settling by turbulent water
+                 settling_velocity_factor = None,  # [-] Constant fraction of base settling velocity (overrides counter_settling_by_turbulence if set)
 
                  # eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
                  # # value from
@@ -243,6 +244,7 @@ class Flocs(BaseStateVar):
         self.settling_vel_min_fraction = settling_vel_min_fraction
         self.settling_vel_max_fraction = settling_vel_max_fraction
         self.counter_settling_by_turbulence = counter_settling_by_turbulence
+        self.settling_velocity_factor = settling_velocity_factor
         self.apply_settling = apply_settling
 
         # Initialize tau_cr with base value (will be updated by TEP coupling if active)
@@ -415,7 +417,10 @@ class Flocs(BaseStateVar):
                                      (self.d_p_microflocdiam ** (3 - self.nf_fractal_dim)) *
                                      (self.diam ** (self.nf_fractal_dim - 1)) * self.apply_settling)
 
-        if self.counter_settling_by_turbulence:
+        if self.settling_velocity_factor is not None:
+            # Simple approach: constant fraction of base settling velocity
+            self.settling_vel = self.settling_vel_base * self.settling_velocity_factor
+        elif self.counter_settling_by_turbulence:
             # Apply shear-dependent modulation
             normalized_shear = (self.g_shear_rate_at_t - self.setup.g_shear_rate_min) / (
                 self.setup.delta_g_shear_rate)
@@ -576,6 +581,10 @@ class Flocs(BaseStateVar):
         # SMS ASSEMBLY (pool-specific)
         # =====================================================
         if self.name == 'Microflocs':
+
+            # print(self.alpha_FF, self.fyflocstrength)
+
+
             # Flux assembly for Microflocs
             self.sink_PP_collision = self.coupled_Np._PP_collision_base * self._factor_Ncnum_ratio
             self.sink_PF_collision = self.coupled_Np._PF_collision_base
@@ -592,6 +601,8 @@ class Flocs(BaseStateVar):
 
             # Compute net vertical flux (stored in self.settling_loss)
             self._compute_net_vertical_flux()
+
+            # print(self.nf_fractal_dim, self.tau_cr)
 
             # Flux assembly for Macroflocs
             self.source_PP_collision = self.coupled_Np._PP_collision_base * self.coupled_Np._factor_inverse
