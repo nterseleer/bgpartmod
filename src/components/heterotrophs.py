@@ -261,8 +261,8 @@ class Heterotrophs(BaseOrg):
             Nf = self.coupled_aggregate.numconc
 
             # Update smoothed ratios (EWMA filter: α=0 → fixed, α>0 → adaptive)
-            if Nf > 0 and self.vertical_coupling_alpha > 0:
-                alpha = self.vertical_coupling_alpha
+            if Nf > 0 and self.coupled_aggregate.vertical_coupling_alpha > 0:
+                alpha = self.coupled_aggregate.vertical_coupling_alpha
                 if self.smoothed_C_to_Nf_ratio is not None:
                     self.smoothed_C_to_Nf_ratio = alpha * (self.C / Nf) + (1 - alpha) * self.smoothed_C_to_Nf_ratio
                 if self.smoothed_N_to_Nf_ratio is not None:
