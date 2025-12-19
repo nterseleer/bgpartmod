@@ -51,7 +51,7 @@ class BaseStateVar:
 
 
 class BaseOrg(BaseStateVar):
-    def __init__(self, dtype=np.float64):
+    def __init__(self, dtype=np.float64, vertical_coupling_alpha=0.0):
 
         super().__init__(dtype=dtype)
 
@@ -70,6 +70,16 @@ class BaseOrg(BaseStateVar):
         self.ICs = None
 
         self.setup = None
+
+        # Vertical coupling parameter (EWMA filter for resuspension ratios)
+        # α=0: fixed ratio (Option A), α>0: adaptive smoothing (Option B1)
+        self.vertical_coupling_alpha = vertical_coupling_alpha
+
+        # Initialize smoothed ratios (set by initialize_vertical_coupling_ratios after coupling)
+        self.smoothed_C_to_Nf_ratio = None
+        self.smoothed_N_to_Nf_ratio = None
+        self.smoothed_P_to_Nf_ratio = None
+        self.smoothed_Si_to_Nf_ratio = None
 
         # SMS terms
         self.C_SMS = None
@@ -135,6 +145,33 @@ class BaseOrg(BaseStateVar):
             self.thetaC = self.Chl / self.C #
 
         self.ICs = np.array([pool for pool in [self.C, self.N, self.Chl, self.P, self.Si] if pool is not None], dtype=self.dtype)
+
+    def initialize_vertical_coupling_ratios(self):
+        """
+        Initialize BGC/floc ratios for resuspension after ICs are set.
+        Separates sedimentation (proportional to current C) from resuspension (absolute flux).
+
+        With vertical_coupling_alpha:
+        - α=0 (default): Fixed ratio from initial conditions (Option A)
+        - α>0: Exponentially weighted moving average (Option B1)
+        """
+        if hasattr(self, 'coupled_aggregate') and self.coupled_aggregate is not None:
+            Nf = self.coupled_aggregate.numconc
+            if Nf > 0:
+                self.smoothed_C_to_Nf_ratio = self.C / Nf if self.C is not None else None
+                self.smoothed_N_to_Nf_ratio = self.N / Nf if self.N is not None else None
+                self.smoothed_P_to_Nf_ratio = self.P / Nf if self.P is not None else None
+                self.smoothed_Si_to_Nf_ratio = self.Si / Nf if self.Si is not None else None
+            else:
+                self.smoothed_C_to_Nf_ratio = None
+                self.smoothed_N_to_Nf_ratio = None
+                self.smoothed_P_to_Nf_ratio = None
+                self.smoothed_Si_to_Nf_ratio = None
+        else:
+            self.smoothed_C_to_Nf_ratio = None
+            self.smoothed_N_to_Nf_ratio = None
+            self.smoothed_P_to_Nf_ratio = None
+            self.smoothed_Si_to_Nf_ratio = None
 
     def update_val(self, C,
                    N=None,

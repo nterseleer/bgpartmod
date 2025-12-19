@@ -345,6 +345,16 @@ ref_values = {
         'complete_name': "Max v_{settl} fraction"
     },
 
+    'Macroflocs+settling_velocity_factor': {
+        'reference_value': 1.,
+        'symbol': 'frac^{v_{settl}}',
+        'units': '[]',
+        'complete_name': "v_{settl} fraction"
+    },
+
+
+
+
     'NH4+k_remin': {
         'reference_value': 0,
         'symbol': 'K_{remin}^{NH_4}',

@@ -283,21 +283,62 @@ class Detritus(BaseOrg):
 
 
     def get_sink_vertical_loss(self):
-        """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)"""
+        """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)
+
+        Separated formulation:
+        - Sedimentation: proportional to current concentration in water column
+        - Resuspension: absolute flux based on smoothed BGC/floc ratio (EWMA filter)
+        """
         if self.coupled_aggregate is not None:
-            # Convert s-1 to d-1 when coupling to biogeochemistry
-            rate = (self.coupled_aggregate.net_vertical_loss_rate *
-                    self.coupled_aggregate.time_conversion_factor)
-            self.sink_vertical_loss.C = rate * self.C
-            self.sink_vertical_loss.N = rate * self.N
-            if self.P is not None:
-                self.sink_vertical_loss.P = rate * self.P
-            else:
-                self.sink_vertical_loss.P = 0.
-            if self.Si is not None:
-                self.sink_vertical_loss.Si = rate * self.Si
-            else:
-                self.sink_vertical_loss.Si = 0.
+            conv = self.coupled_aggregate.time_conversion_factor
+            Nf = self.coupled_aggregate.numconc
+
+            # Update smoothed ratios (EWMA filter: α=0 → fixed, α>0 → adaptive)
+            if Nf > 0 and self.vertical_coupling_alpha > 0:
+                alpha = self.vertical_coupling_alpha
+                if self.smoothed_C_to_Nf_ratio is not None:
+                    self.smoothed_C_to_Nf_ratio = alpha * (self.C / Nf) + (1 - alpha) * self.smoothed_C_to_Nf_ratio
+                if self.smoothed_N_to_Nf_ratio is not None:
+                    self.smoothed_N_to_Nf_ratio = alpha * (self.N / Nf) + (1 - alpha) * self.smoothed_N_to_Nf_ratio
+                if self.P is not None and self.smoothed_P_to_Nf_ratio is not None:
+                    self.smoothed_P_to_Nf_ratio = alpha * (self.P / Nf) + (1 - alpha) * self.smoothed_P_to_Nf_ratio
+                if self.Si is not None and self.smoothed_Si_to_Nf_ratio is not None:
+                    self.smoothed_Si_to_Nf_ratio = alpha * (self.Si / Nf) + (1 - alpha) * self.smoothed_Si_to_Nf_ratio
+
+            # Sedimentation rate [d-1]
+            settling_rate = (self.coupled_aggregate.sink_sedimentation / Nf * conv) if Nf > 0 else 0.0
+
+            # Resuspension fluxes [mmol m-3 d-1] (absolute, from smoothed ratios)
+            resusp_C = (self.coupled_aggregate.source_resuspension * conv *
+                       self.smoothed_C_to_Nf_ratio) if self.smoothed_C_to_Nf_ratio is not None else 0.0
+            resusp_N = (self.coupled_aggregate.source_resuspension * conv *
+                       self.smoothed_N_to_Nf_ratio) if self.smoothed_N_to_Nf_ratio is not None else 0.0
+            resusp_P = (self.coupled_aggregate.source_resuspension * conv *
+                       self.smoothed_P_to_Nf_ratio) if (self.P is not None and
+                       self.smoothed_P_to_Nf_ratio is not None) else 0.0
+            resusp_Si = (self.coupled_aggregate.source_resuspension * conv *
+                        self.smoothed_Si_to_Nf_ratio) if (self.Si is not None and
+                        self.smoothed_Si_to_Nf_ratio is not None) else 0.0
+
+            # Net vertical loss (positive = loss from water column)
+            self.sink_vertical_loss.C = settling_rate * self.C - resusp_C
+            self.sink_vertical_loss.N = settling_rate * self.N - resusp_N
+            self.sink_vertical_loss.P = settling_rate * self.P - resusp_P if self.P is not None else 0.0
+            self.sink_vertical_loss.Si = settling_rate * self.Si - resusp_Si if self.Si is not None else 0.0
+
+            # # Old formulation (coupled net rate):
+            # rate = (self.coupled_aggregate.net_vertical_loss_rate *
+            #         self.coupled_aggregate.time_conversion_factor)
+            # self.sink_vertical_loss.C = rate * self.C
+            # self.sink_vertical_loss.N = rate * self.N
+            # if self.P is not None:
+            #     self.sink_vertical_loss.P = rate * self.P
+            # else:
+            #     self.sink_vertical_loss.P = 0.
+            # if self.Si is not None:
+            #     self.sink_vertical_loss.Si = rate * self.Si
+            # else:
+            #     self.sink_vertical_loss.Si = 0.
         else:
             self.sink_vertical_loss.C = 0.
             self.sink_vertical_loss.N = 0.
