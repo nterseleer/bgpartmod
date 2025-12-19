@@ -102,6 +102,7 @@ class Model:
         self._initialize_tracking_variables()
         self._initialize_components()
         self._setup_component_couplings()
+        self._initialize_vertical_coupling_ratios()
         self._precompute_performance_optimizations()
         self.initial_state = self._create_initial_state_vector()
 
@@ -258,6 +259,12 @@ class Model:
             if 'aggregate' in cfg:
                 for agg_key, agg_value in cfg['aggregate'].items():
                     self.aggregate_vars[agg_key].append(f"{key}_{agg_value}")
+
+    def _initialize_vertical_coupling_ratios(self):
+        """Initialize BGC/floc ratios for vertical coupling after all components are set up"""
+        for component in self.components.values():
+            if hasattr(component, 'initialize_vertical_coupling_ratios'):
+                component.initialize_vertical_coupling_ratios()
 
     def _process_couplings(self, coupling_dict):
         """Process coupling configurations"""
