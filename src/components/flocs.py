@@ -150,6 +150,9 @@ class Flocs(BaseStateVar):
                  counter_settling_by_turbulence = False, # Boolean, whether to account for settling by turbulent water
                  settling_velocity_factor = None,  # [-] Constant fraction of base settling velocity (overrides counter_settling_by_turbulence if set)
 
+                 # Vertical coupling parameter for BGC components (EWMA filter for resuspension ratios)
+                 vertical_coupling_alpha = 0.0,  # [-] α=0: fixed ratio (Option A), α>0: adaptive smoothing (Option B1)
+
                  # eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
                  # # value from
                  # eps_kd=2e-5,  # [m2 mg-1] Diffuse attenuation cross section of SPM with kd = ... + eps_kd * sqrt(SPM)
@@ -246,6 +249,7 @@ class Flocs(BaseStateVar):
         self.counter_settling_by_turbulence = counter_settling_by_turbulence
         self.settling_velocity_factor = settling_velocity_factor
         self.apply_settling = apply_settling
+        self.vertical_coupling_alpha = vertical_coupling_alpha
 
         # Initialize tau_cr with base value (will be updated by TEP coupling if active)
         self.tau_cr = tau_cr_base

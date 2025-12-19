@@ -51,7 +51,7 @@ class BaseStateVar:
 
 
 class BaseOrg(BaseStateVar):
-    def __init__(self, dtype=np.float64, vertical_coupling_alpha=0.0):
+    def __init__(self, dtype=np.float64):
 
         super().__init__(dtype=dtype)
 
@@ -71,11 +71,8 @@ class BaseOrg(BaseStateVar):
 
         self.setup = None
 
-        # Vertical coupling parameter (EWMA filter for resuspension ratios)
-        # α=0: fixed ratio (Option A), α>0: adaptive smoothing (Option B1)
-        self.vertical_coupling_alpha = vertical_coupling_alpha
-
-        # Initialize smoothed ratios (set by initialize_vertical_coupling_ratios after coupling)
+        # Smoothed ratios for vertical coupling (set by initialize_vertical_coupling_ratios)
+        # Controlled by coupled_aggregate.vertical_coupling_alpha
         self.smoothed_C_to_Nf_ratio = None
         self.smoothed_N_to_Nf_ratio = None
         self.smoothed_P_to_Nf_ratio = None
