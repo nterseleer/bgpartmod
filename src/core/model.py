@@ -499,27 +499,28 @@ class Model:
         """Compute diagnostic variables using index-based branching"""
         if self.two_dt:
             if is_slow_step:
-                return np.hstack([
+                diag_arrays = [
                     comp.get_diagnostic_variables()
                     for comp in self.components.values()
-                    if hasattr(comp, 'get_diagnostic_variables')
-                       and comp.diagnostics
-                ])
+                    if hasattr(comp, 'get_diagnostic_variables') and comp.diagnostics
+                ]
+                return np.hstack(diag_arrays) if diag_arrays else np.array([])
             else:
-                return np.hstack([
+                diag_arrays = [
                     comp.get_diagnostic_variables()
                     if comp in self.fast_components
                     else np.full(len(self.diag_indices[comp.name]), np.nan)
                     for comp in self.components.values()
-                    if hasattr(comp, 'get_diagnostic_variables')
-                       and comp.diagnostics
-                ])
+                    if hasattr(comp, 'get_diagnostic_variables') and comp.diagnostics
+                ]
+                return np.hstack(diag_arrays) if diag_arrays else np.array([])
         else:
-            return np.hstack([
+            diag_arrays = [
                 comp.get_diagnostic_variables()
                 for comp in self.components.values()
                 if hasattr(comp, 'get_diagnostic_variables')
-            ])
+            ]
+            return np.hstack(diag_arrays) if diag_arrays else np.array([])
 
     @_track_time
     def _run_model(self) -> None:

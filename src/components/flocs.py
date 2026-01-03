@@ -15,6 +15,33 @@ class PrescribedTEP:
         self.C = 0.0  # Will be updated at each timestep
 
 
+class PrescribedFlocs:
+    """
+    Lightweight class to hold prescribed Flocs data for BGC-only optimization.
+    Mimics the interface of full Flocs instances but loads data from Setup.
+    Updated at each timestep from Setup flocs arrays.
+
+    Provides:
+    - massconcentration (Microflocs, Macroflocs) for light attenuation
+    - sink_sedimentation, source_resuspension, numconc for vertical coupling
+    """
+    def __init__(self, name, eps_kd=0.066e3, time_conversion_factor=86400,
+                 vertical_coupling_alpha=0.0):
+        self.name = name
+        self.eps_kd = eps_kd
+        self.time_conversion_factor = time_conversion_factor
+        self.vertical_coupling_alpha = vertical_coupling_alpha
+
+        # Light attenuation (for all floc types)
+        self.massconcentration = 0.0  # [kg m⁻³] - updated at each timestep
+
+        # Vertical coupling (Macroflocs only)
+        if name == "Macroflocs":
+            self.sink_sedimentation = 0.0  # [# m⁻³ s⁻¹] - updated at each timestep
+            self.source_resuspension = 0.0  # [# m⁻³ s⁻¹] - updated at each timestep
+            self.numconc = 0.0  # [# m⁻³] - updated at each timestep
+
+
 class SharedFlocTEPParameters:
     """
     Centralized computation of TEP-dependent parameters for flocculation.
@@ -551,7 +578,8 @@ class Flocs(BaseStateVar):
             self._np_diam_squared = self.coupled_Np.diam ** 2.0
 
             # Physical combinations
-            self._mu_times_g_shear = self.mu_viscosity * self.g_shear_rate_at_t
+            # self._mu_times_g_shear = self.mu_viscosity * self.g_shear_rate_at_t
+            self._mu_times_g_shear = self.mu_water_at_t * self.g_shear_rate_at_t
 
         # All instances: Load essential shared data
         self.Ncnum = self.coupled_Np._shared_ncnum
