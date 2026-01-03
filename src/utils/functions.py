@@ -419,6 +419,7 @@ def update_config(dconf: Dict, param_dict: Dict[str, float]) -> Dict:
         dconf: Base configuration dictionary
         param_dict: Dictionary mapping 'Component+parameter' to value
                    Example: {'Phy+mu_max': 1.37, 'Macroflocs+resuspension_rate': 75941.93}
+                   Special prefix 'BGC+' applies parameters to all BGC components
 
     Returns:
         Updated configuration dictionary with parameters applied
@@ -430,9 +431,15 @@ def update_config(dconf: Dict, param_dict: Dict[str, float]) -> Dict:
         >>> new_config = update_config(base_config, {
         ...     'Phy+mu_max': 1.37,
         ...     'Phy+mortrate': 0.01,
-        ...     'Macroflocs+resuspension_rate': 75941.93
+        ...     'Macroflocs+resuspension_rate': 75941.93,
+        ...     'BGC+vertical_coupling_alpha': 0.02  # Applied to all BGC components
         ... })
     """
+    # BGC components that share common parameters in bgc_only mode
+    BGC_COMPONENTS = ['DOCS', 'DOCL', 'DetL', 'DetS', 'BacA']
+    # Mapping for BGC parameters that need renaming when applied to components
+    BGC_PARAM_MAPPING = {'vertical_coupling_alpha': 'prescribed_vertical_coupling_alpha'}
+
     # Build nested update dictionary
     updates = {}
     for param_key, value in param_dict.items():
@@ -443,9 +450,13 @@ def update_config(dconf: Dict, param_dict: Dict[str, float]) -> Dict:
             )
 
         component, param = param_key.split('+', 1)  # maxsplit=1 to handle '+' in param names
-        if component not in updates:
-            updates[component] = {'parameters': {}}
-        updates[component]['parameters'][param] = value
+
+        # Special handling for BGC+ prefix: broadcast to all BGC components
+        components = BGC_COMPONENTS if component == 'BGC' else [component]
+        target_param = BGC_PARAM_MAPPING.get(param, param) if component == 'BGC' else param
+
+        for comp in components:
+            updates.setdefault(comp, {'parameters': {}})[target_param] = value
 
     return deep_update(dconf, updates)
 
