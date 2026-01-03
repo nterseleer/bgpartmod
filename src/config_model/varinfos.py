@@ -352,7 +352,12 @@ ref_values = {
         'complete_name': "v_{settl} fraction"
     },
 
-
+    'Macroflocs+vertical_coupling_alpha': {
+        'reference_value': 0.,
+        'symbol': 'alpha^{C:Nf}',
+        'units': '[]',
+        'complete_name': "alpha^{C:Nf}"
+    },
 
 
     'NH4+k_remin': {

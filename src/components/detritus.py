@@ -12,6 +12,8 @@ class Detritus(BaseOrg):
                  kleak=0., #0.25,  # [d-1] Specific leakage rate (out of the system) (Onur22)
                  beta_max=0.033,  # [m3 mmolC-1 d-1] Max collision kernel for A2 (Onur22)
                  KA2=57.48,  # [mmolC m-3] Half saturation cst for TEP dependence of A2 (Onur22)
+                 prescribe_aggregate_from_setup=False,  # Whether to use prescribed aggregate from Setup
+                 prescribed_vertical_coupling_alpha=0.0,  # EWMA smoothing for prescribed aggregate coupling
                  dt2=False,
                  dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
@@ -39,6 +41,8 @@ class Detritus(BaseOrg):
         self.kleak = kleak
         self.beta_max = beta_max
         self.KA2 = KA2
+        self.prescribe_aggregate_from_setup = prescribe_aggregate_from_setup
+        self.prescribed_vertical_coupling_alpha = prescribed_vertical_coupling_alpha
         self.dt2 = dt2
         self.bound_temp_to_1 = bound_temp_to_1
 
@@ -84,7 +88,17 @@ class Detritus(BaseOrg):
         self.coupled_larger_Det = coupled_larger_Det
         self.coupled_smaller_Det = coupled_smaller_Det
         self.coupled_consumers = coupled_consumers
-        self.coupled_aggregate = coupled_aggregate
+
+        # Handle prescribed aggregate from Setup (for BGC-only runs with prescribed Flocs)
+        if self.prescribe_aggregate_from_setup:
+            from ..components.flocs import PrescribedFlocs
+            self.coupled_aggregate = PrescribedFlocs(
+                name="Macroflocs",
+                vertical_coupling_alpha=self.prescribed_vertical_coupling_alpha
+            )
+        else:
+            self.coupled_aggregate = coupled_aggregate
+
         self.coupled_remin_products = coupled_remin_products
 
     def get_coupled_processes_indepent_sinks_sources(self, t=None, t_idx=None):
@@ -131,6 +145,13 @@ class Detritus(BaseOrg):
         self.get_sink_aggregation()
         self.get_sink_leakage_out()
         self.get_sink_ingestion()
+
+        # Update prescribed aggregate if applicable
+        if self.prescribe_aggregate_from_setup and self.coupled_aggregate:
+            self.coupled_aggregate.sink_sedimentation = self.setup.Macroflocs_sink_sed_array[t_idx]
+            self.coupled_aggregate.source_resuspension = self.setup.Macroflocs_source_resusp_array[t_idx]
+            self.coupled_aggregate.numconc = self.setup.Macroflocs_numconc_array[t_idx]
+
         self.get_sink_vertical_loss()
         # self.get_sink_remineralization()
 

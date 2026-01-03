@@ -132,7 +132,12 @@ class Setup:
                  TEP_sim_name: Optional[str] = None,  # Name of simulation to load TEP from
                  TEP_column: str = 'TEPC_C',  # Column name for TEP concentration
                  plotTEP: bool = False,
-                 tep_year: int = 2023):
+                 tep_year: int = 2023,
+                 prescribe_Flocs: bool = False,  # Whether to prescribe Flocs from previous simulation
+                 Flocs_sim_name: Optional[str] = None,  # Name of simulation to load Flocs from
+                 Flocs_columns: Optional[Dict[str, str]] = None,  # Column name mapping for Flocs data
+                 plotFlocs: bool = False,
+                 flocs_year: int = 2023):
         """Initialize physical setup for simulation."""
         # Store initialization parameters
         self.constants = PhysicalConstants()
@@ -225,6 +230,18 @@ class Setup:
         self.TEP_array = None
         if self.prescribe_TEP:
             self._load_prescribed_TEP(plotTEP, tep_year)
+
+        # Prescribed Flocs (for BGC-only optimization with prescribed mineral dynamics)
+        self.prescribe_Flocs = prescribe_Flocs
+        self.Flocs_sim_name = Flocs_sim_name
+        self.Flocs_columns = Flocs_columns
+        self.Microflocs_massconc_array = None
+        self.Micro_in_Macro_massconc_array = None
+        self.Macroflocs_sink_sed_array = None
+        self.Macroflocs_source_resusp_array = None
+        self.Macroflocs_numconc_array = None
+        if self.prescribe_Flocs:
+            self._load_prescribed_Flocs(plotFlocs, flocs_year)
 
         # Light settings
         self.PARfromfile = PARfromfile
@@ -383,6 +400,88 @@ class Setup:
         ax2.set_ylabel('TEP C (mmol C m⁻³)')
         ax2.set_title(f'Prescribed TEP - First {days_to_plot} days detail')
         ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
+
+    def _load_prescribed_Flocs(self, plotFlocs: bool = False, flocs_year: int = 2023):
+        """Load prescribed Flocs from simulation, cycle backwards, interpolate to setup dates."""
+        from src.utils import simulation_manager as sim_manager
+
+        flocs_sim = sim_manager.load_simulation(self.Flocs_sim_name)
+
+        # Default column mapping if not specified
+        if self.Flocs_columns is None:
+            self.Flocs_columns = {
+                'Microflocs_massconc': 'Microflocs_massconcentration',
+                'Micro_in_Macro_massconc': 'Micro_in_Macro_massconcentration',
+                'Macroflocs_sink_sed': 'Macroflocs_sink_sedimentation',
+                'Macroflocs_source_resusp': 'Macroflocs_source_resuspension',
+                'Macroflocs_numconc': 'Macroflocs_numconc'
+            }
+
+        # Extract and filter reference year
+        flocs_df = flocs_sim.df[list(self.Flocs_columns.values())].copy()
+        flocs_df = flocs_df[flocs_df.index.year == flocs_year]
+
+        # Cycle backwards for multi-year simulations
+        years_needed = int(np.ceil(self.tmax / 365))
+        if years_needed > 1:
+            cycled_dfs = [flocs_df.copy()]
+            for year_offset in range(1, years_needed):
+                year_df = flocs_df.copy()
+                year_df.index = year_df.index - pd.DateOffset(years=year_offset)
+                cycled_dfs.insert(0, year_df)
+            flocs_df = pd.concat(cycled_dfs).sort_index()
+
+        # Interpolate onto self.dates
+        newdf = pd.DataFrame(index=self.dates)
+        combined_df = flocs_df.join(newdf, how='outer')
+        for col in self.Flocs_columns.values():
+            combined_df[col] = combined_df[col].interpolate(method='time')
+
+        # Extract arrays directly
+        self.Microflocs_massconc_array = combined_df.loc[self.dates, self.Flocs_columns['Microflocs_massconc']].values.astype(self.dtype)
+        self.Micro_in_Macro_massconc_array = combined_df.loc[self.dates, self.Flocs_columns['Micro_in_Macro_massconc']].values.astype(self.dtype)
+        self.Macroflocs_sink_sed_array = combined_df.loc[self.dates, self.Flocs_columns['Macroflocs_sink_sed']].values.astype(self.dtype)
+        self.Macroflocs_source_resusp_array = combined_df.loc[self.dates, self.Flocs_columns['Macroflocs_source_resusp']].values.astype(self.dtype)
+        self.Macroflocs_numconc_array = combined_df.loc[self.dates, self.Flocs_columns['Macroflocs_numconc']].values.astype(self.dtype)
+
+        if plotFlocs:
+            self._plot_prescribed_Flocs()
+
+    def _plot_prescribed_Flocs(self):
+        """Plot prescribed Flocs data for verification."""
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(5, 1, figsize=(12, 12))
+
+        # Plot 1: Microflocs mass concentration
+        axes[0].plot(self.dates, self.Microflocs_massconc_array, 'b-', linewidth=1.5)
+        axes[0].set_ylabel('Microflocs mass\n(kg m⁻³)')
+        axes[0].set_title(f'Prescribed Flocs from Simulation: {self.Flocs_sim_name}')
+        axes[0].grid(True, alpha=0.3)
+
+        # Plot 2: Macroflocs mass concentration
+        axes[1].plot(self.dates, self.Micro_in_Macro_massconc_array, 'g-', linewidth=1.5)
+        axes[1].set_ylabel('Macroflocs mass\n(kg m⁻³)')
+        axes[1].grid(True, alpha=0.3)
+
+        # Plot 3: Macroflocs sedimentation
+        axes[2].plot(self.dates, self.Macroflocs_sink_sed_array, 'r-', linewidth=1.5)
+        axes[2].set_ylabel('Sedimentation\n(# m⁻³ s⁻¹)')
+        axes[2].grid(True, alpha=0.3)
+
+        # Plot 4: Macroflocs resuspension
+        axes[3].plot(self.dates, self.Macroflocs_source_resusp_array, 'orange', linewidth=1.5)
+        axes[3].set_ylabel('Resuspension\n(# m⁻³ s⁻¹)')
+        axes[3].grid(True, alpha=0.3)
+
+        # Plot 5: Macroflocs number concentration
+        axes[4].plot(self.dates, self.Macroflocs_numconc_array, 'purple', linewidth=1.5)
+        axes[4].set_xlabel('Date')
+        axes[4].set_ylabel('Numconc\n(# m⁻³)')
+        axes[4].grid(True, alpha=0.3)
 
         plt.tight_layout()
         plt.show()

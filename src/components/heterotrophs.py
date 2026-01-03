@@ -22,7 +22,8 @@ class Heterotrophs(BaseOrg):
                  A_E=0.65,  # [-] Activation Energy for T° scaling
                  T_ref=283,  # [K] Reference T°
                  eps_kd=0.012,  # [m2 mmolC-1] Specific attenuation coefficient
-
+                 prescribe_aggregate_from_setup=False,  # Whether to use prescribed aggregate from Setup
+                 prescribed_vertical_coupling_alpha=0.0,  # EWMA smoothing for prescribed aggregate coupling
                  dt2=False,
                  dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
@@ -66,6 +67,8 @@ class Heterotrophs(BaseOrg):
         self.A_E = A_E
         self.T_ref = T_ref
         self.eps_kd = eps_kd
+        self.prescribe_aggregate_from_setup = prescribe_aggregate_from_setup
+        self.prescribed_vertical_coupling_alpha = prescribed_vertical_coupling_alpha
 
         self.pref = {}
         for k, v in kwargs.items():
@@ -99,7 +102,16 @@ class Heterotrophs(BaseOrg):
         # Coupling links
         self.coupled_targets = coupled_targets  # preys (for zooplankton), but can also be OM
         self.coupled_consumers = coupled_consumers
-        self.coupled_aggregate = coupled_aggregate
+
+        # Handle prescribed aggregate from Setup (for BGC-only runs with prescribed Flocs)
+        if self.prescribe_aggregate_from_setup:
+            from ..components.flocs import PrescribedFlocs
+            self.coupled_aggregate = PrescribedFlocs(
+                name="Macroflocs",
+                vertical_coupling_alpha=self.prescribed_vertical_coupling_alpha
+            )
+        else:
+            self.coupled_aggregate = coupled_aggregate
         for t in self.coupled_targets:
             if t.name not in self.pref.keys():
                 self.pref[t.name] = 0.
@@ -177,6 +189,13 @@ class Heterotrophs(BaseOrg):
     def get_sinks(self, t=None, t_idx=None):
         # SINKS
         self.get_sink_ingestion()
+
+        # Update prescribed aggregate if applicable
+        if self.prescribe_aggregate_from_setup and self.coupled_aggregate:
+            self.coupled_aggregate.sink_sedimentation = self.setup.Macroflocs_sink_sed_array[t_idx]
+            self.coupled_aggregate.source_resuspension = self.setup.Macroflocs_source_resusp_array[t_idx]
+            self.coupled_aggregate.numconc = self.setup.Macroflocs_numconc_array[t_idx]
+
         self.get_sink_vertical_loss()
         # self.get_sink_respiration()
         # self.get_sink_lysis()

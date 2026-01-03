@@ -42,6 +42,8 @@ class Phyto(BaseOrg):
                  kdvar=False,  # Whether to apply an extinction coefficient in the water column to incident light
                  eps_kd=8e-4 * varinfos.molmass_C,  # Diffuse attenuation cross section of phytoplankton [m2 mgC-1]
                  divide_water_depth_ratio=1.,  # ratio to divide water depth to restrain light attenuation
+                 prescribe_SPM_from_setup=False,  # Whether to use prescribed SPM from Setup (for BGC-only runs)
+                 prescribed_SPM_eps_kd=0.066e3,  # [m² kg⁻¹] Light attenuation cross section for prescribed SPM
                  dt2=False,
                  dtype=np.float64,
                  name='DefaultPhyto',
@@ -93,6 +95,8 @@ class Phyto(BaseOrg):
         self.kdvar = kdvar
         self.eps_kd = eps_kd
         self.divide_water_depth_ratio = divide_water_depth_ratio
+        self.prescribe_SPM_from_setup = prescribe_SPM_from_setup
+        self.prescribed_SPM_eps_kd = prescribed_SPM_eps_kd
         self.dt2 = dt2
         self.name = name
         self.bound_temp_to_1 = bound_temp_to_1
@@ -151,7 +155,17 @@ class Phyto(BaseOrg):
         self.coupled_DSi = coupled_DSi
         self.coupled_TEPC = coupled_TEPC
         self.coupled_Det = coupled_Det
-        self.coupled_SPM = coupled_SPM
+
+        # Handle prescribed SPM from Setup (for BGC-only runs with prescribed Flocs)
+        if self.prescribe_SPM_from_setup:
+            from ..components.flocs import PrescribedFlocs
+            self.coupled_SPM = [
+                PrescribedFlocs(name="Microflocs", eps_kd=self.prescribed_SPM_eps_kd),
+                PrescribedFlocs(name="Micro_in_Macro", eps_kd=self.prescribed_SPM_eps_kd)
+            ]
+        else:
+            self.coupled_SPM = coupled_SPM
+
         self.coupled_aggreg_target = coupled_aggreg_target
         self.coupled_light_attenuators = coupled_light_attenuators
 
@@ -171,6 +185,11 @@ class Phyto(BaseOrg):
 
     def get_sources(self, t, t_idx):
         # Optimization: Use pre-computed arrays for faster access
+
+        # Update prescribed SPM if applicable
+        if self.prescribe_SPM_from_setup and self.coupled_SPM:
+            self.coupled_SPM[0].massconcentration = self.setup.Microflocs_massconc_array[t_idx]
+            self.coupled_SPM[1].massconcentration = self.setup.Micro_in_Macro_massconc_array[t_idx]
 
         # Limitation functions
         self.get_limNUT()
