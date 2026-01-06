@@ -56,7 +56,7 @@ Phy_diagnostics_full = {
 # ===============================================================================
 
 Onur = {
-    'formulation': 'Onur22',
+    # 'formulation': 'Onur22',
     'BacF': {'class': het.Heterotrophs,
              'parameters':
                  {'g_max': 4.,  # [-] ?!

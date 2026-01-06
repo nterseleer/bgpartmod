@@ -464,7 +464,7 @@ class Setup:
 
         # Plot 2: Macroflocs mass concentration
         axes[1].plot(self.dates, self.Micro_in_Macro_massconc_array, 'g-', linewidth=1.5)
-        axes[1].set_ylabel('Macroflocs mass\n(kg m⁻³)')
+        axes[1].set_ylabel('Micro_in_Macro mass\n(kg m⁻³)')
         axes[1].grid(True, alpha=0.3)
 
         # Plot 3: Macroflocs sedimentation
