@@ -456,7 +456,7 @@ def update_config(dconf: Dict, param_dict: Dict[str, float]) -> Dict:
         target_param = BGC_PARAM_MAPPING.get(param, param) if component == 'BGC' else param
 
         for comp in components:
-            updates.setdefault(comp, {'parameters': {}})[target_param] = value
+            updates.setdefault(comp, {'parameters': {}})['parameters'][target_param] = value
 
     return deep_update(dconf, updates)
 
