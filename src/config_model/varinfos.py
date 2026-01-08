@@ -275,13 +275,13 @@ ref_values = {
         'complete_name': "Efficiency factor for breakage [s^{0.5}/m]"
     },
     'Microflocs+fyflocstrength': {
-        'reference_value': 1e-10,
+        # 'reference_value': 1e-10,
         'symbol': 'F_y',
         'units': 'Pa',
         'complete_name': "Yield strength of flocs [Pa]"
     },
     'Microflocs+fyflocstrength_base': {
-        'reference_value': 1e-10,
+        # 'reference_value': 1e-10,
         'symbol': 'F_y^{base}',
         'units': 'N',
         'complete_name': "Base yield strength of flocs (mineral only) [N]"
@@ -293,7 +293,7 @@ ref_values = {
         'complete_name': "Half saturation constant for TEP effect on flocculation"
     },
     'Microflocs+deltaFymax': {
-        'reference_value': 1e-9,
+        # 'reference_value': 1e-9,
         'symbol': 'Δ F_{y}^{max} ',
         'units': '---',
         'complete_name': "Max TEP-increased Floc strength"

@@ -1939,10 +1939,11 @@ def create_parameter_table(df: pd.DataFrame,
     pars_info = []
     for key, min_val, max_val in parameters:
         param_info = varinfos.ref_values[key]
+        ref_val = param_info.get('reference_value')
         pars_info.append({
             "Name": param_info['complete_name'],
             "Symbol": fns.cleantext(param_info.get('symbol', '')),
-            "Ref. value": f"{param_info['reference_value']:.3g}",
+            "Ref. value": f"{ref_val:.3g}" if ref_val is not None else "N/A",
             "Units": fns.cleantext(param_info.get('units', '')),
             "Min. value": f"{min_val:.3g}",
             "Max. value": f"{max_val:.3g}",
