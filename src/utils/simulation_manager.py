@@ -589,6 +589,7 @@ def load_simulation(name: str, simulation_type: SimulationTypes = SimulationType
             model_path = os.path.join(ref_dir, 'model.pkl')
             if not os.path.exists(model_path):
                 raise FileNotFoundError(f"Reference model file not found: {model_path}")
+            print('Loading ', model_path, '...')
             with open(model_path, 'rb') as f:
                 return dill.load(f)
 

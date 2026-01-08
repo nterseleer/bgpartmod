@@ -56,7 +56,8 @@ DEFAULT_LINESTYLES = ['-', '--', '-.', ':']
 
 # Budget plot color palettes (cool colors for sources, warm colors for sinks)
 BUDGET_SOURCE_COLORS = ['#2E86AB', '#06A77D', '#81B214', '#A7C957', '#4ECDC4', '#45B7D1']
-BUDGET_SINK_COLORS = ['#D62828', '#F77F00', '#FCBF49', '#EE6C4D', '#E63946', '#F4A261']
+# BUDGET_SINK_COLORS = ['#D62828', '#F77F00', '#FCBF49', '#EE6C4D', '#E63946', '#F4A261']
+BUDGET_SINK_COLORS = ['#FFD300', '#E1A95F', '#E08D3C', '#E25822', '#E34234', '#8B0000']
 
 DEFAULT_LEGEND_FONTSIZE = 8
 DEFAULT_FIGURE_DPI = 500
@@ -408,7 +409,12 @@ def plot_variable(
         clean_name = var_name.replace('_', r'\_')
 
     units = var_info.get('munits' if var_name.startswith('m') else 'units', '')
-    long_name = var_info.get('longname', var_name)
+    long_name = var_info.get('longname', None)
+
+    # If longname not defined in varinfos, use var_name but escape underscores
+    # to prevent matplotlib mathtext errors (double subscript issues)
+    if long_name is None:
+        long_name = var_name.replace('_', r'\_')
 
     # Set ylabel with optional custom padding and fontsize
     ylabel_kwargs = {}
