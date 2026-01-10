@@ -461,6 +461,85 @@ def update_config(dconf: Dict, param_dict: Dict[str, float]) -> Dict:
     return deep_update(dconf, updates)
 
 
+def remove_currency(dconf: Dict, currency: str = 'P') -> Dict:
+    """
+    Remove a specific currency (P, Si, N) from a biogeochemical model configuration.
+
+    Removes all initialization values, couplings, aggregates, parameters, and diagnostics
+    related to the specified currency. The model will treat the currency as absent (None).
+
+    Args:
+        dconf: Model configuration dictionary
+        currency: Currency to remove - 'P', 'Si', or 'N' (case-insensitive)
+
+    Returns:
+        Modified configuration dictionary with currency removed
+
+    Example:
+        >>> # Remove phosphorus from the model
+        >>> dconf_no_P = fns.remove_currency(dconf, 'P')
+        >>>
+        >>> # Remove silicon
+        >>> dconf_no_Si = fns.remove_currency(dconf, 'Si')
+    """
+    import copy
+    currency = currency.upper()
+
+    if currency not in varinfos.CURRENCY_MAP:
+        raise ValueError(f"Currency '{currency}' not supported. Use 'P', 'Si', or 'N'.")
+
+    config = varinfos.CURRENCY_MAP[currency]
+    result = copy.deepcopy(dconf)
+
+    # Helper to ensure list
+    def as_list(x): return x if isinstance(x, list) else [x]
+
+    for comp_name, comp_config in result.items():
+        if comp_name == 'formulation':
+            continue
+
+        # Remove from initialization
+        if 'initialization' in comp_config and config['init_key'] in comp_config['initialization']:
+            del comp_config['initialization'][config['init_key']]
+
+        # Remove from coupling
+        if 'coupling' in comp_config:
+            for coup_key in as_list(config['coupling_key']):
+                comp_config['coupling'].pop(coup_key, None)
+
+            # Remove from coupled_remin_products (for detritus/DOM components)
+            if 'coupled_remin_products' in comp_config['coupling']:
+                remin_list = comp_config['coupling']['coupled_remin_products']
+                for remin_key in as_list(config['remin_key']):
+                    if remin_key in remin_list:
+                        comp_config['coupling']['coupled_remin_products'] = [
+                            x for x in remin_list if x != remin_key
+                        ]
+
+        # Remove from aggregates
+        if 'aggregate' in comp_config:
+            for agg_key in config['aggregate_keys']:
+                comp_config['aggregate'].pop(agg_key, None)
+
+        # Remove from parameters
+        if 'parameters' in comp_config:
+            for param_key in config['param_keys']:
+                comp_config['parameters'].pop(param_key, None)
+
+        # Remove from diagnostics
+        if 'diagnostics' in comp_config:
+            comp_config['diagnostics'] = [
+                diag for diag in comp_config['diagnostics']
+                if not any(pattern in diag for pattern in config['diag_patterns'])
+            ]
+
+    # Remove nutrient component(s) entirely
+    for nut_comp in as_list(config['nutrient_component']):
+        result.pop(nut_comp, None)
+
+    return result
+
+
 # From https://github.com/samuelcolvin/pydantic/blob/fd2991fe6a73819b48c906e3c3274e8e47d0f761/pydantic/utils.py#L200
 # (initially from https://stackoverflow.com/questions/3232943/update-value-of-a-nested-dictionary-of-varying-depth)
 from typing import (Any, Dict, TypeVar)

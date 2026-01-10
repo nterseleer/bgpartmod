@@ -148,43 +148,52 @@ class Heterotrophs(BaseOrg):
         #   be computed from QN and QP. Consequently, it needs to be removed from C_ingestion here to take this
         #   C loss into account when updating eff_C, eff_N and eff_P to conserve QN and QP
         self.ing_C = sum(self.source_ingestion.C.values()) - self.sink_respiration.C
-        self.ing_N = sum(self.source_ingestion.N.values())
-        self.ing_P = sum(self.source_ingestion.P.values())
+        if self.N is not None:
+            self.ing_N = sum(self.source_ingestion.N.values())
+        if self.P is not None:
+            self.ing_P = sum(self.source_ingestion.P.values())
 
-        if eff_P * self.ing_P > eff_C * self.ing_C * self.QP:
+        if self.P is not None and eff_P * self.ing_P > eff_C * self.ing_C * self.QP:
             eff_P = eff_C * self.ing_C * self.QP / self.ing_P
-        elif eff_P * self.ing_P < eff_C * self.ing_C * self.QP:
+        elif self.P is not None and eff_P * self.ing_P < eff_C * self.ing_C * self.QP:
             eff_C = eff_P * self.ing_P / (self.ing_C * self.QP)
 
-        if eff_N * self.ing_N > eff_C * self.ing_C * self.QN:
+        if self.N is not None and eff_N * self.ing_N > eff_C * self.ing_C * self.QN:
             eff_N = eff_C * self.ing_C * self.QN / self.ing_N
-        elif eff_N * self.ing_N < eff_C * self.ing_C * self.QN:
+        elif self.N is not None and eff_N * self.ing_N < eff_C * self.ing_C * self.QN:
             eff_C = eff_N * self.ing_N / (self.ing_C * self.QN)
 
-        if eff_P * self.ing_P > eff_C * self.ing_C * self.QP:
+        if self.P is not None and eff_P * self.ing_P > eff_C * self.ing_C * self.QP:
             eff_P = eff_C * self.ing_C * self.QP / self.ing_P
 
         # SOURCE terms of the state equation
         self.source_ing_C_assimilated = self.ing_C * eff_C
-        self.source_ing_N_assimilated = self.ing_N * eff_N
-        self.source_ing_P_assimilated = self.ing_P * eff_P
+        if self.N is not None:
+            self.source_ing_N_assimilated = self.ing_N * eff_N
+        if self.P is not None:
+            self.source_ing_P_assimilated = self.ing_P * eff_P
 
         # Remaining part to be distributed elsewhere
         self.source_ing_C_unassimilated = self.ing_C - self.source_ing_C_assimilated
-        self.source_ing_N_unassimilated = self.ing_N - self.source_ing_N_assimilated
-        self.source_ing_P_unassimilated = self.ing_P - self.source_ing_P_assimilated
+        if self.N is not None:
+            self.source_ing_N_unassimilated = self.ing_N - self.source_ing_N_assimilated
+            self.source_ing_N_unassimilated_to_dom = self.source_ing_N_unassimilated * self.f_unass_excr
+            self.source_ing_N_unassimilated_to_dim = self.source_ing_N_unassimilated - self.source_ing_N_unassimilated_to_dom
+        if self.P is not None:
+            self.source_ing_P_unassimilated = self.ing_P - self.source_ing_P_assimilated
+            self.source_ing_P_unassimilated_to_dom = self.source_ing_P_unassimilated * self.f_unass_excr
+            self.source_ing_P_unassimilated_to_dim = self.source_ing_P_unassimilated - self.source_ing_P_unassimilated_to_dom
         self.source_ing_C_unassimilated_to_dom = self.source_ing_C_unassimilated * self.f_unass_excr
-        self.source_ing_N_unassimilated_to_dom = self.source_ing_N_unassimilated * self.f_unass_excr
-        self.source_ing_P_unassimilated_to_dom = self.source_ing_P_unassimilated * self.f_unass_excr
         self.source_ing_C_unassimilated_to_dim = self.source_ing_C_unassimilated - self.source_ing_C_unassimilated_to_dom
-        self.source_ing_N_unassimilated_to_dim = self.source_ing_N_unassimilated - self.source_ing_N_unassimilated_to_dom
-        self.source_ing_P_unassimilated_to_dim = self.source_ing_P_unassimilated - self.source_ing_P_unassimilated_to_dom
 
         self.C_sources = self.source_ing_C_assimilated
-        self.N_sources = self.source_ing_N_assimilated
-        self.P_sources = self.source_ing_P_assimilated
+        if self.N is not None:
+            self.N_sources = self.source_ing_N_assimilated
+        if self.P is not None:
+            self.P_sources = self.source_ing_P_assimilated
 
-        return np.array((self.C_sources, self.N_sources, self.P_sources), dtype=self.dtype)
+        return np.array([sources for sources in (self.C_sources, self.N_sources, self.P_sources)
+                        if sources is not None], dtype=self.dtype)
 
     def get_sinks(self, t=None, t_idx=None):
         # SINKS
@@ -208,19 +217,22 @@ class Heterotrophs(BaseOrg):
                         self.sink_mortality.C +
                         self.sink_vertical_loss.C)
 
-        self.N_sinks = (self.sink_ingestion.N +
-                        self.sink_respiration.N +
-                        self.sink_lysis.N +
-                        self.sink_mortality.N +
-                        self.sink_vertical_loss.N)
+        if self.N is not None:
+            self.N_sinks = (self.sink_ingestion.N +
+                            self.sink_respiration.N +
+                            self.sink_lysis.N +
+                            self.sink_mortality.N +
+                            self.sink_vertical_loss.N)
 
-        self.P_sinks = (self.sink_ingestion.P +
-                        self.sink_respiration.P +
-                        self.sink_lysis.P +
-                        self.sink_mortality.P +
-                        self.sink_vertical_loss.P)
+        if self.P is not None:
+            self.P_sinks = (self.sink_ingestion.P +
+                            self.sink_respiration.P +
+                            self.sink_lysis.P +
+                            self.sink_mortality.P +
+                            self.sink_vertical_loss.P)
 
-        return np.array((self.C_sinks, self.N_sinks, self.P_sinks), dtype=self.dtype)
+        return np.array([sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks)
+                        if sinks is not None], dtype=self.dtype)
 
     def get_source_ingestion(self):
         """Calculate ingestion with vectorized operations for Onur22 formulation."""
@@ -250,8 +262,10 @@ class Heterotrophs(BaseOrg):
 
     def get_sink_ingestion(self):
         self.sink_ingestion.C = fns.get_all_contributors(self.coupled_consumers, 'source_ingestion', 'C', dkey=self.name)
-        self.sink_ingestion.N = fns.get_all_contributors(self.coupled_consumers, 'source_ingestion', 'N', dkey=self.name)
-        self.sink_ingestion.P = fns.get_all_contributors(self.coupled_consumers, 'source_ingestion', 'P', dkey=self.name)
+        if self.N is not None:
+            self.sink_ingestion.N = fns.get_all_contributors(self.coupled_consumers, 'source_ingestion', 'N', dkey=self.name)
+        if self.P is not None:
+            self.sink_ingestion.P = fns.get_all_contributors(self.coupled_consumers, 'source_ingestion', 'P', dkey=self.name)
 
     def get_sink_respiration(self):
         self.sink_respiration.C = self.C * self.zeta_resp * self.lim_T
@@ -260,13 +274,17 @@ class Heterotrophs(BaseOrg):
 
     def get_sink_lysis(self):
         self.sink_lysis.C = self.C * (self.lysrate_lin + self.C * self.lysrate_quad) * self.lim_T
-        self.sink_lysis.N = self.sink_lysis.C * self.QN
-        self.sink_lysis.P = self.sink_lysis.C * self.QP
+        if self.N is not None:
+            self.sink_lysis.N = self.sink_lysis.C * self.QN
+        if self.P is not None:
+            self.sink_lysis.P = self.sink_lysis.C * self.QP
 
     def get_sink_mortality(self):
         self.sink_mortality.C = self.C * (self.mortrate_lin + self.C * self.mortrate_quad) * self.lim_T
-        self.sink_mortality.N = self.sink_mortality.C * self.QN
-        self.sink_mortality.P = self.sink_mortality.C * self.QP
+        if self.N is not None:
+            self.sink_mortality.N = self.sink_mortality.C * self.QN
+        if self.P is not None:
+            self.sink_mortality.P = self.sink_mortality.C * self.QP
 
     def get_sink_vertical_loss(self):
         """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)
@@ -284,9 +302,9 @@ class Heterotrophs(BaseOrg):
                 alpha = self.coupled_aggregate.vertical_coupling_alpha
                 if self.smoothed_C_to_Nf_ratio is not None:
                     self.smoothed_C_to_Nf_ratio = alpha * (self.C / Nf) + (1 - alpha) * self.smoothed_C_to_Nf_ratio
-                if self.smoothed_N_to_Nf_ratio is not None:
+                if self.N is not None and self.smoothed_N_to_Nf_ratio is not None:
                     self.smoothed_N_to_Nf_ratio = alpha * (self.N / Nf) + (1 - alpha) * self.smoothed_N_to_Nf_ratio
-                if self.smoothed_P_to_Nf_ratio is not None:
+                if self.P is not None and self.smoothed_P_to_Nf_ratio is not None:
                     self.smoothed_P_to_Nf_ratio = alpha * (self.P / Nf) + (1 - alpha) * self.smoothed_P_to_Nf_ratio
 
             # Sedimentation rate [d-1]
@@ -296,14 +314,16 @@ class Heterotrophs(BaseOrg):
             resusp_C = (self.coupled_aggregate.source_resuspension * conv *
                        self.smoothed_C_to_Nf_ratio) if self.smoothed_C_to_Nf_ratio is not None else 0.0
             resusp_N = (self.coupled_aggregate.source_resuspension * conv *
-                       self.smoothed_N_to_Nf_ratio) if self.smoothed_N_to_Nf_ratio is not None else 0.0
+                       self.smoothed_N_to_Nf_ratio) if self.N is not None and self.smoothed_N_to_Nf_ratio is not None else 0.0
             resusp_P = (self.coupled_aggregate.source_resuspension * conv *
-                       self.smoothed_P_to_Nf_ratio) if self.smoothed_P_to_Nf_ratio is not None else 0.0
+                       self.smoothed_P_to_Nf_ratio) if self.P is not None and self.smoothed_P_to_Nf_ratio is not None else 0.0
 
             # Net vertical loss (positive = loss from water column)
             self.sink_vertical_loss.C = settling_rate * self.C - resusp_C
-            self.sink_vertical_loss.N = settling_rate * self.N - resusp_N
-            self.sink_vertical_loss.P = settling_rate * self.P - resusp_P
+            if self.N is not None:
+                self.sink_vertical_loss.N = settling_rate * self.N - resusp_N
+            if self.P is not None:
+                self.sink_vertical_loss.P = settling_rate * self.P - resusp_P
 
             # # Old formulation (coupled net rate):
             # rate = (self.coupled_aggregate.net_vertical_loss_rate *
