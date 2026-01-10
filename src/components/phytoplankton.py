@@ -194,8 +194,16 @@ class Phyto(BaseOrg):
         # Limitation functions
         self.get_limNUT()
         self.limT = self.limT_growth_array[t_idx]
-        if self.P is not None and self.Si is not None:
-            self.fnut = min(self.QN, self.QP, self.QSi)
+
+        # Calculate fnut from active currencies only
+        active_quotas = []
+        if self.N is not None:
+            active_quotas.append(self.QN)
+        if self.P is not None:
+            active_quotas.append(self.QP)
+        if self.Si is not None:
+            active_quotas.append(self.QSi)
+        self.fnut = min(active_quotas) if active_quotas else 1.0
 
         # SOURCES
         self.get_source_PP(t, t_idx=t_idx)
@@ -281,16 +289,34 @@ class Phyto(BaseOrg):
 
     def get_limNUT(self):
         """Calculate nutrient limitations for Onur22 formulation."""
-        self.lim_N = 1 - self.QN_min / self.QN
-        self.lim_P = 1 - self.QP_min / self.QP
-        self.lim_Si = 1 - self.QSi_min / self.QSi
-        self.limNUT = min(self.lim_N, self.lim_P, self.lim_Si)
-        self.limQUOTAmin.N = (self.QN - self.QN_min) / (self.QN_max - self.QN_min)
-        self.limQUOTA.N = 1 - self.limQUOTAmin.N
-        self.limQUOTAmin.P = (self.QP - self.QP_min) / (self.QP_max - self.QP_min)
-        self.limQUOTA.P = 1 - self.limQUOTAmin.P
-        self.limQUOTAmin.Si = (self.QSi - self.QSi_min) / (self.QSi_max - self.QSi_min)
-        self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
+        active_lims = []
+
+        if self.N is not None:
+            self.lim_N = 1 - self.QN_min / self.QN
+            active_lims.append(self.lim_N)
+            self.limQUOTAmin.N = (self.QN - self.QN_min) / (self.QN_max - self.QN_min)
+            self.limQUOTA.N = 1 - self.limQUOTAmin.N
+        else:
+            self.lim_N = 1.0  # No limitation if currency not present
+
+        if self.P is not None:
+            self.lim_P = 1 - self.QP_min / self.QP
+            active_lims.append(self.lim_P)
+            self.limQUOTAmin.P = (self.QP - self.QP_min) / (self.QP_max - self.QP_min)
+            self.limQUOTA.P = 1 - self.limQUOTAmin.P
+        else:
+            self.lim_P = 1.0  # No limitation if currency not present
+
+        if self.Si is not None:
+            self.lim_Si = 1 - self.QSi_min / self.QSi
+            active_lims.append(self.lim_Si)
+            self.limQUOTAmin.Si = (self.QSi - self.QSi_min) / (self.QSi_max - self.QSi_min)
+            self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
+        else:
+            self.lim_Si = 1.0  # No limitation if currency not present
+
+        # limNUT = minimum of active currency limitations only
+        self.limNUT = min(active_lims) if active_lims else 1.0
 
     def get_kd(self):
         """Calculate light attenuation coefficient using cached eps_kd arrays (lazy init)."""
@@ -333,17 +359,20 @@ class Phyto(BaseOrg):
 
     def get_source_uptake(self):
         """Calculate nutrient uptake for Onur22 formulation."""
-        wNH4 = self.coupled_NH4.concentration / self.KNH4
-        wNO3 = self.coupled_NO3.concentration / self.KNO3
-        self.mmNH4 = wNH4 / (1 + wNH4 + wNO3)
-        self.mmNO3 = wNO3 / (1 + wNH4 + wNO3)
-        self.mmDIP = self.coupled_DIP.concentration / (self.coupled_DIP.concentration + self.KDIP)
-        self.mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi)
-        self.source_uptake.NH4 = self.v_max_N * self.limQUOTA.N * self.mmNH4 * self.limT * self.C
-        self.source_uptake.NO3 = self.v_max_N * self.limQUOTA.N * self.mmNO3 * self.limT * self.C
-        self.source_uptake.N = self.source_uptake.NH4 + self.source_uptake.NO3
-        self.source_uptake.P = self.v_max_P * self.limQUOTA.P * self.mmDIP * self.limT * self.C
-        self.source_uptake.Si = self.v_max_Si * self.limQUOTA.Si * self.mmDSi * self.limT * self.C
+        if self.N is not None:
+            wNH4 = self.coupled_NH4.concentration / self.KNH4
+            wNO3 = self.coupled_NO3.concentration / self.KNO3
+            self.mmNH4 = wNH4 / (1 + wNH4 + wNO3)
+            self.mmNO3 = wNO3 / (1 + wNH4 + wNO3)
+            self.source_uptake.NH4 = self.v_max_N * self.limQUOTA.N * self.mmNH4 * self.limT * self.C
+            self.source_uptake.NO3 = self.v_max_N * self.limQUOTA.N * self.mmNO3 * self.limT * self.C
+            self.source_uptake.N = self.source_uptake.NH4 + self.source_uptake.NO3
+        if self.P is not None:
+            self.mmDIP = self.coupled_DIP.concentration / (self.coupled_DIP.concentration + self.KDIP)
+            self.source_uptake.P = self.v_max_P * self.limQUOTA.P * self.mmDIP * self.limT * self.C
+        if self.Si is not None:
+            self.mmDSi = self.coupled_DSi.concentration / (self.coupled_DSi.concentration + self.KDSi)
+            self.source_uptake.Si = self.v_max_Si * self.limQUOTA.Si * self.mmDSi * self.limT * self.C
 
     def get_source_Chlprod(self):
         """
@@ -352,15 +381,21 @@ class Phyto(BaseOrg):
         rho_Chl is in [mgChl mmolN-1], source_uptake.N is in [mmolN m-3 d-1]
         Hence [mgChl m-3 d-1] = [mgChl mmolN-1] * [mmolN m-3 d-1]
         """
-        self.source_Chlprod.Chl = self.rho_Chl * self.source_uptake.N
+        if self.N is not None:
+            self.source_Chlprod.Chl = self.rho_Chl * self.source_uptake.N
+        else:
+            self.source_Chlprod.Chl = 0.
 
     def get_sink_lysis(self):
         flysis = 0.05 + 0.95 * (1. + np.exp(-(self.fnut - 0.2) * 30)) ** (-1)
         self.sink_lysis.C = self.C * flysis * self.lysrate
-        self.sink_lysis.N = self.sink_lysis.C * self.QN
+        if self.N is not None:
+            self.sink_lysis.N = self.sink_lysis.C * self.QN
         self.sink_lysis.Chl = self.sink_lysis.C * self.thetaC
-        self.sink_lysis.P = self.sink_lysis.C * self.QP
-        self.sink_lysis.Si = self.sink_lysis.C * self.QSi
+        if self.P is not None:
+            self.sink_lysis.P = self.sink_lysis.C * self.QP
+        if self.Si is not None:
+            self.sink_lysis.Si = self.sink_lysis.C * self.QSi
 
     def get_sink_mortality(self, t, t_idx=None):
         # Optimization: Use pre-computed temperature limitation for grazing
@@ -368,19 +403,25 @@ class Phyto(BaseOrg):
                         self.limT_grazing_array[t_idx] *
                         self.C / (self.K_grazing + self.C))
         self.sink_mortality.C = self.C * self.mortrate + grazing_loss
-        self.sink_mortality.N = self.sink_mortality.C * self.QN
+        if self.N is not None:
+            self.sink_mortality.N = self.sink_mortality.C * self.QN
         self.sink_mortality.Chl = self.sink_mortality.C * self.thetaC
-        self.sink_mortality.P = self.sink_mortality.C * self.QP
-        self.sink_mortality.Si = self.sink_mortality.C * self.QSi
+        if self.P is not None:
+            self.sink_mortality.P = self.sink_mortality.C * self.QP
+        if self.Si is not None:
+            self.sink_mortality.Si = self.sink_mortality.C * self.QSi
 
     def get_sink_exudation(self):
         """Calculate exudation for Onur22 formulation."""
         self.sink_exudation.C = self.gamma_C_exud_base * self.C + self.gamma_C_exud_prod * self.PC
         self.sink_exudation.Chl = 0.
         xquota = 0.99
-        self.sink_exudation.N = self.sink_exudation.C * self.QN if self.limQUOTAmin.N > xquota else 0.
-        self.sink_exudation.P = self.sink_exudation.C * self.QP if self.limQUOTAmin.P > xquota else 0.
-        self.sink_exudation.Si = self.sink_exudation.C * self.QSi if self.limQUOTAmin.Si > xquota else 0.
+        if self.N is not None:
+            self.sink_exudation.N = self.sink_exudation.C * self.QN if self.limQUOTAmin.N > xquota else 0.
+        if self.P is not None:
+            self.sink_exudation.P = self.sink_exudation.C * self.QP if self.limQUOTAmin.P > xquota else 0.
+        if self.Si is not None:
+            self.sink_exudation.Si = self.sink_exudation.C * self.QSi if self.limQUOTAmin.Si > xquota else 0.
         self.frac_exud_small = 1 / (1 + np.exp(-(self.fnut - 0.2) * 30))
 
     def get_sink_respiration(self):
@@ -394,7 +435,8 @@ class Phyto(BaseOrg):
     def get_sink_ingestion(self):
         if self.coupled_consumer is not None:
             self.sink_ingestion.C = fns.get_all_contributors(self.coupled_consumer, 'source_ingestion', 'C')
-            self.sink_ingestion.N = fns.get_all_contributors(self.coupled_consumer, 'source_ingestion', 'N')
+            if self.N is not None:
+                self.sink_ingestion.N = fns.get_all_contributors(self.coupled_consumer, 'source_ingestion', 'N')
             self.sink_ingestion.Chl = fns.get_all_contributors(self.coupled_consumer, 'source_ingestion',
                                                                'C') * self.thetaC
 
@@ -408,7 +450,10 @@ class Phyto(BaseOrg):
     def get_sink_aggregation(self):
         """Calculate aggregation for Onur22 formulation."""
         self.sink_aggregation.C = self.coupled_aggreg_target.aggPhy_C
-        self.sink_aggregation.N = self.coupled_aggreg_target.aggPhy_N
-        self.sink_aggregation.P = self.coupled_aggreg_target.aggPhy_P
-        self.sink_aggregation.Si = self.coupled_aggreg_target.aggPhy_Si
+        if self.N is not None:
+            self.sink_aggregation.N = self.coupled_aggreg_target.aggPhy_N
+        if self.P is not None:
+            self.sink_aggregation.P = self.coupled_aggreg_target.aggPhy_P
+        if self.Si is not None:
+            self.sink_aggregation.Si = self.coupled_aggreg_target.aggPhy_Si
         self.sink_aggregation.Chl = self.coupled_aggreg_target.aggPhy_Chl

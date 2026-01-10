@@ -9,6 +9,38 @@ thetaNSchartau = 1.56 / molmass_N  # [gChla gN-1]
 degCtoK = 273.15
 boltz = 8.6210e-5
 
+# Currency mapping for remove_currency() function
+# Maps each currency (P, Si, N) to all related model fields
+CURRENCY_MAP = {
+    'P': {
+        'nutrient_component': 'DIP',
+        'coupling_key': 'coupled_DIP',
+        'init_key': 'P',
+        'aggregate_keys': ['P_tot', 'POP'],
+        'param_keys': ['QP_max', 'QP_min', 'KDIP', 'v_max_P'],
+        'diag_patterns': ['_P', 'QP', 'lim_P', 'limQUOTA.P', 'limQUOTAmin.P', 'mmDIP', 'source_uptake.P'],
+        'remin_key': 'DIP'
+    },
+    'SI': {
+        'nutrient_component': 'DSi',
+        'coupling_key': 'coupled_DSi',
+        'init_key': 'Si',
+        'aggregate_keys': ['Si_tot'],
+        'param_keys': ['QSi_max', 'QSi_min', 'KDSi', 'v_max_Si', 'f_unass_Si'],
+        'diag_patterns': ['_Si', 'QSi', 'lim_Si', 'limQUOTA.Si', 'limQUOTAmin.Si', 'mmDSi', 'source_uptake.Si'],
+        'remin_key': 'DSi'
+    },
+    'N': {
+        'nutrient_component': ['NH4', 'NO3'],
+        'coupling_key': ['coupled_NH4', 'coupled_NO3'],
+        'init_key': 'N',
+        'aggregate_keys': ['N_tot', 'PON', 'DON'],
+        'param_keys': ['QN_max', 'QN_min', 'KNH4', 'KNO3', 'v_max_N'],
+        'diag_patterns': ['_N', 'QN', 'lim_N', 'limQUOTA.N', 'limQUOTAmin.N', 'mmNH4', 'mmNO3', 'source_uptake.N'],
+        'remin_key': ['NH4', 'NO3']
+    }
+}
+
 ref_values = {
     'Phy+mu_max': {
         'reference_value': 5.2,

@@ -203,8 +203,10 @@ class DOM(BaseOrg):
         if self.name == "DOCS":
             self.source_exudation.C = (self.coupled_exud_sources_phyto.sink_exudation.C *
                                        self.coupled_exud_sources_phyto.frac_exud_small)
-            self.source_exudation.N = self.coupled_exud_sources_phyto.sink_exudation.N
-            self.source_exudation.P = self.coupled_exud_sources_phyto.sink_exudation.P
+            if self.N is not None:
+                self.source_exudation.N = self.coupled_exud_sources_phyto.sink_exudation.N
+            if self.P is not None:
+                self.source_exudation.P = self.coupled_exud_sources_phyto.sink_exudation.P
         elif self.name == "DOCL":
             self.source_exudation.C = (self.coupled_exud_sources_phyto.sink_exudation.C *
                                        (1. - self.coupled_exud_sources_phyto.frac_exud_small))
@@ -216,8 +218,10 @@ class DOM(BaseOrg):
         if self.name == "DOCS":
             # No C source, but lysed material from phytoplankton and Heterotrophs go to DON and DOP
             self.source_breakdown.C = 0.  # All C lysis/breakdown goes to DOCL
-            self.source_breakdown.N = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'N')
-            self.source_breakdown.P = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'P')
+            if self.N is not None:
+                self.source_breakdown.N = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'N')
+            if self.P is not None:
+                self.source_breakdown.P = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'P')
         elif self.name == "DOCL":
             self.source_breakdown.C = (fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'C') +
                                        fns.get_all_contributors(self.coupled_breakdown_sources, 'sink_breakdown', 'C'))
@@ -240,11 +244,13 @@ class DOM(BaseOrg):
         if self.name == 'DOCS':
             # Vectorized: extract all unassimilated contributions at once
             C_unassim = np.array([sf.source_ing_C_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
-            N_unassim = np.array([sf.source_ing_N_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
-            P_unassim = np.array([sf.source_ing_P_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
             self.source_sloppy_feeding.C = np.sum(C_unassim)
-            self.source_sloppy_feeding.N = np.sum(N_unassim)
-            self.source_sloppy_feeding.P = np.sum(P_unassim)
+            if self.N is not None:
+                N_unassim = np.array([sf.source_ing_N_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources if sf.N is not None])
+                self.source_sloppy_feeding.N = np.sum(N_unassim)
+            if self.P is not None:
+                P_unassim = np.array([sf.source_ing_P_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources if sf.P is not None])
+                self.source_sloppy_feeding.P = np.sum(P_unassim)
         else:
             self.source_sloppy_feeding.C = 0
 
@@ -255,10 +261,12 @@ class DOM(BaseOrg):
         self.sink_ingestion.C = np.sum(C_ing)
 
         if self.name == "DOCS":
-            N_ing = np.array([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
-            P_ing = np.array([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
-            self.sink_ingestion.N = np.sum(N_ing)
-            self.sink_ingestion.P = np.sum(P_ing)
+            if self.N is not None:
+                N_ing = np.array([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
+                self.sink_ingestion.N = np.sum(N_ing)
+            if self.P is not None:
+                P_ing = np.array([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
+                self.sink_ingestion.P = np.sum(P_ing)
         else:
             self.sink_ingestion.N = 0.
             self.sink_ingestion.P = 0.

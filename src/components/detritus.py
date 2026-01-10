@@ -200,27 +200,30 @@ class Detritus(BaseOrg):
 
             # PD is Phyto+Detritus
             self.aggPhy_C = self.aggPD_tot * self.coupled_Phy.C / self.sumc
-            self.aggPhy_N = self.aggPhy_C * self.coupled_Phy.QN
-            self.aggPhy_P = self.aggPhy_C * self.coupled_Phy.QP
-            self.aggPhy_Si = self.aggPhy_C * self.coupled_Phy.QSi
+            self.aggPhy_N = self.aggPhy_C * self.coupled_Phy.QN if self.coupled_Phy.N is not None else 0.
+            self.aggPhy_P = self.aggPhy_C * self.coupled_Phy.QP if self.coupled_Phy.P is not None else 0.
+            self.aggPhy_Si = self.aggPhy_C * self.coupled_Phy.QSi if self.coupled_Phy.Si is not None else 0.
             self.aggPhy_Chl = self.aggPhy_C * self.coupled_Phy.thetaC
 
             self.aggDetS_C = self.aggPD_tot * self.coupled_smaller_Det.C / self.sumc
-            self.aggDetS_N = self.aggDetS_C * self.coupled_smaller_Det.QN
-            self.aggDetS_P = self.aggDetS_C * self.coupled_smaller_Det.QP
-            self.aggDetS_Si = self.aggDetS_C * self.coupled_smaller_Det.QSi
+            self.aggDetS_N = self.aggDetS_C * self.coupled_smaller_Det.QN if self.coupled_smaller_Det.N is not None else 0.
+            self.aggDetS_P = self.aggDetS_C * self.coupled_smaller_Det.QP if self.coupled_smaller_Det.P is not None else 0.
+            self.aggDetS_Si = self.aggDetS_C * self.coupled_smaller_Det.QSi if self.coupled_smaller_Det.Si is not None else 0.
 
             self.aggTEP_C = self.aggPD_tot * self.coupled_TEPC.C / self.sumc
 
             self.source_aggregation.C = (self.aggPhy_C +
                                          self.aggDetS_C +
                                          self.aggTEP_C)
-            self.source_aggregation.N = (self.aggPhy_N +
-                                         self.aggDetS_N)
-            self.source_aggregation.P = (self.aggPhy_P +
-                                         self.aggDetS_P)
-            self.source_aggregation.Si = (self.aggPhy_Si +
-                                          self.aggDetS_Si)
+            if self.N is not None:
+                self.source_aggregation.N = (self.aggPhy_N +
+                                             self.aggDetS_N)
+            if self.P is not None:
+                self.source_aggregation.P = (self.aggPhy_P +
+                                             self.aggDetS_P)
+            if self.Si is not None:
+                self.source_aggregation.Si = (self.aggPhy_Si +
+                                              self.aggDetS_Si)
 
         elif self.name == 'DetS':
             self.source_aggregation.C = 0.
@@ -247,11 +250,12 @@ class Detritus(BaseOrg):
         self.source_sloppy_feeding.C = 0.
         self.source_sloppy_feeding.N = 0.
         self.source_sloppy_feeding.P = 0.
-        if self.coupled_sloppy_feeding_sources is not None:
-            self.source_sloppy_feeding.Si = np.sum([sum(sf.source_ingestion.Si.values()) * sf.f_unass_Si
-                                                    for sf in self.coupled_sloppy_feeding_sources])
-        else:
-            self.source_sloppy_feeding.Si = 0.
+        if self.Si is not None:
+            if self.coupled_sloppy_feeding_sources is not None:
+                self.source_sloppy_feeding.Si = np.sum([sum(sf.source_ingestion.Si.values()) * sf.f_unass_Si
+                                                        for sf in self.coupled_sloppy_feeding_sources])
+            else:
+                self.source_sloppy_feeding.Si = 0.
 
     def get_sink_breakdown(self):
         """Calculate breakdown sinks for Onur22 formulation."""
@@ -268,9 +272,12 @@ class Detritus(BaseOrg):
             self.sink_aggregation.Si = 0.
         elif self.name == 'DetS':
             self.sink_aggregation.C = self.coupled_larger_Det.aggDetS_C
-            self.sink_aggregation.N = self.coupled_larger_Det.aggDetS_N
-            self.sink_aggregation.P = self.coupled_larger_Det.aggDetS_P
-            self.sink_aggregation.Si = self.coupled_larger_Det.aggDetS_Si
+            if self.N is not None:
+                self.sink_aggregation.N = self.coupled_larger_Det.aggDetS_N
+            if self.P is not None:
+                self.sink_aggregation.P = self.coupled_larger_Det.aggDetS_P
+            if self.Si is not None:
+                self.sink_aggregation.Si = self.coupled_larger_Det.aggDetS_Si
 
     def get_sink_leakage_out(self):
         # Independant leakage (initially: for Mesocosm loss in Kerimoglu et al., 2022)
@@ -282,9 +289,12 @@ class Detritus(BaseOrg):
     def get_sink_ingestion(self):
         """Calculate ingestion sinks for Onur22 formulation."""
         self.sink_ingestion.C = np.sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
-        self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
-        self.sink_ingestion.P = np.sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
-        self.sink_ingestion.Si = np.sum([c.source_ingestion.Si[self.name] for c in self.coupled_consumers])
+        if self.N is not None:
+            self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
+        if self.P is not None:
+            self.sink_ingestion.P = np.sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
+        if self.Si is not None:
+            self.sink_ingestion.Si = np.sum([c.source_ingestion.Si[self.name] for c in self.coupled_consumers])
 
     def get_sink_remineralization(self, t=None):
         self.sink_remineralization.C = 0.
