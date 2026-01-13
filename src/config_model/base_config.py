@@ -46,6 +46,7 @@ Phy_diagnostics_full = {
             'sink_ingestion.Si',
             'sink_aggregation.C', 'sink_aggregation.N', 'sink_aggregation.Chl', 'sink_aggregation.P',
             'sink_aggregation.Si',
+            'coupled_Microflocs_massconcentration', 'coupled_Micro_in_Macro_massconcentration'
         ]
     }
 }

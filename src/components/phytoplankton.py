@@ -142,6 +142,9 @@ class Phyto(BaseOrg):
         self.coupled_aggreg_target = None
         self.coupled_light_attenuators = None
 
+        self.coupled_Micro_in_Macro_massconcentration = None
+        self.coupled_Microflocs_massconcentration = None
+
     def set_coupling(self, coupled_consumer=None,
                      coupled_NH4=None, coupled_NO3=None, coupled_DIP=None, coupled_DSi=None,
                      coupled_TEPC=None, coupled_Det=None, coupled_SPM=None,
@@ -165,6 +168,8 @@ class Phyto(BaseOrg):
             ]
         else:
             self.coupled_SPM = coupled_SPM
+        self._microflocs_idx = next(i for i, spm in enumerate(self.coupled_SPM) if spm.name == 'Microflocs')
+        self._micro_in_macro_idx = next(i for i, spm in enumerate(self.coupled_SPM) if spm.name == 'Micro_in_Macro')
 
         self.coupled_aggreg_target = coupled_aggreg_target
         self.coupled_light_attenuators = coupled_light_attenuators
@@ -190,6 +195,8 @@ class Phyto(BaseOrg):
         if self.prescribe_SPM_from_setup and self.coupled_SPM:
             self.coupled_SPM[0].massconcentration = self.setup.Microflocs_massconc_array[t_idx]
             self.coupled_SPM[1].massconcentration = self.setup.Micro_in_Macro_massconc_array[t_idx]
+        self.coupled_Microflocs_massconcentration = self.coupled_SPM[self._microflocs_idx].massconcentration
+        self.coupled_Micro_in_Macro_massconcentration = self.coupled_SPM[self._micro_in_macro_idx].massconcentration
 
         # Limitation functions
         self.get_limNUT()
