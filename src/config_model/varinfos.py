@@ -41,6 +41,54 @@ CURRENCY_MAP = {
     }
 }
 
+# Component groups mapping for remove_components() function
+# Maps each component to external couplings where it's referenced
+FLOCS_COMPONENTS_MAP = {
+    'Microflocs': {
+        'coupled_in': {
+            'Phy': {'coupling': 'coupled_SPM'}
+        }
+    },
+    'Macroflocs': {
+        'coupled_in': {
+            'DetL': {'coupling': 'coupled_aggregate'},
+            'DetS': {'coupling': 'coupled_aggregate'},
+            'TEPC': {'coupling': 'coupled_aggregate'},
+            'BacA': {'coupling': 'coupled_aggregate'},
+        }
+    },
+    'Micro_in_Macro': {
+        'coupled_in': {
+            'Phy': {'coupling': 'coupled_SPM'}
+        }
+    }
+}
+
+# Heterotrophs components mapping for remove_components() function
+# All heterotrophs share the same coupling structure
+_heterotroph_couplings = {
+    'coupled_in': {
+        # Referenced in both coupled_targets and coupled_consumers of all heterotrophs
+        'BacF': {'coupling': ['coupled_targets', 'coupled_consumers']},
+        'BacA': {'coupling': ['coupled_targets', 'coupled_consumers']},
+        'Cil': {'coupling': ['coupled_targets', 'coupled_consumers']},
+        'HF': {'coupling': ['coupled_targets', 'coupled_consumers']},
+        # Referenced in coupled_consumers of DOM/Det components
+        'DOCS': {'coupling': ['coupled_consumers']},
+        'DOCL': {'coupling': ['coupled_consumers']},
+        'TEPC': {'coupling': ['coupled_consumers']},
+        'DetS': {'coupling': ['coupled_consumers']},
+        'DetL': {'coupling': ['coupled_consumers']},
+    }
+}
+
+HETEROTROPHS_COMPONENTS_MAP = {
+    'BacF': _heterotroph_couplings,
+    'BacA': _heterotroph_couplings,
+    'Cil': _heterotroph_couplings,
+    'HF': _heterotroph_couplings,
+}
+
 ref_values = {
     'Phy+mu_max': {
         'reference_value': 5.2,
@@ -155,6 +203,30 @@ ref_values = {
         'symbol': 'K^{Phy}_{DIP}',
         'units': '[mmolP m-3 d-1]',
         'complete_name': 'Phytoplankton half-saturation constant for DIP uptake'
+    },
+    'BacA+g_max': {
+        'reference_value': 3.,
+        'symbol': 'BacA_{g_{max}}',
+        'units': '[d-1]',
+        'complete_name': 'Attached Bacteria maximum grazing rate'
+    },
+    'BacA+lysrate_lin': {
+        'reference_value': 0.1,
+        'symbol': 'BacA_{lysrate^{lin}}',
+        'units': '[d-1]',
+        'complete_name': 'Attached Bacteria linera lysis rate'
+    },
+    'BacA+lysrate_quad': {
+        'reference_value': 0.1,
+        'symbol': 'BacA_{lysrate^{quad}}',
+        'units': '[d-1]',
+        'complete_name': 'Attached Bacteria quadratic lysis rate'
+    },
+    'BacA+zeta_resp': {
+        'reference_value': 0.05,
+        'symbol': 'BacA_{//zeta^{resp}}',
+        'units': '[d-1]',
+        'complete_name': 'Attached Bacteria respiration rate'
     },
     'DOCS+alpha_TEPC': {
         'reference_value': 0.85,
