@@ -591,7 +591,7 @@ def plot_results(
 
     # Set intelligent figure title from PlottedVariablesSet
     if isinstance(variables, PlottedVariablesSet):
-        fig.canvas.manager.set_window_title(variables.name.replace('_', ' ').title())
+        fig.canvas.manager.set_window_title(variables.name.replace('_', ' '))
 
     # Extract legend-related and obs-specific kwargs before passing to plot_variable
     legend_kwargs = ['add_legend', 'legend_fontsize', 'legend_position']

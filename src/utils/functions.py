@@ -540,6 +540,64 @@ def remove_currency(dconf: Dict, currency: str = 'P') -> Dict:
     return result
 
 
+def remove_components(dconf: Dict, components_map: Dict) -> Dict:
+    """
+    Remove specific components from a biogeochemical model configuration.
+
+    Removes all components specified in the map and cleans up external couplings
+    where other components reference the removed components.
+
+    Args:
+        dconf: Model configuration dictionary
+        components_map: Dictionary mapping component names to their coupling info
+                       Format: {'ComponentName': {'coupled_in': {...}}}
+
+    Returns:
+        Modified configuration dictionary with components removed
+
+    Example:
+        >>> # Remove all Flocs components
+        >>> dconf_no_flocs = fns.remove_components(dconf, varinfos.FLOCS_COMPONENTS_MAP)
+        >>>
+        >>> # Remove only Macroflocs
+        >>> dconf_no_macro = fns.remove_components(dconf, {'Macroflocs': varinfos.FLOCS_COMPONENTS_MAP['Macroflocs']})
+    """
+    import copy
+    result = copy.deepcopy(dconf)
+
+    for comp_name, comp_info in components_map.items():
+        # Remove the component itself
+        result.pop(comp_name, None)
+
+        # Clean up external couplings (where other components reference this one)
+        if 'coupled_in' in comp_info:
+            for external_comp, coupling_info in comp_info['coupled_in'].items():
+                if external_comp in result and 'coupling' in result[external_comp]:
+                    # Support both single string and list of coupling keys
+                    coupling_keys = coupling_info['coupling']
+                    if isinstance(coupling_keys, str):
+                        coupling_keys = [coupling_keys]
+
+                    for coupling_key in coupling_keys:
+                        if coupling_key in result[external_comp]['coupling']:
+                            coupled_value = result[external_comp]['coupling'][coupling_key]
+
+                            # Handle list case (e.g., coupled_SPM: ['Microflocs', 'Micro_in_Macro'])
+                            if isinstance(coupled_value, list):
+                                result[external_comp]['coupling'][coupling_key] = [
+                                    x for x in coupled_value if x != comp_name
+                                ]
+                                # Remove key if list becomes empty
+                                if not result[external_comp]['coupling'][coupling_key]:
+                                    del result[external_comp]['coupling'][coupling_key]
+
+                            # Handle scalar case (e.g., coupled_aggregate: 'Macroflocs')
+                            elif coupled_value == comp_name:
+                                del result[external_comp]['coupling'][coupling_key]
+
+    return result
+
+
 # From https://github.com/samuelcolvin/pydantic/blob/fd2991fe6a73819b48c906e3c3274e8e47d0f761/pydantic/utils.py#L200
 # (initially from https://stackoverflow.com/questions/3232943/update-value-of-a-nested-dictionary-of-varying-depth)
 from typing import (Any, Dict, TypeVar)
