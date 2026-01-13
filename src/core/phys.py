@@ -440,9 +440,14 @@ class Setup:
         for col in self.Flocs_columns.values():
             combined_df[col] = combined_df[col].interpolate(method='time')
 
-        # Extract arrays directly
-        self.Microflocs_massconc_array = combined_df.loc[self.dates, self.Flocs_columns['Microflocs_massconc']].values.astype(self.dtype)
-        self.Micro_in_Macro_massconc_array = combined_df.loc[self.dates, self.Flocs_columns['Micro_in_Macro_massconc']].values.astype(self.dtype)
+        # Extract arrays and convert back to model units (g/l = kg/m³)
+        # sim.df stores data in output units (mg/l), so we need to divide by trsfrm factor
+        # to get back to model units. For mass concentrations, trsfrm = 1e3 (see varinfos.py)
+        from src.config_model import varinfos
+        trsfrm_massconc = varinfos.doutput.get('Microflocs_massconcentration', {}).get('trsfrm', 1e3)
+
+        self.Microflocs_massconc_array = combined_df.loc[self.dates, self.Flocs_columns['Microflocs_massconc']].values.astype(self.dtype) / trsfrm_massconc
+        self.Micro_in_Macro_massconc_array = combined_df.loc[self.dates, self.Flocs_columns['Micro_in_Macro_massconc']].values.astype(self.dtype) / trsfrm_massconc
         self.Macroflocs_sink_sed_array = combined_df.loc[self.dates, self.Flocs_columns['Macroflocs_sink_sed']].values.astype(self.dtype)
         self.Macroflocs_source_resusp_array = combined_df.loc[self.dates, self.Flocs_columns['Macroflocs_source_resusp']].values.astype(self.dtype)
         self.Macroflocs_numconc_array = combined_df.loc[self.dates, self.Flocs_columns['Macroflocs_numconc']].values.astype(self.dtype)
