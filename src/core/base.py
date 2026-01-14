@@ -8,6 +8,7 @@ class BaseStateVar:
     def __init__(self, dtype=np.float64):
         self.dtype = dtype
         self.setup = None
+        self.debug_mode = False
         self.time_conversion_factor = 1
         self.default_diagnostics = True
         self.diagnostics = None

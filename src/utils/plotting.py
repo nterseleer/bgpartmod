@@ -289,6 +289,7 @@ def plot_variable(
         add_labels: bool = True,
         calibrated_vars: Optional[List[str]] = None,
         show_subplot_titles: bool = True,
+        apply_plt_ylim: bool = True,
         ylabel_pad: Optional[float] = None,
         ylabel_fontsize: Optional[float] = None,
         tick_label_pad: Optional[float] = None,
@@ -383,7 +384,7 @@ def plot_variable(
     # Apply ylim if specified and data exceeds bounds
     var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
     plt_ylim = var_info.get('plt_ylim')
-    if plt_ylim is not None:
+    if plt_ylim is not None and apply_plt_ylim:
         # Get actual data range from plotted elements
         y_data = []
         for line in ax.get_lines():
@@ -465,6 +466,7 @@ def plot_results(
         subplot_label_fontsize: int = 10,
         label_position: str = 'top_left',
         show_subplot_titles: bool = True,
+        apply_plt_ylim: bool = True,
         date_format: str = '%d/%m',
         xlabel_rotation: float = 45,
         ylabel_pad: Optional[float] = None,
@@ -616,6 +618,7 @@ def plot_results(
                 plot_obs = plot_obs,
                 calibrated_vars=calibrated_vars,
                 show_subplot_titles=show_subplot_titles,
+                apply_plt_ylim=apply_plt_ylim,
                 ylabel_pad=ylabel_pad,
                 ylabel_fontsize=ylabel_fontsize,
                 tick_label_pad=tick_label_pad,

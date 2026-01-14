@@ -48,6 +48,7 @@ class Phyto(BaseOrg):
                  dtype=np.float64,
                  name='DefaultPhyto',
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
+                 apply_numerical_protections=False,  # Whether to apply numerical safeguards
                  ):
 
         super().__init__(dtype=dtype)
@@ -100,6 +101,8 @@ class Phyto(BaseOrg):
         self.dt2 = dt2
         self.name = name
         self.bound_temp_to_1 = bound_temp_to_1
+        self.apply_numerical_protections = apply_numerical_protections
+        self._C_MIN = 1e-12  # [mmol m-3] Minimum pool for safe calculations
 
         self.lim_N = None
         self.lim_P = None
@@ -287,6 +290,12 @@ class Phyto(BaseOrg):
                              self.sink_lysis.Si +
                              self.sink_mortality.Si)
 
+        if self.debug_mode and self.C < 1e-3:
+            print(f'DEBUG C={self.C:.2e} | source_PP={self.source_PP.C:.2e} | sinks={self.C_sinks:.2e}')
+            print(f'  resp={self.sink_respiration.C:.2e}, exud={self.sink_exudation.C:.2e}, '
+                  f'agg={self.sink_aggregation.C:.2e}, ing={self.sink_ingestion.C:.2e}, '
+                  f'lys={self.sink_lysis.C:.2e}, mort={self.sink_mortality.C:.2e}')
+
         return np.array(
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.Chl_sinks, self.P_sinks, self.Si_sinks) if
              sinks is not None], dtype=self.dtype)
@@ -297,33 +306,37 @@ class Phyto(BaseOrg):
     def get_limNUT(self):
         """Calculate nutrient limitations for Onur22 formulation."""
         active_lims = []
+        _clip = np.clip if self.apply_numerical_protections else lambda x, a, b: x
 
         if self.N is not None:
-            self.lim_N = 1 - self.QN_min / self.QN
+            QN_safe = max(self.QN, self.QN_min * 1.001) if self.apply_numerical_protections else self.QN
+            self.lim_N = _clip(1 - self.QN_min / QN_safe, 0., 1.)
             active_lims.append(self.lim_N)
-            self.limQUOTAmin.N = (self.QN - self.QN_min) / (self.QN_max - self.QN_min)
+            self.limQUOTAmin.N = _clip((self.QN - self.QN_min) / (self.QN_max - self.QN_min), 0., 1.)
             self.limQUOTA.N = 1 - self.limQUOTAmin.N
         else:
-            self.lim_N = 1.0  # No limitation if currency not present
+            self.lim_N = 1.0
 
         if self.P is not None:
-            self.lim_P = 1 - self.QP_min / self.QP
+            QP_safe = max(self.QP, self.QP_min * 1.001) if self.apply_numerical_protections else self.QP
+            self.lim_P = _clip(1 - self.QP_min / QP_safe, 0., 1.)
             active_lims.append(self.lim_P)
-            self.limQUOTAmin.P = (self.QP - self.QP_min) / (self.QP_max - self.QP_min)
+            self.limQUOTAmin.P = _clip((self.QP - self.QP_min) / (self.QP_max - self.QP_min), 0., 1.)
             self.limQUOTA.P = 1 - self.limQUOTAmin.P
         else:
-            self.lim_P = 1.0  # No limitation if currency not present
+            self.lim_P = 1.0
 
         if self.Si is not None:
-            self.lim_Si = 1 - self.QSi_min / self.QSi
+            QSi_safe = max(self.QSi, self.QSi_min * 1.001) if self.apply_numerical_protections else self.QSi
+            self.lim_Si = _clip(1 - self.QSi_min / QSi_safe, 0., 1.)
             active_lims.append(self.lim_Si)
-            self.limQUOTAmin.Si = (self.QSi - self.QSi_min) / (self.QSi_max - self.QSi_min)
+            self.limQUOTAmin.Si = _clip((self.QSi - self.QSi_min) / (self.QSi_max - self.QSi_min), 0., 1.)
             self.limQUOTA.Si = 1 - self.limQUOTAmin.Si
         else:
-            self.lim_Si = 1.0  # No limitation if currency not present
+            self.lim_Si = 1.0
 
         # limNUT = minimum of active currency limitations only
-        self.limNUT = min(active_lims) if active_lims else 1.0
+        self.limNUT = max(0., min(active_lims)) if active_lims else 1.0
 
     def get_kd(self):
         """Calculate light attenuation coefficient using cached eps_kd arrays (lazy init)."""
@@ -355,14 +368,26 @@ class Phyto(BaseOrg):
         self.PC_max = self.mu_max * self.limNUT * self.limT
         self.limI = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column) / (
                 self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0
+        self.limI = np.clip(self.limI, 1e-6, 1.) if self.apply_numerical_protections else max(1e-6, self.limI)
         self.PC = self.PC_max * self.limI
-        self.source_PP.C = self.PC * self.C
+        C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
+        self.source_PP.C = self.PC * C_safe
+
+        if self.debug_mode and any(p is not None and p < 0 for p in (self.C, self.N, self.P, self.Si, self.Chl)):
+            print(f'DEBUG: Negative pools - C={self.C}, N={self.N}, P={self.P}, Si={self.Si}, Chl={self.Chl}')
+            print(f'  limI={self.limI}, PC_max={self.PC_max}, PC={self.PC}')
+            print(f'  limI components: alpha={self.alpha}, thetaC={self.thetaC}, PAR={self.PAR_t_water_column}')
 
         # Calculate rho_Chl for chlorophyll production
         # rho_chl must be in [mgChl mmolN-1] (see source_Chlprod.Chl)
         # QN_max is in [molN:molC], theta_max is in [mgChl molC-1]
-        self.rho_Chl = 0. if self.PAR_t_water_column < 0.01 else self.theta_max / self.QN_max * (
-                self.PC * varinfos.molmass_C / (self.alpha * self.thetaC * self.PAR_t_water_column))
+        if self.PAR_t_water_column < 0.01:
+            self.rho_Chl = 0.
+        else:
+            thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
+            denom = self.alpha * thetaC_safe * self.PAR_t_water_column
+            rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
+            self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) if self.apply_numerical_protections else rho_Chl_raw
 
     def get_source_uptake(self):
         """Calculate nutrient uptake for Onur22 formulation."""
@@ -420,7 +445,10 @@ class Phyto(BaseOrg):
 
     def get_sink_exudation(self):
         """Calculate exudation for Onur22 formulation."""
-        self.sink_exudation.C = self.gamma_C_exud_base * self.C + self.gamma_C_exud_prod * self.PC
+        C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
+        # PC_pos = max(0., self.PC) if self.apply_numerical_protections else self.PC
+        # self.sink_exudation.C = self.gamma_C_exud_base * C_safe + self.gamma_C_exud_prod * PC_pos
+        self.sink_exudation.C = self.gamma_C_exud_base * C_safe + self.gamma_C_exud_prod * self.source_PP.C
         self.sink_exudation.Chl = 0.
         xquota = 0.99
         if self.N is not None:
@@ -433,7 +461,10 @@ class Phyto(BaseOrg):
 
     def get_sink_respiration(self):
         """Calculate respiration for Onur22 formulation."""
-        self.sink_respiration.C = self.zeta_resp_base * self.C + self.zeta_resp_prod * self.PC
+        C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
+        PC_pos = max(0., self.PC) if self.apply_numerical_protections else self.PC
+        # self.sink_respiration.C = self.zeta_resp_base * C_safe + self.zeta_resp_prod * PC_pos
+        self.sink_respiration.C = self.zeta_resp_base * C_safe + self.zeta_resp_prod * self.source_PP.C
         self.sink_respiration.Chl = self.sink_respiration.C * self.thetaC  # Chl degradation
         self.sink_respiration.N = 0.
         self.sink_respiration.P = 0.
