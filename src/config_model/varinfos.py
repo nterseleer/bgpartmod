@@ -228,6 +228,30 @@ ref_values = {
         'units': '[d-1]',
         'complete_name': 'Attached Bacteria respiration rate'
     },
+    'BacF+g_max': {
+        'reference_value': 3.,
+        'symbol': 'BacF_{g_{max}}',
+        'units': '[d-1]',
+        'complete_name': 'Attached Bacteria maximum grazing rate'
+    },
+    'BacF+lysrate_lin': {
+        'reference_value': 0.1,
+        'symbol': 'BacF_{lysrate^{lin}}',
+        'units': '[d-1]',
+        'complete_name': 'Attached Bacteria linera lysis rate'
+    },
+    'BacF+lysrate_quad': {
+        'reference_value': 0.1,
+        'symbol': 'BacF_{lysrate^{quad}}',
+        'units': '[d-1]',
+        'complete_name': 'Attached Bacteria quadratic lysis rate'
+    },
+    'BacF+zeta_resp': {
+        'reference_value': 0.05,
+        'symbol': 'BacF_{//zeta^{resp}}',
+        'units': '[d-1]',
+        'complete_name': 'Attached Bacteria respiration rate'
+    },
     'DOCS+alpha_TEPC': {
         'reference_value': 0.85,
         'symbol': '\\alpha^{A1}_{DOC_S-TEP}',

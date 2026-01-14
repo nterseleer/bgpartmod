@@ -18,6 +18,7 @@ class DOM(BaseOrg):
                  T_ref=283.15,  # [K] Reference temperature (denitrification) (Onur22)
                  prescribe_aggregate_from_setup=False,  # Whether to use prescribed aggregate from Setup
                  prescribed_vertical_coupling_alpha=0.0,  # EWMA smoothing for prescribed aggregate coupling
+                 organomin_decoupling_factor=1.0,  # [-] Fraction forming organo-mineral aggregates
                  dt2=False,
                  dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
@@ -39,6 +40,7 @@ class DOM(BaseOrg):
         self.T_ref = T_ref
         self.prescribe_aggregate_from_setup = prescribe_aggregate_from_setup
         self.prescribed_vertical_coupling_alpha = prescribed_vertical_coupling_alpha
+        self.organomin_decoupling_factor = organomin_decoupling_factor
         self.dt2 = dt2
         self.bound_temp_to_1 = bound_temp_to_1
 
@@ -318,14 +320,15 @@ class DOM(BaseOrg):
             Nf = self.coupled_aggregate.numconc
 
             # Update smoothed ratios (EWMA filter: α=0 → fixed, α>0 → adaptive)
+            # Ratios based on fraction forming organo-mineral aggregates
             if Nf > 0 and self.coupled_aggregate.vertical_coupling_alpha > 0:
                 alpha = self.coupled_aggregate.vertical_coupling_alpha
                 if self.smoothed_C_to_Nf_ratio is not None:
-                    self.smoothed_C_to_Nf_ratio = alpha * (self.C / Nf) + (1 - alpha) * self.smoothed_C_to_Nf_ratio
+                    self.smoothed_C_to_Nf_ratio = alpha * (self.C * self.organomin_decoupling_factor / Nf) + (1 - alpha) * self.smoothed_C_to_Nf_ratio
                 if self.N is not None and self.smoothed_N_to_Nf_ratio is not None:
-                    self.smoothed_N_to_Nf_ratio = alpha * (self.N / Nf) + (1 - alpha) * self.smoothed_N_to_Nf_ratio
+                    self.smoothed_N_to_Nf_ratio = alpha * (self.N * self.organomin_decoupling_factor / Nf) + (1 - alpha) * self.smoothed_N_to_Nf_ratio
                 if self.P is not None and self.smoothed_P_to_Nf_ratio is not None:
-                    self.smoothed_P_to_Nf_ratio = alpha * (self.P / Nf) + (1 - alpha) * self.smoothed_P_to_Nf_ratio
+                    self.smoothed_P_to_Nf_ratio = alpha * (self.P * self.organomin_decoupling_factor / Nf) + (1 - alpha) * self.smoothed_P_to_Nf_ratio
 
             # Sedimentation rate [d-1]
             settling_rate = (self.coupled_aggregate.sink_sedimentation / Nf * conv) if Nf > 0 else 0.0
@@ -341,9 +344,10 @@ class DOM(BaseOrg):
                        self.smoothed_P_to_Nf_ratio is not None) else 0.0
 
             # Net vertical loss (positive = loss from water column)
-            self.sink_vertical_loss.C = settling_rate * self.C - resusp_C
-            self.sink_vertical_loss.N = settling_rate * self.N - resusp_N if self.N is not None else 0.0
-            self.sink_vertical_loss.P = settling_rate * self.P - resusp_P if self.P is not None else 0.0
+            # Sedimentation applied only to fraction forming organo-mineral aggregates
+            self.sink_vertical_loss.C = settling_rate * self.C * self.organomin_decoupling_factor - resusp_C
+            self.sink_vertical_loss.N = settling_rate * self.N * self.organomin_decoupling_factor - resusp_N if self.N is not None else 0.0
+            self.sink_vertical_loss.P = settling_rate * self.P * self.organomin_decoupling_factor - resusp_P if self.P is not None else 0.0
 
             # # Old formulation (coupled net rate):
             # rate = (self.coupled_aggregate.net_vertical_loss_rate *
