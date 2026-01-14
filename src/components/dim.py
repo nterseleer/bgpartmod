@@ -162,8 +162,9 @@ class DIM(BaseStateVar):
 
     def get_source_sloppy_feeding(self):
         if self.name == 'DIC':
-            self.source_sloppy_feeding = np.sum(
-                [sf.source_ing_C_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
+            self.source_sloppy_feeding = 0.
+            # self.source_sloppy_feeding = np.sum(
+            #     [sf.source_ing_C_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
         elif self.name == 'NH4':
             self.source_sloppy_feeding = np.sum(
                 [sf.source_ing_N_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
@@ -199,7 +200,7 @@ class DIM(BaseStateVar):
 
     def get_sink_uptake(self):
         if self.name == 'DIC':  # Onur22
-            self.sink_uptake = fns.get_all_contributors(self.coupled_uptake_sinks, 'source_PP', 'C')
+            self.sink_uptake = 0. #fns.get_all_contributors(self.coupled_uptake_sinks, 'source_PP', 'C')
 
         # 202403 TODO priority2 - make this more generic (e.g. dict)
         elif self.name == 'NH4':

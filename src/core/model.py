@@ -43,6 +43,8 @@ class Model:
             aggregate_vars: Optional[List[str]] = None,
             do_diagnostics: bool = True,
             full_diagnostics: bool = False,
+            debug_mode: bool = False,
+            debug_mode_check_interval: float = 5.0,
             keep_model_units: bool = False,
             aggressive_cleanup: bool = True,
     ):
@@ -55,6 +57,8 @@ class Model:
         self.debug_budgets = debug_budgets
         self.do_diagnostics = do_diagnostics
         self.full_diagnostics = full_diagnostics
+        self.debug_mode = debug_mode
+        self.debug_mode_check_interval = debug_mode_check_interval
         self.keep_model_units = keep_model_units
         self.aggressive_cleanup = aggressive_cleanup
         self.error = False
@@ -253,6 +257,7 @@ class Model:
             component = self.components[key]
             couplings = self._process_couplings(cfg.get('coupling', {}))
             component.setup = self.setup
+            component.debug_mode = self.debug_mode
             component.set_coupling(**couplings)
 
             # Register aggregates
@@ -555,6 +560,7 @@ class Model:
 
         # Optimization: Check for NaN every 5 days instead of every timestep
         nan_check_interval = int(5.0 / self.used_dt)
+        neg_check_interval = int(self.debug_mode_check_interval / self.used_dt) if self.debug_mode else None
 
         for t_idx, t in enumerate(self.dates[1:], start=1):
             is_slow_step = self.is_slow_dt[t_idx] if self.two_dt else True
@@ -573,6 +579,19 @@ class Model:
                 break
 
             y = y + used_dt * derivatives
+
+            # Debug mode: check for negative state variables
+            if self.debug_mode:
+                if (y < 0).any():
+                    neg_vars = [self.pool_names[i] for i in np.where(y < 0)[0]]
+                    print(f'Negative state variables at t_idx={t_idx}: {neg_vars}')
+
+                    if (t_idx % neg_check_interval == 0 or t_idx == n_steps - 1):
+                        print(f'STOP MODEL: Negative state variables at t_idx={t_idx}: {neg_vars}')
+                        self.error = True
+                        self.name += '-ERROR'
+                        break
+
             states[t_idx] = y
 
             if self.do_diagnostics:
