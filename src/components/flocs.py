@@ -26,11 +26,12 @@ class PrescribedFlocs:
     - sink_sedimentation, source_resuspension, numconc for vertical coupling
     """
     def __init__(self, name, eps_kd=0.066e3, time_conversion_factor=86400,
-                 vertical_coupling_alpha=0.0):
+                 vertical_coupling_alpha=0.0, organomin_decoupling_factor=1.0):
         self.name = name
         self.eps_kd = eps_kd
         self.time_conversion_factor = time_conversion_factor
         self.vertical_coupling_alpha = vertical_coupling_alpha
+        self.organomin_decoupling_factor = organomin_decoupling_factor
 
         # Light attenuation (for all floc types)
         self.massconcentration = 0.0  # [kg m⁻³] - updated at each timestep
@@ -177,8 +178,9 @@ class Flocs(BaseStateVar):
                  counter_settling_by_turbulence = False, # Boolean, whether to account for settling by turbulent water
                  settling_velocity_factor = None,  # [-] Constant fraction of base settling velocity (overrides counter_settling_by_turbulence if set)
 
-                 # Vertical coupling parameter for BGC components (EWMA filter for resuspension ratios)
+                 # Vertical coupling parameters for BGC components
                  vertical_coupling_alpha = 0.0,  # [-] α=0: fixed ratio (Option A), α>0: adaptive smoothing (Option B1)
+                 organomin_decoupling_factor = 1.0,  # [-] Fraction forming organo-mineral aggregates
 
                  # eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
                  # # value from
@@ -277,6 +279,7 @@ class Flocs(BaseStateVar):
         self.settling_velocity_factor = settling_velocity_factor
         self.apply_settling = apply_settling
         self.vertical_coupling_alpha = vertical_coupling_alpha
+        self.organomin_decoupling_factor = organomin_decoupling_factor
 
         # Initialize tau_cr with base value (will be updated by TEP coupling if active)
         self.tau_cr = tau_cr_base

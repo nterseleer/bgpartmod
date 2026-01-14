@@ -24,6 +24,7 @@ class Heterotrophs(BaseOrg):
                  eps_kd=0.012,  # [m2 mmolC-1] Specific attenuation coefficient
                  prescribe_aggregate_from_setup=False,  # Whether to use prescribed aggregate from Setup
                  prescribed_vertical_coupling_alpha=0.0,  # EWMA smoothing for prescribed aggregate coupling
+                 prescribed_organomin_decoupling_factor=1.0,  # Organo-mineral decoupling for prescribed aggregate
                  dt2=False,
                  dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
@@ -69,6 +70,7 @@ class Heterotrophs(BaseOrg):
         self.eps_kd = eps_kd
         self.prescribe_aggregate_from_setup = prescribe_aggregate_from_setup
         self.prescribed_vertical_coupling_alpha = prescribed_vertical_coupling_alpha
+        self.prescribed_organomin_decoupling_factor = prescribed_organomin_decoupling_factor
 
         self.pref = {}
         for k, v in kwargs.items():
@@ -108,10 +110,20 @@ class Heterotrophs(BaseOrg):
             from ..components.flocs import PrescribedFlocs
             self.coupled_aggregate = PrescribedFlocs(
                 name="Macroflocs",
-                vertical_coupling_alpha=self.prescribed_vertical_coupling_alpha
+                vertical_coupling_alpha=self.prescribed_vertical_coupling_alpha,
+                organomin_decoupling_factor=self.prescribed_organomin_decoupling_factor
             )
         else:
             self.coupled_aggregate = coupled_aggregate
+
+        # Store coupling parameters locally for performance (once instead of every timestep)
+        if self.coupled_aggregate is not None:
+            self.vertical_coupling_alpha = self.coupled_aggregate.vertical_coupling_alpha
+            self.organomin_decoupling_factor = self.coupled_aggregate.organomin_decoupling_factor
+        else:
+            self.vertical_coupling_alpha = 0.0
+            self.organomin_decoupling_factor = 1.0
+
         for t in self.coupled_targets:
             if t.name not in self.pref.keys():
                 self.pref[t.name] = 0.
@@ -298,14 +310,14 @@ class Heterotrophs(BaseOrg):
             Nf = self.coupled_aggregate.numconc
 
             # Update smoothed ratios (EWMA filter: α=0 → fixed, α>0 → adaptive)
-            if Nf > 0 and self.coupled_aggregate.vertical_coupling_alpha > 0:
-                alpha = self.coupled_aggregate.vertical_coupling_alpha
+            # Ratios based on fraction forming organo-mineral aggregates
+            if Nf > 0 and self.vertical_coupling_alpha > 0:
                 if self.smoothed_C_to_Nf_ratio is not None:
-                    self.smoothed_C_to_Nf_ratio = alpha * (self.C / Nf) + (1 - alpha) * self.smoothed_C_to_Nf_ratio
+                    self.smoothed_C_to_Nf_ratio = self.vertical_coupling_alpha * (self.C * self.organomin_decoupling_factor / Nf) + (1 - self.vertical_coupling_alpha) * self.smoothed_C_to_Nf_ratio
                 if self.N is not None and self.smoothed_N_to_Nf_ratio is not None:
-                    self.smoothed_N_to_Nf_ratio = alpha * (self.N / Nf) + (1 - alpha) * self.smoothed_N_to_Nf_ratio
+                    self.smoothed_N_to_Nf_ratio = self.vertical_coupling_alpha * (self.N * self.organomin_decoupling_factor / Nf) + (1 - self.vertical_coupling_alpha) * self.smoothed_N_to_Nf_ratio
                 if self.P is not None and self.smoothed_P_to_Nf_ratio is not None:
-                    self.smoothed_P_to_Nf_ratio = alpha * (self.P / Nf) + (1 - alpha) * self.smoothed_P_to_Nf_ratio
+                    self.smoothed_P_to_Nf_ratio = self.vertical_coupling_alpha * (self.P * self.organomin_decoupling_factor / Nf) + (1 - self.vertical_coupling_alpha) * self.smoothed_P_to_Nf_ratio
 
             # Sedimentation rate [d-1]
             settling_rate = (self.coupled_aggregate.sink_sedimentation / Nf * conv) if Nf > 0 else 0.0
@@ -319,11 +331,12 @@ class Heterotrophs(BaseOrg):
                        self.smoothed_P_to_Nf_ratio) if self.P is not None and self.smoothed_P_to_Nf_ratio is not None else 0.0
 
             # Net vertical loss (positive = loss from water column)
-            self.sink_vertical_loss.C = settling_rate * self.C - resusp_C
+            # Sedimentation applied only to fraction forming organo-mineral aggregates
+            self.sink_vertical_loss.C = settling_rate * self.C * self.organomin_decoupling_factor - resusp_C
             if self.N is not None:
-                self.sink_vertical_loss.N = settling_rate * self.N - resusp_N
+                self.sink_vertical_loss.N = settling_rate * self.N * self.organomin_decoupling_factor - resusp_N
             if self.P is not None:
-                self.sink_vertical_loss.P = settling_rate * self.P - resusp_P
+                self.sink_vertical_loss.P = settling_rate * self.P * self.organomin_decoupling_factor - resusp_P
 
             # # Old formulation (coupled net rate):
             # rate = (self.coupled_aggregate.net_vertical_loss_rate *

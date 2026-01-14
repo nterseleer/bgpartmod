@@ -14,6 +14,7 @@ class Detritus(BaseOrg):
                  KA2=57.48,  # [mmolC m-3] Half saturation cst for TEP dependence of A2 (Onur22)
                  prescribe_aggregate_from_setup=False,  # Whether to use prescribed aggregate from Setup
                  prescribed_vertical_coupling_alpha=0.0,  # EWMA smoothing for prescribed aggregate coupling
+                 prescribed_organomin_decoupling_factor=1.0,  # Organo-mineral decoupling for prescribed aggregate
                  dt2=False,
                  dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
@@ -43,6 +44,7 @@ class Detritus(BaseOrg):
         self.KA2 = KA2
         self.prescribe_aggregate_from_setup = prescribe_aggregate_from_setup
         self.prescribed_vertical_coupling_alpha = prescribed_vertical_coupling_alpha
+        self.prescribed_organomin_decoupling_factor = prescribed_organomin_decoupling_factor
         self.dt2 = dt2
         self.bound_temp_to_1 = bound_temp_to_1
 
@@ -94,12 +96,21 @@ class Detritus(BaseOrg):
             from ..components.flocs import PrescribedFlocs
             self.coupled_aggregate = PrescribedFlocs(
                 name="Macroflocs",
-                vertical_coupling_alpha=self.prescribed_vertical_coupling_alpha
+                vertical_coupling_alpha=self.prescribed_vertical_coupling_alpha,
+                organomin_decoupling_factor=self.prescribed_organomin_decoupling_factor
             )
         else:
             self.coupled_aggregate = coupled_aggregate
 
         self.coupled_remin_products = coupled_remin_products
+
+        # Store coupling parameters locally for performance (once instead of every timestep)
+        if self.coupled_aggregate is not None:
+            self.vertical_coupling_alpha = self.coupled_aggregate.vertical_coupling_alpha
+            self.organomin_decoupling_factor = self.coupled_aggregate.organomin_decoupling_factor
+        else:
+            self.vertical_coupling_alpha = 0.0
+            self.organomin_decoupling_factor = 1.0
 
     def get_coupled_processes_indepent_sinks_sources(self, t=None, t_idx=None):
         """
@@ -325,16 +336,16 @@ class Detritus(BaseOrg):
             Nf = self.coupled_aggregate.numconc
 
             # Update smoothed ratios (EWMA filter: α=0 → fixed, α>0 → adaptive)
-            if Nf > 0 and self.coupled_aggregate.vertical_coupling_alpha > 0:
-                alpha = self.coupled_aggregate.vertical_coupling_alpha
+            # Ratios based on fraction forming organo-mineral aggregates
+            if Nf > 0 and self.vertical_coupling_alpha > 0:
                 if self.smoothed_C_to_Nf_ratio is not None:
-                    self.smoothed_C_to_Nf_ratio = alpha * (self.C / Nf) + (1 - alpha) * self.smoothed_C_to_Nf_ratio
+                    self.smoothed_C_to_Nf_ratio = self.vertical_coupling_alpha * (self.C * self.organomin_decoupling_factor / Nf) + (1 - self.vertical_coupling_alpha) * self.smoothed_C_to_Nf_ratio
                 if self.smoothed_N_to_Nf_ratio is not None:
-                    self.smoothed_N_to_Nf_ratio = alpha * (self.N / Nf) + (1 - alpha) * self.smoothed_N_to_Nf_ratio
+                    self.smoothed_N_to_Nf_ratio = self.vertical_coupling_alpha * (self.N * self.organomin_decoupling_factor / Nf) + (1 - self.vertical_coupling_alpha) * self.smoothed_N_to_Nf_ratio
                 if self.P is not None and self.smoothed_P_to_Nf_ratio is not None:
-                    self.smoothed_P_to_Nf_ratio = alpha * (self.P / Nf) + (1 - alpha) * self.smoothed_P_to_Nf_ratio
+                    self.smoothed_P_to_Nf_ratio = self.vertical_coupling_alpha * (self.P * self.organomin_decoupling_factor / Nf) + (1 - self.vertical_coupling_alpha) * self.smoothed_P_to_Nf_ratio
                 if self.Si is not None and self.smoothed_Si_to_Nf_ratio is not None:
-                    self.smoothed_Si_to_Nf_ratio = alpha * (self.Si / Nf) + (1 - alpha) * self.smoothed_Si_to_Nf_ratio
+                    self.smoothed_Si_to_Nf_ratio = self.vertical_coupling_alpha * (self.Si * self.organomin_decoupling_factor / Nf) + (1 - self.vertical_coupling_alpha) * self.smoothed_Si_to_Nf_ratio
 
             # Sedimentation rate [d-1]
             settling_rate = (self.coupled_aggregate.sink_sedimentation / Nf * conv) if Nf > 0 else 0.0
@@ -352,10 +363,11 @@ class Detritus(BaseOrg):
                         self.smoothed_Si_to_Nf_ratio is not None) else 0.0
 
             # Net vertical loss (positive = loss from water column)
-            self.sink_vertical_loss.C = settling_rate * self.C - resusp_C
-            self.sink_vertical_loss.N = settling_rate * self.N - resusp_N
-            self.sink_vertical_loss.P = settling_rate * self.P - resusp_P if self.P is not None else 0.0
-            self.sink_vertical_loss.Si = settling_rate * self.Si - resusp_Si if self.Si is not None else 0.0
+            # Sedimentation applied only to fraction forming organo-mineral aggregates
+            self.sink_vertical_loss.C = settling_rate * self.C * self.organomin_decoupling_factor - resusp_C
+            self.sink_vertical_loss.N = settling_rate * self.N * self.organomin_decoupling_factor - resusp_N
+            self.sink_vertical_loss.P = settling_rate * self.P * self.organomin_decoupling_factor - resusp_P if self.P is not None else 0.0
+            self.sink_vertical_loss.Si = settling_rate * self.Si * self.organomin_decoupling_factor - resusp_Si if self.Si is not None else 0.0
 
             # # Old formulation (coupled net rate):
             # rate = (self.coupled_aggregate.net_vertical_loss_rate *
