@@ -385,11 +385,16 @@ class Optimization:
         return instance
 
     @classmethod
-    def load_existing(cls, name: str) -> 'Optimization':
-        """Load existing optimization (single-case or multi-case)."""
+    def load_existing(cls, name: str, dir_suffix=None) -> 'Optimization':
+        """Load existing optimization (single-case or multi-case).
+
+        Args:
+            name: Optimization name (used for file names).
+            dir_suffix: Optional suffix appended to directory name only.
+        """
         instance = cls()
         instance.name = name
-        instance._setup_directories()
+        instance._setup_directories(dir_suffix=dir_suffix)
 
         if not os.path.exists(instance.optdir):
             raise FileNotFoundError(f"Optimization {name} not found in {OPTIMIZATIONS_DIR}")
@@ -467,9 +472,10 @@ class Optimization:
         next_num = max(numbers + [-1]) + 1
         return f'OPT{next_num:03d}'
 
-    def _setup_directories(self):
+    def _setup_directories(self, dir_suffix=None):
         """Create optimization directory structure and define file paths."""
-        self.optdir = os.path.join(OPTIMIZATIONS_DIR, self.name)
+        dir_name = self.name + (dir_suffix or "")
+        self.optdir = os.path.join(OPTIMIZATIONS_DIR, dir_name)
         os.makedirs(self.optdir, exist_ok=True)
 
         # Define all file paths with correct extensions
