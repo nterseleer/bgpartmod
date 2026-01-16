@@ -462,7 +462,7 @@ class Phyto(BaseOrg):
     def get_sink_respiration(self):
         """Calculate respiration for Onur22 formulation."""
         C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
-        PC_pos = max(0., self.PC) if self.apply_numerical_protections else self.PC
+        # PC_pos = max(0., self.PC) if self.apply_numerical_protections else self.PC
         # self.sink_respiration.C = self.zeta_resp_base * C_safe + self.zeta_resp_prod * PC_pos
         self.sink_respiration.C = self.zeta_resp_base * C_safe + self.zeta_resp_prod * self.source_PP.C
         self.sink_respiration.Chl = self.sink_respiration.C * self.thetaC  # Chl degradation

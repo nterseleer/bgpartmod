@@ -1759,11 +1759,15 @@ def compare_optimizations(
     """
     from src.utils import optimization as optim
 
-    # Load optimizations if given as strings
-    opts = [
-        optim.Optimization.load_existing(opt) if isinstance(opt, str) else opt
-        for opt in optimizations
-    ]
+    # Load optimizations if given as strings or tuples (name, dir_suffix)
+    opts = []
+    for opt in optimizations:
+        if isinstance(opt, str):
+            opts.append(optim.Optimization.load_existing(opt))
+        elif isinstance(opt, tuple):
+            opts.append(optim.Optimization.load_existing(opt[0], dir_suffix=opt[1]))
+        else:
+            opts.append(opt)
 
     # Ensure all have processed results
     for opt in opts:

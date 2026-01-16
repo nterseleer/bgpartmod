@@ -487,6 +487,15 @@ ref_values = {
         'complete_name': "alpha^{C:Nf}"
     },
 
+    'Macroflocs+organomin_decoupling_factor': {
+        'reference_value': 1.,
+        'symbol': 'BGC-FLOCS_{decoupling}',
+        'units': '[]',
+        'complete_name': "Decoupling factor for BGC-FLOCS"
+    },
+
+
+
 
     'NH4+k_remin': {
         'reference_value': 0,
