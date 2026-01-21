@@ -233,6 +233,7 @@ class Flocs(BaseStateVar):
         self.bed_shear_stress_at_t = None
         self.mu_water_at_t = None
         self.erosion_factor = None
+        self.water_depth_at_t = None
         self.Ncnum = None
         self.coupled_glue = None
         self.coupled_glue_C = None
@@ -565,6 +566,16 @@ class Flocs(BaseStateVar):
             self.alpha_FF, self.alpha_PP, self.alpha_PF = alphas
             self.fyflocstrength = fyflocstrength
             self.nf_fractal_dim = nf_fractal_dim
+
+            # print(self.name, t_idx)
+            # if self.name == 'Microflocs' and t_idx == 1:
+            #     print(f"DEBUG t=0: coupled_glue.C={self.coupled_glue.C}, K_glue={self.shared_alphas.K_glue}")
+            #     print(f"  alpha_PP_base={self.shared_alphas.alpha_PP_base}, delta={self.shared_alphas.delta_alpha_PP}")
+            #     input()
+            #
+            # # print('DEBUG', self.name)
+            # # print(self.alpha_FF, self.alpha_PP, self.alpha_PF)
+            # # input()
 
             # Compute expensive fractal terms once per timestep (optimized: reuse via multiplication)
             frac_inv_nf = 1.0 / self.nf_fractal_dim

@@ -972,7 +972,7 @@ class Setup:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Plot saved to: {save_path}")
             
-        plt.show()
+        # plt.show()
         
         # Print summary statistics
         print(f"\nSetup Summary ({days_to_plot:.1f} days plotted):")
@@ -1047,6 +1047,199 @@ class Setup:
                         lines.append(f"  {attr}: {value}")
 
         return "\n".join(lines)
+
+    def crop_from_date(self, new_start_date: str, new_tmax: Optional[float] = None,
+                       new_name: Optional[str] = None) -> 'Setup':
+        """
+        Create a new Setup cropped from the current one, starting at a specified date.
+
+        This preserves the exact forcing values (shear rate, temperature, PAR, etc.)
+        at the corresponding timestamps, ensuring tidal phase continuity.
+
+        Parameters
+        ----------
+        new_start_date : str
+            The new start date (e.g., '2023-01-01 00:00:00')
+        new_tmax : float, optional
+            New simulation duration in days. If None, uses remaining duration from
+            original setup.
+        new_name : str, optional
+            Name for the cropped setup. If None, appends '_cropped' to original name.
+
+        Returns
+        -------
+        Setup
+            A new Setup instance with cropped time series, preserving forcing alignment.
+
+        Notes
+        -----
+        **Attributes that are SLICED** (time series data):
+        - t_eval, dates, dates1
+        - PAR, PAR_array
+        - T, T_array (actual temperature values)
+        - g_shear_rate, g_shear_rate_array (actual shear values)
+        - bed_shear_stress, bed_shear_stress_array
+        - water_depth, water_depth_array
+        - mu_water, mu_water_array
+        - loads* arrays (riverine loads)
+        - TEP_array, Flocs* arrays (prescribed data)
+
+        **Attributes that are INHERITED** (normalization constants):
+        - T_max, T_min: Annual temperature range for limT normalization in getlimT()
+        - g_shear_rate_min, delta_g_shear_rate: Full tidal cycle range for
+          normalized_shear calculation in flocs.py
+
+        These normalization constants MUST represent the full annual/tidal cycle
+        range, not just the cropped period. Otherwise, limitation functions would
+        give incorrect values (e.g., limT=1.0 in winter instead of ~0.5).
+
+        Example
+        -------
+        >>> # From a 2-year simulation setup, extract 2023 only
+        >>> cropped_setup = sim0.setup.crop_from_date('2023-01-01 00:00:00', new_tmax=365)
+        >>> # cropped_setup will have identical forcing values at '2023-01-01' as original
+        >>> # AND the same T_max/T_min for correct limT normalization
+        """
+        import copy
+
+        new_start = pd.to_datetime(new_start_date)
+
+        # Find the index in current dates array closest to new_start_date
+        if new_start < self.dates[0]:
+            raise ValueError(f"new_start_date ({new_start}) is before setup start ({self.dates[0]})")
+        if new_start > self.dates[-1]:
+            raise ValueError(f"new_start_date ({new_start}) is after setup end ({self.dates[-1]})")
+
+        # Find nearest index
+        start_idx = self.dates.get_indexer([new_start], method='nearest')[0]
+        actual_start = self.dates[start_idx]
+
+        # Determine end index
+        if new_tmax is not None:
+            # Calculate how many timesteps for new_tmax days
+            n_steps = int(new_tmax / self.used_dt)
+            end_idx = min(start_idx + n_steps, len(self.dates))
+        else:
+            end_idx = len(self.dates)
+
+        # Compute new time parameters
+        new_duration_days = (end_idx - start_idx) * self.used_dt
+
+        # Create a shallow copy first, then update attributes
+        cropped = copy.copy(self)
+
+        # Update name
+        cropped.name = new_name if new_name else f"{self.name}_cropped"
+
+        # Update time parameters
+        cropped.tmin = 0  # Reset to 0 since we're starting fresh
+        cropped.tmax = new_duration_days
+        cropped.start_date = actual_start
+        cropped.end_date = actual_start + pd.Timedelta(days=new_duration_days)
+        cropped.t_span = [0, new_duration_days]
+
+        # Slice time arrays
+        cropped.t_eval = np.arange(0, new_duration_days, self.used_dt, dtype=self.dtype)
+        cropped.dates = self.dates[start_idx:end_idx]
+
+        # Handle two-timestep case
+        if self.two_dt:
+            # Slice dates1 appropriately
+            start_idx1 = start_idx // self.dt_ratio
+            end_idx1 = (end_idx - 1) // self.dt_ratio + 1
+            cropped.dates1 = self.dates1[start_idx1:end_idx1] if self.dates1 is not None else None
+            cropped.dates1_set = set(cropped.dates1) if cropped.dates1 is not None else None
+
+        # Slice all DataFrames
+        if hasattr(self, 'PAR') and isinstance(self.PAR, pd.DataFrame):
+            cropped.PAR = self.PAR.iloc[start_idx:end_idx].copy()
+            cropped.PAR.index = cropped.dates
+        if hasattr(self, 'T') and isinstance(self.T, pd.DataFrame):
+            cropped.T = self.T.iloc[start_idx:end_idx].copy()
+            cropped.T.index = cropped.dates
+        if hasattr(self, 'mu_water') and isinstance(self.mu_water, pd.DataFrame):
+            cropped.mu_water = self.mu_water.iloc[start_idx:end_idx].copy()
+            cropped.mu_water.index = cropped.dates
+        if hasattr(self, 'g_shear_rate') and isinstance(self.g_shear_rate, pd.DataFrame):
+            cropped.g_shear_rate = self.g_shear_rate.iloc[start_idx:end_idx].copy()
+            cropped.g_shear_rate.index = cropped.dates
+            # IMPORTANT: Keep original normalization constants (full tidal cycle range)
+            # These are used for normalized_shear in flocs.py and must represent
+            # the full spring-neap tidal range, not just the cropped period
+            cropped.g_shear_rate_min = self.g_shear_rate_min
+            cropped.delta_g_shear_rate = self.delta_g_shear_rate
+        if hasattr(self, 'bed_shear_stress') and isinstance(self.bed_shear_stress, pd.DataFrame):
+            cropped.bed_shear_stress = self.bed_shear_stress.iloc[start_idx:end_idx].copy()
+            cropped.bed_shear_stress.index = cropped.dates
+        if hasattr(self, 'water_depth') and isinstance(self.water_depth, pd.DataFrame):
+            cropped.water_depth = self.water_depth.iloc[start_idx:end_idx].copy()
+            cropped.water_depth.index = cropped.dates
+
+        # Slice pre-computed arrays (these are the critical ones for model performance)
+        if hasattr(self, 'PAR_array'):
+            cropped.PAR_array = self.PAR_array[start_idx:end_idx].copy()
+        if hasattr(self, 'T_array'):
+            cropped.T_array = self.T_array[start_idx:end_idx].copy()
+        if hasattr(self, 'mu_water_array'):
+            cropped.mu_water_array = self.mu_water_array[start_idx:end_idx].copy()
+        if hasattr(self, 'g_shear_rate_array'):
+            cropped.g_shear_rate_array = self.g_shear_rate_array[start_idx:end_idx].copy()
+        if hasattr(self, 'bed_shear_stress_array'):
+            cropped.bed_shear_stress_array = self.bed_shear_stress_array[start_idx:end_idx].copy()
+        if hasattr(self, 'water_depth_array'):
+            cropped.water_depth_array = self.water_depth_array[start_idx:end_idx].copy()
+
+        # Slice riverine loads if present
+        if hasattr(self, 'loads') and self.riverine_loads and self.loads is not None:
+            cropped.loads = self.loads.iloc[start_idx:end_idx].copy()
+            cropped.loads.index = cropped.dates
+            if hasattr(self, 'loads_NH4_array') and self.loads_NH4_array is not None:
+                cropped.loads_NH4_array = self.loads_NH4_array[start_idx:end_idx].copy()
+            if hasattr(self, 'loads_NO3_array') and self.loads_NO3_array is not None:
+                cropped.loads_NO3_array = self.loads_NO3_array[start_idx:end_idx].copy()
+            if hasattr(self, 'loads_DIP_array') and self.loads_DIP_array is not None:
+                cropped.loads_DIP_array = self.loads_DIP_array[start_idx:end_idx].copy()
+            if hasattr(self, 'loads_DSi_array') and self.loads_DSi_array is not None:
+                cropped.loads_DSi_array = self.loads_DSi_array[start_idx:end_idx].copy()
+
+        # Slice prescribed TEP if present
+        if hasattr(self, 'TEP_array') and self.prescribe_TEP and self.TEP_array is not None:
+            cropped.TEP_array = self.TEP_array[start_idx:end_idx].copy()
+
+        # Slice prescribed Flocs if present
+        if hasattr(self, 'prescribe_Flocs') and self.prescribe_Flocs:
+            if hasattr(self, 'Microflocs_massconc_array') and self.Microflocs_massconc_array is not None:
+                cropped.Microflocs_massconc_array = self.Microflocs_massconc_array[start_idx:end_idx].copy()
+            if hasattr(self, 'Micro_in_Macro_massconc_array') and self.Micro_in_Macro_massconc_array is not None:
+                cropped.Micro_in_Macro_massconc_array = self.Micro_in_Macro_massconc_array[start_idx:end_idx].copy()
+            if hasattr(self, 'Macroflocs_sink_sed_array') and self.Macroflocs_sink_sed_array is not None:
+                cropped.Macroflocs_sink_sed_array = self.Macroflocs_sink_sed_array[start_idx:end_idx].copy()
+            if hasattr(self, 'Macroflocs_source_resusp_array') and self.Macroflocs_source_resusp_array is not None:
+                cropped.Macroflocs_source_resusp_array = self.Macroflocs_source_resusp_array[start_idx:end_idx].copy()
+            if hasattr(self, 'Macroflocs_numconc_array') and self.Macroflocs_numconc_array is not None:
+                cropped.Macroflocs_numconc_array = self.Macroflocs_numconc_array[start_idx:end_idx].copy()
+
+        # Rebuild date-to-index mapping
+        cropped.dates_to_index = {date: idx for idx, date in enumerate(cropped.dates)}
+
+        # IMPORTANT: Keep original temperature bounds for normalization
+        # T_max and T_min are used in getlimT() (base.py) to normalize the Arrhenius
+        # temperature limitation function. They must represent the ANNUAL temperature
+        # range, not the cropped period's range. Otherwise, limT would equal 1.0 at
+        # winter temperatures instead of ~0.5.
+        # cropped.T_max and cropped.T_min are inherited via copy.copy(self)
+        # so we do NOT recalculate them here.
+
+        if self.verbose:
+            print(f"Setup cropped: {self.name} -> {cropped.name}")
+            print(f"  Original: {self.start_date} to {self.end_date} ({self.tmax} days)")
+            print(f"  Cropped:  {cropped.start_date} to {cropped.end_date} ({cropped.tmax:.1f} days)")
+            print(f"  Array lengths: {len(self.t_eval)} -> {len(cropped.t_eval)}")
+            print(f"  Inherited normalization constants (from full cycle):")
+            print(f"    T_max={cropped.T_max:.2f} K, T_min={cropped.T_min:.2f} K")
+            print(f"    g_shear_rate_min={cropped.g_shear_rate_min:.2f}, delta={cropped.delta_g_shear_rate:.2f}")
+
+        return cropped
 
 
 if __name__ == "__main__":
