@@ -266,8 +266,19 @@ class Model:
                     self.aggregate_vars[agg_key].append(f"{key}_{agg_value}")
 
     def _initialize_vertical_coupling_ratios(self):
-        """Initialize BGC/floc ratios for vertical coupling after all components are set up"""
-        for component in self.components.values():
+        """Initialize BGC/floc ratios for vertical coupling after all components are set up.
+
+        Applies vertical_coupling_state from config (if present) before initialization,
+        allowing restart from extracted simulation state.
+        """
+        for key, cfg in self.config.items():
+            if key == 'formulation' or key not in self.components:
+                continue
+            component = self.components[key]
+            # Apply pre-set state from config (e.g., extracted from previous simulation)
+            if 'vertical_coupling_state' in cfg and hasattr(component, 'set_vertical_coupling_state'):
+                component.set_vertical_coupling_state(cfg['vertical_coupling_state'])
+            # Initialize (respects pre-set values)
             if hasattr(component, 'initialize_vertical_coupling_ratios'):
                 component.initialize_vertical_coupling_ratios()
 

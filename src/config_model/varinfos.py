@@ -229,7 +229,7 @@ ref_values = {
         'complete_name': 'Attached Bacteria respiration rate'
     },
     'BacF+g_max': {
-        'reference_value': 3.,
+        'reference_value': 4.,
         'symbol': 'BacF_{g_{max}}',
         'units': '[d-1]',
         'complete_name': 'Attached Bacteria maximum grazing rate'
@@ -735,6 +735,12 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                       'perPhyto': False,
                       'longname': 'Transparent Exopolymer Particles',
                       'plt_ylim': [0, 100]},
+           "TEP_to_SPM_ratio": {'units': 'mmol C m-3 mg-1 l',
+                      'munits': 'mmol C m-3 mg-1 l',
+                      'cleanname': 'TEP:SPM',
+                      'perPhyto': False,
+                                'oprt': 'Macroflocs_coupled_glue_C / (Micro_in_Macro_massconcentration + Microflocs_massconcentration)',
+                      'longname': 'TEP to SPM ratio'},
 
            "DIM_TAconc": {'units': '[]',
                           'munits': '[]]',

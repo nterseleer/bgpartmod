@@ -144,15 +144,30 @@ class BaseOrg(BaseStateVar):
 
         self.ICs = np.array([pool for pool in [self.C, self.N, self.Chl, self.P, self.Si] if pool is not None], dtype=self.dtype)
 
+    def set_vertical_coupling_state(self, state_dict):
+        """
+        Set smoothed BGC/floc ratios from extracted state (e.g., from a previous simulation).
+
+        Args:
+            state_dict: Dict with keys like 'smoothed_C_to_Nf_ratio', 'smoothed_N_to_Nf_ratio', etc.
+        """
+        for attr, value in state_dict.items():
+            if hasattr(self, attr):
+                setattr(self, attr, value)
+
     def initialize_vertical_coupling_ratios(self):
         """
         Initialize BGC/floc ratios for resuspension after ICs are set.
-        Separates sedimentation (proportional to current C) from resuspension (absolute flux).
+        Respects pre-set values from set_vertical_coupling_state().
 
         With vertical_coupling_alpha:
         - α=0 (default): Fixed ratio from initial conditions (Option A)
         - α>0: Exponentially weighted moving average (Option B1)
         """
+        # Skip if values already set (e.g., from extracted state)
+        if self.smoothed_C_to_Nf_ratio is not None:
+            return
+
         if hasattr(self, 'coupled_aggregate') and self.coupled_aggregate is not None:
             Nf = self.coupled_aggregate.numconc
             if Nf > 0:
@@ -160,16 +175,6 @@ class BaseOrg(BaseStateVar):
                 self.smoothed_N_to_Nf_ratio = self.N / Nf if self.N is not None else None
                 self.smoothed_P_to_Nf_ratio = self.P / Nf if self.P is not None else None
                 self.smoothed_Si_to_Nf_ratio = self.Si / Nf if self.Si is not None else None
-            else:
-                self.smoothed_C_to_Nf_ratio = None
-                self.smoothed_N_to_Nf_ratio = None
-                self.smoothed_P_to_Nf_ratio = None
-                self.smoothed_Si_to_Nf_ratio = None
-        else:
-            self.smoothed_C_to_Nf_ratio = None
-            self.smoothed_N_to_Nf_ratio = None
-            self.smoothed_P_to_Nf_ratio = None
-            self.smoothed_Si_to_Nf_ratio = None
 
     def update_val(self, C,
                    N=None,

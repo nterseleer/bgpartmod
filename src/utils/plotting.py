@@ -51,7 +51,7 @@ DEFAULT_COLORS = [
 # Line styles: 3 distinct styles to combine with 14 colors
 # Avoiding dot-only ':' style as it becomes too discrete
 # Using solid, dashed, and dash-dot for good visibility
-DEFAULT_LINESTYLES = ['-', '--', '-.', ':']
+DEFAULT_LINESTYLES = ['-', '--', '-', '-.', ':']
 # DEFAULT_LINESTYLES = ['-', '-', '--',]
 
 # Budget plot color palettes (cool colors for sources, warm colors for sinks)
