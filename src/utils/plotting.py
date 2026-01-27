@@ -1737,7 +1737,8 @@ def compare_optimizations(
         figsize: Optional[tuple] = None,
         alpha: float = 0.1,
         savefig: bool = False,
-        name: str = 'optim_comparison'
+        name: str = 'optim_comparison',
+        use_ref_order: bool = True
 ) -> plt.Figure:
     """
     Compare multiple optimizations with distribution and cost analysis.
@@ -1753,6 +1754,7 @@ def compare_optimizations(
         alpha: Scatter plot transparency
         savefig: Whether to save figure
         name: Base filename for saving
+        use_ref_order: If True, sort parameters by ref_values order; if False, alphabetically
 
     Returns:
         Matplotlib figure
@@ -1776,9 +1778,11 @@ def compare_optimizations(
 
     # Get union of all optimized parameters
     if parameters is None:
-        parameters = sorted(set().union(*[
-            set(opt.config['optimized_parameters']) for opt in opts
-        ]))
+        all_params = set().union(*[set(opt.config['optimized_parameters']) for opt in opts])
+        if use_ref_order:
+            parameters = varinfos.sort_params_by_ref_order(all_params)
+        else:
+            parameters = sorted(all_params)
 
     n_params = len(parameters)
     n_opts = len(opts)
@@ -1929,6 +1933,137 @@ def compare_optimizations(
 
     if savefig:
         save_figure(fig, filename=f'{name}_comparison.png')
+
+    return fig
+
+
+def compare_optim_values(
+        optimizations: List[Union[Any, str, tuple]],
+        parameters: Optional[List[str]] = None,
+        ncols: int = 5,
+        percentiles: Optional[Tuple[float, float]] = (25, 75),
+        show_values: bool = True,
+        marker_size: int = 120,
+        figsize: Optional[tuple] = None,
+        savefig: bool = False,
+        name: str = 'optim_values',
+        use_ref_order: bool = True
+) -> plt.Figure:
+    """
+    Compare best parameter values across optimizations with optional uncertainty bars.
+
+    Simple scatter plot: one subplot per parameter, one point per optimization.
+    Y-axis shows optimizations (first in list at top), X-axis shows parameter value.
+
+    Args:
+        optimizations: List of Optimization objects, names, or (name, dir_suffix) tuples
+        parameters: Parameters to compare (None = union of all optimized parameters)
+        ncols: Maximum columns in subplot grid
+        percentiles: Tuple (low, high) for uncertainty bars, None to disable
+        show_values: Whether to annotate points with numeric values
+        marker_size: Size of scatter markers
+        figsize: Figure size (None = auto-calculated)
+        savefig: Whether to save figure
+        name: Base filename for saving
+        use_ref_order: If True, sort parameters by ref_values order; if False, alphabetically
+
+    Returns:
+        Matplotlib figure
+    """
+    from src.utils import optimization as optim
+
+    # Load optimizations
+    opts = []
+    for o in optimizations:
+        if isinstance(o, str):
+            opts.append(optim.Optimization.load_existing(o))
+        elif isinstance(o, tuple):
+            opts.append(optim.Optimization.load_existing(o[0], dir_suffix=o[1]))
+        else:
+            opts.append(o)
+
+    for o in opts:
+        if not hasattr(o, 'df') or o.df is None:
+            o.process_results()
+
+    # Get parameters
+    if parameters is None:
+        all_params = set().union(*[set(o.config['optimized_parameters']) for o in opts])
+        if use_ref_order:
+            parameters = varinfos.sort_params_by_ref_order(all_params)
+        else:
+            parameters = sorted(all_params)
+
+    n_params, n_opts = len(parameters), len(opts)
+    ncols = min(ncols, n_params)
+    nrows = int(np.ceil(n_params / ncols))
+
+    if figsize is None:
+        figsize = (3.5 * ncols, max(4, 0.6 * n_opts) * nrows)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+    colors = DEFAULT_COLORS[:n_opts]
+    y_positions = np.arange(n_opts)
+
+    for idx, param in enumerate(parameters):
+        row, col = divmod(idx, ncols)
+        ax = axes[row, col]
+
+        for i, o in enumerate(opts):
+            if param not in o.df.columns:
+                continue
+
+            badlnl = o.config.get('badlnl', -100000.)
+            valid = o.df[o.df['cost_raw'] != badlnl]
+            if valid.empty:
+                continue
+
+            # Best value
+            best_idx = valid['cost'].idxmax()
+            best_val = valid.loc[best_idx, param]
+
+            # Plot point
+            ax.scatter(best_val, i, s=marker_size, c=colors[i], edgecolors='black',
+                       linewidths=0.8, zorder=5, label=o.name if idx == 0 else None)
+
+            # Uncertainty bar
+            if percentiles and len(valid) > 1:
+                p_low, p_high = np.percentile(valid[param], percentiles)
+                ax.hlines(i, p_low, p_high, colors=colors[i], linewidths=2, alpha=0.5, zorder=3)
+
+            # Value annotation
+            if show_values:
+                txt = f'{best_val:.2e}' if abs(best_val) < 0.01 or abs(best_val) > 1000 else f'{best_val:.2g}'
+                ax.annotate(txt, (best_val, i), xytext=(8, 0), textcoords='offset points',
+                            fontsize=7, va='center', color=colors[i], zorder=10,
+                            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
+
+        # Styling
+        param_info = varinfos.ref_values.get(param, {})
+        symbol = param_info.get('symbol', param)
+        ax.set_title(fns.cleantext(symbol) if symbol else param, fontsize=10)
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels([o.name for o in opts] if col == 0 else [], fontsize=8)
+        ax.set_ylim(-0.5, n_opts - 0.5)
+        ax.invert_yaxis()
+        ax.grid(axis='x', alpha=0.3)
+        ax.tick_params(labelsize=8)
+
+    # Hide unused subplots
+    for idx in range(n_params, nrows * ncols):
+        row, col = divmod(idx, ncols)
+        axes[row, col].set_visible(False)
+
+    # Single legend at bottom
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels, loc='lower center', ncol=min(n_opts, 6),
+                   fontsize=8, bbox_to_anchor=(0.5, 0), frameon=True)
+
+    plt.tight_layout(rect=[0, 0.06, 1, 0.98], h_pad=2.5)
+
+    if savefig:
+        save_figure(fig, filename=f'{name}.png')
 
     return fig
 

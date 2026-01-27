@@ -90,6 +90,7 @@ HETEROTROPHS_COMPONENTS_MAP = {
 }
 
 ref_values = {
+    # === Phy+ parameters (ordered by params_to_optimize, then others) ===
     'Phy+mu_max': {
         'reference_value': 5.2,
         'symbol': '\\mu_{max}',
@@ -102,6 +103,37 @@ ref_values = {
         'units': 'd-1',
         'complete_name': 'Specific mortality rate'
     },
+    'Phy+alpha': {
+        'reference_value': 7e-6,
+        'symbol': '\\alpha^{Chl}',
+        'units': 'gC gChl-1 / (µE m-2)',
+        'complete_name': 'Chl-specific slope of P-I curve'
+    },
+    'Phy+divide_water_depth_ratio': {
+        'reference_value': 1.,
+        'symbol': 'depth^{water}_{ratio}',
+        'units': '[-]',
+        'complete_name': 'Water Depth Reduction Ratio for Phytoplankton'
+    },
+    'Phy+grazing_loss_max': {
+        'reference_value': 0.,
+        'symbol': 'grazing^{max}_{loss}',
+        'units': '[mmolC m-3 d-1]',
+        'complete_name': 'Max Grazing loss by zooplankton'
+    },
+    'Phy+K_grazing': {
+        'reference_value': 20.,
+        'symbol': 'K_{grazing}^{Phy}',
+        'units': '[mmolC m-3]',
+        'complete_name': 'Half-saturation constant for Phyto grazing'
+    },
+    'Phy+KDIP': {
+        'reference_value': 0.05,
+        'symbol': 'K^{Phy}_{DIP}',
+        'units': '[mmolP m-3 d-1]',
+        'complete_name': 'Phytoplankton half-saturation constant for DIP uptake'
+    },
+    # Phy+ parameters not in params_to_optimize
     'Phy+lysrate': {
         'reference_value': 0.1,
         'symbol': 'l^l_{Dia}',
@@ -168,42 +200,14 @@ ref_values = {
         'units': 'molSi molC-1',
         'complete_name': 'Maximum quota for Si'
     },
-    'Phy+alpha': {
-        'reference_value': 7e-6,
-        'symbol': '\\alpha^{Chl}',
-        'units': 'gC gChl-1 / (µE m-2)',
-        'complete_name': 'Chl-specific slope of P-I curve'
-    },
     'Phy+theta_max': {
         'reference_value': 0.07,
         'symbol': '\\theta_{max}',
         'units': 'gChl gC-1',
         'complete_name': 'Maximum Chl:C ratio'
     },
-    'Phy+divide_water_depth_ratio': {
-        'reference_value': 1.,
-        'symbol': 'depth^{water}_{ratio}',
-        'units': '[-]',
-        'complete_name': 'Water Depth Reduction Ratio for Phytoplankton'
-    },
-    'Phy+grazing_loss_max': {
-        'reference_value': 0.,
-        'symbol': 'grazing^{max}_{loss}',
-        'units': '[mmolC m-3 d-1]',
-        'complete_name': 'Max Grazing loss by zooplankton'
-    },
-    'Phy+K_grazing': {
-        'reference_value': 20.,
-        'symbol': 'K_{grazing}^{Phy}',
-        'units': '[mmolC m-3]',
-        'complete_name': 'Half-saturation constant for Phyto grazing'
-    },
-    'Phy+KDIP': {
-        'reference_value': 0.05,
-        'symbol': 'K^{Phy}_{DIP}',
-        'units': '[mmolP m-3 d-1]',
-        'complete_name': 'Phytoplankton half-saturation constant for DIP uptake'
-    },
+
+    # === BacA+ parameters ===
     'BacA+g_max': {
         'reference_value': 3.,
         'symbol': 'BacA_{g_{max}}',
@@ -228,6 +232,8 @@ ref_values = {
         'units': '[d-1]',
         'complete_name': 'Attached Bacteria respiration rate'
     },
+
+    # === BacF+ parameters ===
     'BacF+g_max': {
         'reference_value': 4.,
         'symbol': 'BacF_{g_{max}}',
@@ -252,6 +258,62 @@ ref_values = {
         'units': '[d-1]',
         'complete_name': 'Attached Bacteria respiration rate'
     },
+
+    # === Nutrient remineralization parameters ===
+    'NH4+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_{remin}^{NH_4}',
+        'units': '--',
+        'complete_name': "k_remin_NH4"
+    },
+    'DIP+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_{remin}^{DIP}',
+        'units': '--',
+        'complete_name': "k_remin_DIP"
+    },
+    'DSi+k_remin': {
+        'reference_value': 0,
+        'symbol': 'K_{remin}^{DSi}',
+        'units': '--',
+        'complete_name': "k_remin_DSi"
+    },
+
+    # === DetL+ parameters ===
+    'DetL+kleak': {
+        'reference_value': 0.0,
+        'symbol': 'k_{leak}^{DetL}',
+        'units': 'd-1',
+        'complete_name': 'DetL leakage rate'
+    },
+    'DetL+beta_max': {
+        'reference_value': 0.033,
+        'symbol': '\\beta^{A2}_{max}',
+        'units': 'm3 mmolC-1 d-1',
+        'complete_name': 'Maximum collision kernel for A2'
+    },
+
+    # === TEPC+ parameters ===
+    'TEPC+kleak': {
+        'reference_value': 0.,
+        'symbol': 'k_{leak}^{TEP}',
+        'units': 'd-1',
+        'complete_name': 'TEP leakage rate'
+    },
+    'TEPC+rho_TEP': {
+        'reference_value': 0.1,
+        'symbol': '\\rho^{TEP}',
+        'units': 'd-1',
+        'complete_name': 'Specific degradation rate of TEP'
+    },
+    'TEPC+breakdown_rate': {
+        'reference_value': 0.,
+        'symbol': 'r_{breakdown}^{TEP}',
+        'units': 'd-1',
+        'complete_name': 'TEP "biological" breakdown rate"'
+    },
+
+    # === DOC parameters (not in params_to_optimize) ===
     'DOCS+alpha_TEPC': {
         'reference_value': 0.85,
         'symbol': '\\alpha^{A1}_{DOC_S-TEP}',
@@ -276,36 +338,63 @@ ref_values = {
         'units': 'm3 mmolC-1 d-1',
         'complete_name': 'DOC_L-TEP collision kernel for A1'
     },
-    'DetL+kleak': {
-        'reference_value': 0.0,
-        'symbol': 'k_{leak}^{DetL}',
-        'units': 'd-1',
-        'complete_name': 'DetL leakage rate'
+
+    # === Microflocs+ parameters (ordered by params_to_optimize, then others) ===
+    'Microflocs+alpha_PP_base': {
+        'reference_value': 0.002,
+        'symbol': '\\alpha_{PP}^{base}',
+        'units': '-',
+        'complete_name': "Base PP collision efficiency (mineral only) [-]"
     },
-    'DetL+beta_max': {
-        'reference_value': 0.033,
-        'symbol': '\\beta^{A2}_{max}',
-        'units': 'm3 mmolC-1 d-1',
-        'complete_name': 'Maximum collision kernel for A2'
+    'Microflocs+delta_alpha_PP': {
+        'reference_value': 0.028,
+        'symbol': 'Δ \\alpha_{PP}^{base}',
+        'units': '-',
+        'complete_name': "TEP increment for PP collision efficiency [-]"
     },
-    'TEPC+rho_TEP': {
-        'reference_value': 0.1,
-        'symbol': '\\rho^{TEP}',
-        'units': 'd-1',
-        'complete_name': 'Specific degradation rate of TEP'
+    'Microflocs+fyflocstrength_base': {
+        # 'reference_value': 1e-10,
+        'symbol': 'F_y^{base}',
+        'units': 'N',
+        'complete_name': "Base yield strength of flocs (mineral only) [N]"
     },
-    'TEPC+kleak': {
+    'Microflocs+deltaFymax': {
+        # 'reference_value': 1e-9,
+        'symbol': 'Δ F_{y}^{max} ',
+        'units': '---',
+        'complete_name': "Max TEP-increased Floc strength"
+    },
+    'Microflocs+nf_fractal_dim': {
+        'reference_value': 2.1,
+        'symbol': 'n_f',
+        'units': '-',
+        'complete_name': "Fractal dimension of macroflocs [-]"
+    },
+    'Microflocs+delta_nf_fractal_dim': {
         'reference_value': 0.,
-        'symbol': 'k_{leak}^{TEP}',
-        'units': 'd-1',
-        'complete_name': 'TEP leakage rate'
+        'symbol': 'Δnf',
+        'units': '-',
+        'complete_name': "Max TEP-induced decrease in fractal dimension"
     },
-    'TEPC+breakdown_rate': {
-        'reference_value': 0.,
-        'symbol': 'r_{breakdown}^{TEP}',
-        'units': 'd-1',
-        'complete_name': 'TEP "biological" breakdown rate"'
+    'Microflocs+tau_cr_base': {
+        'reference_value': 0.5,
+        'symbol': '\\tau_{cr}^{base}',
+        'units': 'Pa',
+        'complete_name': "Base Critical shear stress"
     },
+    'Microflocs+delta_tau_cr': {
+        'reference_value': 1.,
+        'symbol': 'Δ \\tau_{cr}^{base}',
+        'units': 'Pa',
+        'complete_name': "Max TEP-increased Critical shear stress"
+    },
+    'Microflocs+K_glue': {
+        'reference_value': 15,
+        'symbol': 'K_{glue}',
+        'units': 'mmol TEP_C m-3',
+        'complete_name': "Half saturation constant for TEP effect on flocculation"
+    },
+    # Microflocs+ parameters not in params_to_optimize
     'Microflocs+applyalphafact_PP': {
         'reference_value': 0.,
         'symbol': '\\alpha_{factor}^{PP}',
@@ -324,12 +413,6 @@ ref_values = {
         'units': '-',
         'complete_name': "Glue's exponent for FF factor"
     },
-    'Microflocs+nf_fractal_dim': {
-        'reference_value': 2.1,
-        'symbol': 'n_f',
-        'units': '-',
-        'complete_name': "Fractal dimension of macroflocs [-]"
-    },
     'Microflocs+alpha_PP': {
         'reference_value': 0.02,
         'symbol': '\\alpha_{PP}',
@@ -347,18 +430,6 @@ ref_values = {
         'symbol': '\\alpha_{FF}',
         'units': '-',
         'complete_name': "FF collision efficiency [-]"
-    },
-    'Microflocs+alpha_PP_base': {
-        'reference_value': 0.002,
-        'symbol': '\\alpha_{PP}^{base}',
-        'units': '-',
-        'complete_name': "Base PP collision efficiency (mineral only) [-]"
-    },
-    'Microflocs+delta_alpha_PP': {
-        'reference_value': 0.028,
-        'symbol': 'Δ \\alpha_{PP}^{base}',
-        'units': '-',
-        'complete_name': "TEP increment for PP collision efficiency [-]"
     },
     'Microflocs+alpha_FF_base': {
         'reference_value': 0.002,
@@ -384,12 +455,6 @@ ref_values = {
         'units': '-',
         'complete_name': "TEP increment for PF collision efficiency [-]"
     },
-    'Macroflocs+sinking_leak': {
-        'reference_value': 0.,
-        'symbol': 'sinking_{leak}',
-        'units': 'm^{¸1}',
-        'complete_name': "Sinking leak [m^{¸1}]"
-    },
     'Microflocs+f_frac_floc_break': {
         'reference_value': 0.1,
         'symbol': 'f',
@@ -408,115 +473,74 @@ ref_values = {
         'units': 'Pa',
         'complete_name': "Yield strength of flocs [Pa]"
     },
-    'Microflocs+fyflocstrength_base': {
-        # 'reference_value': 1e-10,
-        'symbol': 'F_y^{base}',
-        'units': 'N',
-        'complete_name': "Base yield strength of flocs (mineral only) [N]"
-    },
-    'Microflocs+K_glue': {
-        'reference_value': 15,
-        'symbol': 'K_{glue}',
-        'units': 'mmol TEP_C m-3',
-        'complete_name': "Half saturation constant for TEP effect on flocculation"
-    },
-    'Microflocs+deltaFymax': {
-        # 'reference_value': 1e-9,
-        'symbol': 'Δ F_{y}^{max} ',
-        'units': '---',
-        'complete_name': "Max TEP-increased Floc strength"
-    },
     'Microflocs+eps_kd': {
         'reference_value': 0.066 * 1e3,
         'symbol': 'eps_{kd}',
         'units': 'm-1 (mg l-1)-1',
         'complete_name': "SPM extinction coefficient"
     },
-    'Microflocs+tau_cr_base': {
-        'reference_value': 0.5,
-        'symbol': '\\tau_{cr}^{base}',
-        'units': 'Pa',
-        'complete_name': "Base Critical shear stress"
-    },
-    'Microflocs+delta_tau_cr': {
-        'reference_value': 1.,
-        'symbol': 'Δ \\tau_{cr}^{base}',
-        'units': 'Pa',
-        'complete_name': "Max TEP-increased Critical shear stress"
-    },
-    'Microflocs+delta_nf_fractal_dim': {
-        'reference_value': 0.,
-        'symbol': 'Δnf',
-        'units': '-',
-        'complete_name': "Max TEP-induced decrease in fractal dimension"
-    },
 
-
+    # === Macroflocs+ parameters (ordered by params_to_optimize, then others) ===
     'Macroflocs+resuspension_rate': {
         'reference_value': 1e5,
         'symbol': 'rate_{resusp}',
         'units': '[]',
         'complete_name': "Resuspension rate"
     },
-
-    'Macroflocs+settling_vel_min_fraction': {
-        'reference_value': 0.001,
-        'symbol': 'frac^{v_{settl}}_{min}',
-        'units': '[]',
-        'complete_name': "Min v_{settl} fraction"
-    },
-
-    'Macroflocs+settling_vel_max_fraction': {
-        'reference_value': 0.01,
-        'symbol': 'frac^{v_{settl}}_{max}',
-        'units': '[]',
-        'complete_name': "Max v_{settl} fraction"
-    },
-
-    'Macroflocs+settling_velocity_factor': {
-        'reference_value': 1.,
-        'symbol': 'frac^{v_{settl}}',
-        'units': '[]',
-        'complete_name': "v_{settl} fraction"
-    },
-
     'Macroflocs+vertical_coupling_alpha': {
         'reference_value': 0.,
         'symbol': 'alpha^{C:Nf}',
         'units': '[]',
         'complete_name': "alpha^{C:Nf}"
     },
-
     'Macroflocs+organomin_decoupling_factor': {
         'reference_value': 1.,
         'symbol': 'BGC-FLOCS_{decoupling}',
         'units': '[]',
         'complete_name': "Decoupling factor for BGC-FLOCS"
     },
-
-
-
-
-    'NH4+k_remin': {
-        'reference_value': 0,
-        'symbol': 'K_{remin}^{NH_4}',
-        'units': '--',
-        'complete_name': "k_remin_NH4"
+    'Macroflocs+settling_velocity_factor': {
+        'reference_value': 1.,
+        'symbol': 'frac^{v_{settl}}',
+        'units': '[]',
+        'complete_name': "v_{settl} fraction"
     },
-    'DIP+k_remin': {
-        'reference_value': 0,
-        'symbol': 'K_{remin}^{DIP}',
-        'units': '--',
-        'complete_name': "k_remin_DIP"
+    'Macroflocs+settling_vel_min_fraction': {
+        'reference_value': 0.001,
+        'symbol': 'frac^{v_{settl}}_{min}',
+        'units': '[]',
+        'complete_name': "Min v_{settl} fraction"
     },
-    'DSi+k_remin': {
-        'reference_value': 0,
-        'symbol': 'K_{remin}^{DSi}',
-        'units': '--',
-        'complete_name': "k_remin_DSi"
-    }
-
+    'Macroflocs+settling_vel_max_fraction': {
+        'reference_value': 0.01,
+        'symbol': 'frac^{v_{settl}}_{max}',
+        'units': '[]',
+        'complete_name': "Max v_{settl} fraction"
+    },
+    # Macroflocs+ parameters not in params_to_optimize
+    'Macroflocs+sinking_leak': {
+        'reference_value': 0.,
+        'symbol': 'sinking_{leak}',
+        'units': 'm^{¸1}',
+        'complete_name': "Sinking leak [m^{¸1}]"
+    },
 }
+
+
+def sort_params_by_ref_order(params):
+    """
+    Sort parameters according to the order defined in ref_values.
+
+    Parameters not found in ref_values are placed at the end (alphabetically).
+
+    Args:
+        params: Iterable of parameter names
+
+    Returns:
+        List of parameter names sorted by ref_values order
+    """
+    ref_order = {k: i for i, k in enumerate(ref_values.keys())}
+    return sorted(params, key=lambda p: (ref_order.get(p, float('inf')), p))
 
 """
 Definition of output variables: Each output variable refers to a dictionary potentially containing:
