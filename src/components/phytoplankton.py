@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.special import exp1
 
 from ..core.base import BaseOrg, Elms
 from src.config_model import varinfos
@@ -49,6 +50,9 @@ class Phyto(BaseOrg):
                  name='DefaultPhyto',
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  apply_numerical_protections=False,  # Whether to apply numerical safeguards
+                 I_min = 1, #[µmol photon m-2 d-1] min irradiance threshold for Ei
+                 corrected_limI = False, #TMP to be removed 20260309
+                 eta_photic = 1.,   # [-] photic enrichment factor
                  ):
 
         super().__init__(dtype=dtype)
@@ -103,6 +107,9 @@ class Phyto(BaseOrg):
         self.bound_temp_to_1 = bound_temp_to_1
         self.apply_numerical_protections = apply_numerical_protections
         self._C_MIN = 1e-12  # [mmol m-3] Minimum pool for safe calculations
+        self.I_min = I_min
+        self.corrected_limI = corrected_limI
+        self.eta_photic = eta_photic
 
         self.lim_N = None
         self.lim_P = None
@@ -361,13 +368,42 @@ class Phyto(BaseOrg):
         self.PAR_t = self.setup.PAR_array[t_idx]
         if self.kdvar:
             self.get_kd()
-            self.PAR_t_water_column_theoretical = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx])
-            self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx] /
-                                                          self.divide_water_depth_ratio)
+
+        self.PAR_t_water_column_theoretical = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx])
+        self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx] /
+                                                      self.divide_water_depth_ratio)
 
         self.PC_max = self.mu_max * self.limNUT * self.limT
-        self.limI = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column) / (
-                self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0
+
+        if False :
+            self.limI = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column) / (
+                    self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0
+
+            self.limI_theoretical = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column_theoretical) / (
+                    self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0
+
+
+        if self.corrected_limI:
+            if self.PC_max > 0 and self.PAR_t > self.I_min and self.kd > 0:  # ← I_min au lieu de 0
+                a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
+                I_0 = self.PAR_t
+                H = self.setup.water_depth_array[t_idx]
+                I_H = I_0 * np.exp(-self.kd * H)
+
+                I_bottom = max(I_H, self.I_min)
+                z_irrad = min(np.log(I_0 / I_bottom) / self.kd, H)
+
+                # self.limI = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0))
+                #              / (self.kd * z_irrad)) * (z_irrad / H)
+
+                limI_local = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0)) / (self.kd * z_irrad))
+                # Weighting: effective fraction of water column contributing to growtht
+                self.limI = limI_local * min(self.eta_photic * z_irrad / H, 1.0)
+
+            else:
+                self.limI = 0.0
+
+
         self.limI = np.clip(self.limI, 1e-6, 1.) if self.apply_numerical_protections else max(1e-6, self.limI)
         self.PC = self.PC_max * self.limI
         C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
