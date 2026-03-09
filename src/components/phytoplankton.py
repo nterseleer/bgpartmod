@@ -51,7 +51,7 @@ class Phyto(BaseOrg):
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  apply_numerical_protections=False,  # Whether to apply numerical safeguards
                  I_min = 1, #[µmol photon m-2 d-1] min irradiance threshold for Ei
-                 corrected_limI = False, #TMP to be removed 20260309
+                 corrected_limI = True, #TMP to be removed 20260309
                  eta_photic = 1.,   # [-] photic enrichment factor
                  ):
 
