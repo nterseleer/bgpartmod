@@ -950,20 +950,24 @@ class Setup:
                 color = colors[i % len(colors)]
                 ax.plot(t_plot, data['values'], color=color, linewidth=2)
 
-            ax.set_ylabel(data['ylabel'])
-            ax.set_title(data['title'])
+            ax.set_ylim(0, None)
+            ax.set_ylabel(data['ylabel'], fontsize=9)
+            ax.set_title(data['title'], fontsize=9, pad=3)
             ax.grid(True, alpha=0.3)
+            ax.tick_params(labelsize=7)
 
-            # Only show x-label on bottom plot
+            # Only show x-label and x-tick labels on bottom plot
             if i == n_plots - 1:
                 ax.set_xlabel('Time (days)')
+            else:
+                ax.tick_params(labelbottom=False)
         
         # Add overall title with setup info
         title_parts = [f"Setup: {self.name}" if self.name else "Physical Setup"]
         if self.vary_water_depth:
             title_parts.append("(with tidal variation)")
         
-        fig.suptitle(" ".join(title_parts), fontsize=14, fontweight='bold')
+        # fig.suptitle(" ".join(title_parts), fontsize=14, fontweight='bold')
         
         plt.tight_layout()
         

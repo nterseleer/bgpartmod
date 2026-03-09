@@ -51,7 +51,7 @@ DEFAULT_COLORS = [
 # Line styles: 3 distinct styles to combine with 14 colors
 # Avoiding dot-only ':' style as it becomes too discrete
 # Using solid, dashed, and dash-dot for good visibility
-DEFAULT_LINESTYLES = ['-', '--', '-', '-.', ':']
+DEFAULT_LINESTYLES = ['-', '--', '-.', ':', '-', ]
 # DEFAULT_LINESTYLES = ['-', '-', '--',]
 
 # Budget plot color palettes (cool colors for sources, warm colors for sinks)
@@ -91,6 +91,15 @@ OBS_STYLES = {
         'alpha': 0.4
     }
 }
+
+# Styles for multi-window plotting (when mean_window_days is a tuple/list)
+# Order: background (smoothed) -> foreground (detailed)
+# Use None for color to preserve each model's original color
+MULTI_WINDOW_STYLES = [
+    {'linewidth': 0.5, 'alpha': 0.7, 'color': None},  # Layer 0: background
+    {'linewidth': 1.5, 'alpha': 1.0, 'color': None},  # Layer 1: foreground
+    {'linewidth': 2.0, 'alpha': 1.0, 'color': None},  # Layer 2: optional
+]
 
 
 @lru_cache(maxsize=32)
@@ -152,6 +161,32 @@ def _filter_by_time(df: pd.DataFrame, time_filter) -> pd.DataFrame:
 
     else:
         raise ValueError(f"Unsupported time_filter type: {type(time_filter)}")
+
+
+def _expand_time_filter(time_filter, buffer_days: int):
+    """
+    Expand a time_filter by adding a buffer on both sides.
+    This avoids edge effects when computing temporal averages.
+    """
+    if time_filter is None or buffer_days <= 0:
+        return time_filter
+
+    buffer = pd.Timedelta(days=buffer_days)
+
+    if isinstance(time_filter, str):
+        # Year string -> expand to tuple
+        year = int(time_filter)
+        start = pd.Timestamp(f"{year}-01-01") - buffer
+        end = pd.Timestamp(f"{year}-12-31") + buffer
+        return (start, end)
+
+    elif isinstance(time_filter, tuple) and len(time_filter) == 2:
+        start = pd.Timestamp(time_filter[0]) - buffer
+        end = pd.Timestamp(time_filter[1]) + buffer
+        return (start, end)
+
+    # slice or other: return unchanged (can't easily expand)
+    return time_filter
 
 
 def prepare_model_obs_data(
@@ -223,13 +258,19 @@ def prepare_model_obs_data(
             counter += 1
             name = f"{original_name} ({counter})"
 
-        # Apply time filtering BEFORE temporal averaging to preserve temporal resolution
-        if time_filter is not None:
-            model_data = _filter_by_time(model_data, time_filter)
-
-        # Apply temporal averaging using resample (assumes DatetimeIndex)
+        # Apply time filtering with buffer to avoid edge effects in temporal averaging
         if mean_window_days is not None and mean_window_days > 0:
+            buffer_days = (mean_window_days + 1) // 2
+            expanded_filter = _expand_time_filter(time_filter, buffer_days)
+            if expanded_filter is not None:
+                model_data = _filter_by_time(model_data, expanded_filter)
+            # Apply temporal averaging
             model_data = model_data.resample(f'{mean_window_days}D').mean()
+            # Crop back to original time_filter
+            if time_filter is not None:
+                model_data = _filter_by_time(model_data, time_filter)
+        elif time_filter is not None:
+            model_data = _filter_by_time(model_data, time_filter)
 
         model_data_list.append(model_data)
         model_names.append(name)
@@ -281,7 +322,7 @@ def plot_variable(
         model_styles: Optional[List[Dict]] = None,
         fill_between_data: Optional[Tuple[pd.DataFrame, pd.DataFrame]] = None,
         fill_alpha: float = 0.3,
-        fill_color: str = 'gray',
+        fill_color: str = 'magenta',
         plot_obs: bool = True,
         obs_kwargs: Optional[Dict] = None,
         obs_kwargs_calibrated: Optional[Dict] = None,
@@ -461,7 +502,7 @@ def plot_results(
         model_styles: Optional[List[Dict]] = None,
         fill_between_models: Optional[Tuple[Any, Any]] = None,
         fill_alpha: float = 0.3,
-        fill_color: str = 'gray',
+        fill_color: str = 'magenta',
         subplot_labels: bool = True,
         subplot_label_fontsize: int = 10,
         label_position: str = 'top_left',
@@ -566,19 +607,11 @@ def plot_results(
                 calibrated_vars = model.calibrated_vars
                 break
 
-    # Prepare data
-    model_data_list, merged_data, _, model_names = prepare_model_obs_data(
-        models, observations, mean_window_days, daily_mean, variables_list, time_filter
-    )
-
-    # Prepare fill_between data if provided
-    fill_between_data = None
-    if fill_between_models is not None:
-        fill_data_list, _, _, _ = prepare_model_obs_data(
-            list(fill_between_models), None, mean_window_days, daily_mean, variables_list, time_filter
-        )
-        if len(fill_data_list) == 2:
-            fill_between_data = (fill_data_list[0], fill_data_list[1])
+    # Normalize mean_window_days to list for multi-window support
+    if isinstance(mean_window_days, (tuple, list)):
+        mean_window_values = list(mean_window_days)
+    else:
+        mean_window_values = [mean_window_days]
 
     # Calculate grid dimensions
     nrows = (len(variables_list) + ncols - 1) // ncols
@@ -600,41 +633,76 @@ def plot_results(
     obs_specific_kwargs = ['obs_kwargs_calibrated', 'obs_kwargs_non_calibrated']
     plot_var_kwargs = {k: v for k, v in plot_kwargs.items()
                        if k not in legend_kwargs}
-    
-    # Plot each variable
+
+    # Get base model styles
+    base_styles = model_styles if model_styles else get_model_styles(
+        len(fns.flatten_simulation_list(models)))
+
+    # Track fill_between for legend
+    fill_between_data = None
+
+    # Plot each layer (background to foreground)
+    for layer_idx, mwd in enumerate(mean_window_values):
+        is_first_layer = (layer_idx == 0)
+        is_last_layer = (layer_idx == len(mean_window_values) - 1)
+
+        # Prepare data for this mean_window_days value
+        layer_data_list, layer_merged, _, model_names = prepare_model_obs_data(
+            models, observations, mwd, daily_mean, variables_list, time_filter
+        )
+
+        # Prepare fill_between data (only for first layer)
+        layer_fill_between = None
+        if is_first_layer and fill_between_models is not None:
+            fill_data_list, _, _, _ = prepare_model_obs_data(
+                list(fill_between_models), None, mwd, daily_mean, variables_list, time_filter
+            )
+            if len(fill_data_list) == 2:
+                layer_fill_between = (fill_data_list[0], fill_data_list[1])
+                fill_between_data = layer_fill_between  # Track for legend
+
+        # Apply layer-specific style overrides
+        # Offset index so that the last layer always uses the foreground style
+        n_layers = len(mean_window_values)
+        style_offset = max(0, len(MULTI_WINDOW_STYLES) - n_layers)
+        layer_style_config = MULTI_WINDOW_STYLES[min(layer_idx + style_offset, len(MULTI_WINDOW_STYLES) - 1)]
+        layer_overrides = {k: v for k, v in layer_style_config.items() if v is not None}
+        layer_styles = [{**s, **layer_overrides} for s in base_styles]
+
+        # Plot each variable
+        for i, var in enumerate(variables_list):
+            if i < len(axes):
+                plot_variable(
+                    axes[i],
+                    layer_data_list,
+                    model_names,
+                    var,
+                    layer_merged,
+                    layer_styles,
+                    fill_between_data=layer_fill_between,
+                    fill_alpha=fill_alpha,
+                    fill_color=fill_color,
+                    add_labels=(i == 0 and is_last_layer),
+                    plot_obs=(plot_obs and is_first_layer),
+                    calibrated_vars=calibrated_vars,
+                    show_subplot_titles=(show_subplot_titles and is_last_layer),
+                    apply_plt_ylim=apply_plt_ylim,
+                    ylabel_pad=ylabel_pad,
+                    ylabel_fontsize=ylabel_fontsize,
+                    tick_label_pad=tick_label_pad,
+                    tick_labelsize=tick_labelsize,
+                    tick_length=tick_length,
+                    tick_width=tick_width,
+                    spine_width=spine_width,
+                    **plot_var_kwargs
+                )
+
+    # Format axes and add subplot labels (once, after all layers)
     for i, var in enumerate(variables_list):
         if i < len(axes):
-            plot_variable(
-                axes[i],
-                model_data_list,
-                model_names,
-                var,
-                merged_data,
-                model_styles,
-                fill_between_data=fill_between_data,
-                fill_alpha=fill_alpha,
-                fill_color=fill_color,
-                add_labels=(i == 0),  # Only add labels on the first subplot
-                plot_obs = plot_obs,
-                calibrated_vars=calibrated_vars,
-                show_subplot_titles=show_subplot_titles,
-                apply_plt_ylim=apply_plt_ylim,
-                ylabel_pad=ylabel_pad,
-                ylabel_fontsize=ylabel_fontsize,
-                tick_label_pad=tick_label_pad,
-                tick_labelsize=tick_labelsize,
-                tick_length=tick_length,
-                tick_width=tick_width,
-                spine_width=spine_width,
-                **plot_var_kwargs
-            )
-
-            # Format x-axis
             axes[i].xaxis.set_major_formatter(mdates.DateFormatter(date_format))
             for label in axes[i].get_xticklabels():
                 label.set_rotation(xlabel_rotation)
-
-            # Add subplot label if requested
             if subplot_labels:
                 add_subplot_label(axes[i], i, position=label_position, fontsize=subplot_label_fontsize)
         else:
@@ -664,7 +732,7 @@ def plot_results(
             labels.append('Variability')
 
         # Add observations if present (check all subplots)
-        if merged_data is not None and len(axes) > 0:
+        if layer_merged is not None and len(axes) > 0:
             # Look for observations in any subplot
             for ax in axes:
                 if hasattr(ax, 'get_legend_handles_labels'):
@@ -981,7 +1049,7 @@ def plot_budget(
 
 def plot_element_distribution_stacked(model_output, element_vars, element_name=None,
                                       time_var='time', group_by_compartment=True, relative=False,
-                                      save=False, filename='element_distribution_stacked',
+                                      stacked=True, save=False, filename='element_distribution_stacked',
                                       figdir=None, fnametimestamp=True, **kwargs):
     """
     Create a stacked area plot showing element distribution across model compartments
@@ -1001,6 +1069,8 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
         If False, plot each variable individually
     relative : bool, default False
         If True, plot relative contributions (%) instead of absolute values
+    stacked : bool, default True
+        If True, use stackplot (stacked area). If False, overlay individual curves.
     save : bool, default False
         Whether to save the figure
     filename : str, default 'element_distribution_stacked'
@@ -1089,11 +1159,15 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
 
         # Use DEFAULT_COLORS for better color distinction
         colors = DEFAULT_COLORS[:len(compartment_totals)]
-        ax.stackplot(model_output.index,
-                     *data_to_plot,
-                     labels=compartment_totals.keys(),
-                     colors=colors,
-                     alpha=0.8)
+        if stacked:
+            ax.stackplot(model_output.index,
+                         *data_to_plot,
+                         labels=compartment_totals.keys(),
+                         colors=colors,
+                         alpha=0.8)
+        else:
+            for data, label, color in zip(data_to_plot, compartment_totals.keys(), colors):
+                ax.plot(model_output.index, data, label=label, color=color, linewidth=2, alpha=0.8)
 
         ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
@@ -1107,7 +1181,7 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
     else:
         ax.set_ylabel(f'{element_name} concentration [{unit}]')
         ax.set_title(f'{element_name} Distribution Across Model Compartments')
-        ax.set_ylim(0, 250)
+        ax.set_ylim(0, 800)
 
     ax.grid(True, alpha=0.3)
 
@@ -1251,6 +1325,12 @@ def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, relative=F
     if not relative and 'Phy_kd' in model_output.columns:
         ax.plot(model_output.index, model_output['Phy_kd'],
                 'k--', linewidth=2, label='Total k$_d$', zorder=10)
+
+    # Format x-axis as dates if DatetimeIndex was used
+    if isinstance(model_output.index, pd.DatetimeIndex):
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        fig.autofmt_xdate()
 
     # Formatting
     ax.set_xlabel('Time [d]', fontsize=12)
@@ -2247,6 +2327,7 @@ def plot_monthly_budget_comparison(
     if ratio is not None:
         ax2.set_ylabel(f'Ratio ({model_names[1]} / {model_names[0]})', fontsize=11, color=ratio_color)
         ax2.tick_params(axis='y', labelcolor=ratio_color)
+        ax2.set_ylim(0, 1.2)
 
     # Legends
     ax1.legend(loc='upper left', fontsize=9)
