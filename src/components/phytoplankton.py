@@ -397,6 +397,7 @@ class Phyto(BaseOrg):
                 #              / (self.kd * z_irrad)) * (z_irrad / H)
 
                 limI_local = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0)) / (self.kd * z_irrad))
+                self.limI_local = limI_local
                 # Weighting: effective fraction of water column contributing to growtht
                 self.limI = limI_local * min(self.eta_photic * z_irrad / H, 1.0)
 
@@ -417,13 +418,41 @@ class Phyto(BaseOrg):
         # Calculate rho_Chl for chlorophyll production
         # rho_chl must be in [mgChl mmolN-1] (see source_Chlprod.Chl)
         # QN_max is in [molN:molC], theta_max is in [mgChl molC-1]
-        if self.PAR_t_water_column < 0.01:
-            self.rho_Chl = 0.
+        if False:
+            if self.PAR_t_water_column < 0.01:
+                self.rho_Chl = 0.
+            else:
+                thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
+                denom = self.alpha * thetaC_safe * self.PAR_t_water_column
+                rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
+                self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) if self.apply_numerical_protections else rho_Chl_raw
+
+        if self.corrected_limI:
+            # Irradiance effective cohérente avec l'intégrale verticale
+            if self.limI > 1e-6 and self.PC_max > 0:
+                a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
+                # limI_local est la limitation dans la zone éclairée (avant pondération z_irrad/H)
+                # On en déduit l'irradiance effective : 1 - exp(-a·Ī) = limI_local
+                I_eff = -np.log(1.0 - self.limI_local) / a if self.limI_local < 1.0 else I_0
+                thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
+                denom = self.alpha * thetaC_safe * I_eff
+                rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
+                self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) \
+                    if self.apply_numerical_protections else rho_Chl_raw
+            else:
+                self.rho_Chl = 0.
         else:
-            thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
-            denom = self.alpha * thetaC_safe * self.PAR_t_water_column
-            rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
-            self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) if self.apply_numerical_protections else rho_Chl_raw
+            # Ancien calcul (inchangé)
+            if self.PAR_t_water_column < 0.01:
+                self.rho_Chl = 0.
+            else:
+                thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
+                denom = self.alpha * thetaC_safe * self.PAR_t_water_column
+                rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
+                self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) \
+                    if self.apply_numerical_protections else rho_Chl_raw
+
+
 
     def get_source_uptake(self):
         """Calculate nutrient uptake for Onur22 formulation."""
