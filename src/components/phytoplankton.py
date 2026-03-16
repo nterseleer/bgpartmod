@@ -398,7 +398,7 @@ class Phyto(BaseOrg):
 
                 limI_local = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0)) / (self.kd * z_irrad))
                 self.limI_local = limI_local
-                # Weighting: effective fraction of water column contributing to growtht
+                # Weighting: effective fraction of water column contributing to growth
                 self.limI = limI_local * min(self.eta_photic * z_irrad / H, 1.0)
 
             else:
@@ -431,9 +431,9 @@ class Phyto(BaseOrg):
             # Irradiance effective cohérente avec l'intégrale verticale
             if self.limI > 1e-6 and self.PC_max > 0:
                 a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
-                # limI_local est la limitation dans la zone éclairée (avant pondération z_irrad/H)
-                # On en déduit l'irradiance effective : 1 - exp(-a·Ī) = limI_local
-                I_eff = -np.log(1.0 - self.limI_local) / a if self.limI_local < 1.0 else I_0
+                # limI est la limitation dans la zone éclairée
+                # On en déduit l'irradiance effective : 1 - exp(-a·Ī) = limI
+                I_eff = -np.log(1.0 - self.limI) / a if self.limI < 1.0 else I_0
                 thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
                 denom = self.alpha * thetaC_safe * I_eff
                 rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
