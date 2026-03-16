@@ -122,6 +122,7 @@ class Phyto(BaseOrg):
         self.mmDIP = None
         self.mmDSi = None
         self.limI = None
+        self.limI_local = None
         self.PAR_t = None
         self.PAR_t_water_column = None
         self.PAR_t_water_column_theoretical = None
@@ -403,6 +404,7 @@ class Phyto(BaseOrg):
 
             else:
                 self.limI = 0.0
+                self.limI_local = 0.0
 
 
         self.limI = np.clip(self.limI, 1e-6, 1.) if self.apply_numerical_protections else max(1e-6, self.limI)
