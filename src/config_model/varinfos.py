@@ -115,6 +115,12 @@ ref_values = {
         'units': '[-]',
         'complete_name': 'Water Depth Reduction Ratio for Phytoplankton'
     },
+    'Phy+eta_photic': {
+        'reference_value': 1.,
+        'symbol': '\\eta_{photic}',
+        'units': '[-]',
+        'complete_name': 'Concentration ratio in photic layer'
+    },
     'Phy+grazing_loss_max': {
         'reference_value': 0.,
         'symbol': 'grazing^{max}_{loss}',
