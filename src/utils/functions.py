@@ -793,7 +793,10 @@ def neweval(node, subdf, fulldf, setup, varinfos, model=None):
                 return varinfos.__getattribute__(node.attr)
             elif node.value.id == 'model' and model is not None:
                 return getattr(model, node.attr)
-            # Fall through to handle other cases (e.g., node.func.attr in ast.Call)
+            else:
+                # Treat as a DataFrame column with dotted name (e.g., Phy_source_PP.C)
+                col_name = f"{node.value.id}.{node.attr}"
+                return subdf[col_name]
         elif isinstance(node.value, ast.Subscript):
             # Handle model.components['ComponentName'].attribute pattern
             if (isinstance(node.value.value, ast.Attribute) and

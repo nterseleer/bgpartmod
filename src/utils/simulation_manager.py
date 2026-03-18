@@ -857,3 +857,39 @@ def compare_simulations(models: Union[List, Dict[str, Any]],
         plt.tight_layout()
 
     return differences
+
+
+def _integrate_PP(simulation, var: str = 'Phy_source_PP.C', period: int = 2023) -> float:
+    """Integrate primary production over a given year.
+
+    Args:
+        simulation: Model simulation object with .df (DatetimeIndex) and .setup attributes.
+        var: Name of the PP rate variable in simulation.df [mmol C m-3 d-1].
+        period: Year to integrate over. If None, uses the full simulation.
+
+    Returns:
+        Depth-integrated annual PP [mmol C m-2].
+    """
+    df = simulation.df[simulation.df.index.year == period] if period else simulation.df
+    dt = (df.index[1] - df.index[0]).total_seconds() / 86400  # timestep in days
+    depth = simulation.setup.base_water_depth                  # water column depth in m
+    return df[var].sum() * dt * depth
+
+
+def compare_annual_PP(sim1, sim2, period: int = 2023, var: str = 'Phy_source_PP.C') -> None:
+    """Print depth-integrated annual PP for two simulations and their relative difference.
+
+    Args:
+        sim1: Reference simulation.
+        sim2: Simulation to compare against sim1.
+        period: Year to integrate over (default: 2023).
+        var: PP rate variable name in simulation.df [mmol C m-3 d-1].
+    """
+    from src.config_model import varinfos
+    pp1 = _integrate_PP(sim1, var, period)
+    pp2 = _integrate_PP(sim2, var, period)
+    rel_change = (pp2 / pp1 - 1) * 100
+    direction = 'increase' if rel_change > 0 else 'decrease'
+    var_label = varinfos.doutput.get(var, {}).get('longname', var)
+    print(f"{var_label} ({period}):  {sim1.name} = {pp1:.1f}  |  {sim2.name} = {pp2:.1f}  [mmol C m-2 yr-1]"
+          f"  ->  {rel_change:+.1f}% {direction}")
