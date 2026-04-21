@@ -73,7 +73,7 @@ class BaseOrg(BaseStateVar):
         self.setup = None
 
         # Smoothed ratios for vertical coupling (set by initialize_vertical_coupling_ratios)
-        # Controlled by coupled_aggregate.vertical_coupling_alpha
+        # Controlled by coupled_aggregate.resusp_ewma_alpha
         self.smoothed_C_to_Nf_ratio = None
         self.smoothed_N_to_Nf_ratio = None
         self.smoothed_P_to_Nf_ratio = None
@@ -160,7 +160,7 @@ class BaseOrg(BaseStateVar):
         Initialize BGC/floc ratios for resuspension after ICs are set.
         Respects pre-set values from set_vertical_coupling_state().
 
-        With vertical_coupling_alpha:
+        With resusp_ewma_alpha:
         - α=0 (default): Fixed ratio from initial conditions (Option A)
         - α>0: Exponentially weighted moving average (Option B1)
         """
