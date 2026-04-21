@@ -432,13 +432,16 @@ def update_config(dconf: Dict, param_dict: Dict[str, float]) -> Dict:
         ...     'Phy+mu_max': 1.37,
         ...     'Phy+mortrate': 0.01,
         ...     'Macroflocs+resuspension_rate': 75941.93,
-        ...     'BGC+vertical_coupling_alpha': 0.02  # Applied to all BGC components
+        ...     'BGC+resusp_ewma_alpha': 0.02  # Applied to all BGC components
         ... })
     """
     # BGC components that share common parameters in bgc_only mode
     BGC_COMPONENTS = ['DOCS', 'DOCL', 'DetL', 'DetS', 'BacA']
     # Mapping for BGC parameters that need renaming when applied to components
-    BGC_PARAM_MAPPING = {'vertical_coupling_alpha': 'prescribed_vertical_coupling_alpha'}
+    BGC_PARAM_MAPPING = {
+        'resusp_ewma_alpha': 'prescribed_resusp_ewma_alpha',
+        'vertical_coupling_alpha': 'prescribed_resusp_ewma_alpha',  # backward compat (to remove when obsolete)
+    }
 
     # Build nested update dictionary
     updates = {}

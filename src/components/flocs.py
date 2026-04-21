@@ -26,12 +26,15 @@ class PrescribedFlocs:
     - sink_sedimentation, source_resuspension, numconc for vertical coupling
     """
     def __init__(self, name, eps_kd=0.066e3, time_conversion_factor=86400,
-                 vertical_coupling_alpha=0.0, organomin_decoupling_factor=1.0):
+                 resusp_ewma_alpha=0.0, organomin_coupling_fraction=1.0, **kwargs):
+        # Backward compatibility (to remove when obsolete)
+        resusp_ewma_alpha = kwargs.pop('vertical_coupling_alpha', resusp_ewma_alpha)
+        organomin_coupling_fraction = kwargs.pop('organomin_decoupling_factor', organomin_coupling_fraction)
         self.name = name
         self.eps_kd = eps_kd
         self.time_conversion_factor = time_conversion_factor
-        self.vertical_coupling_alpha = vertical_coupling_alpha
-        self.organomin_decoupling_factor = organomin_decoupling_factor
+        self.resusp_ewma_alpha = resusp_ewma_alpha
+        self.organomin_coupling_fraction = organomin_coupling_fraction
 
         # Light attenuation (for all floc types)
         self.massconcentration = 0.0  # [kg m⁻³] - updated at each timestep
@@ -179,8 +182,8 @@ class Flocs(BaseStateVar):
                  settling_velocity_factor = None,  # [-] Constant fraction of base settling velocity (overrides counter_settling_by_turbulence if set)
 
                  # Vertical coupling parameters for BGC components
-                 vertical_coupling_alpha = 0.0,  # [-] α=0: fixed ratio (Option A), α>0: adaptive smoothing (Option B1)
-                 organomin_decoupling_factor = 1.0,  # [-] Fraction forming organo-mineral aggregates
+                 resusp_ewma_alpha = 0.0,  # [-] α=0: fixed ratio (Option A), α>0: adaptive smoothing (Option B1)
+                 organomin_coupling_fraction = 1.0,  # [-] Fraction forming organo-mineral aggregates
 
                  # eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
                  # # value from
@@ -195,9 +198,14 @@ class Flocs(BaseStateVar):
                  dtype=np.float64,
                  time_conversion_factor = 86400,   # Flocs run in s-1 while the rest of the model is in d-1
                  spinup_days = 0,   # Days of spin-up before interactions with biological components
+                 **kwargs,
                  ):
 
         super().__init__(dtype=dtype)
+
+        # Backward compatibility (to remove when obsolete)
+        resusp_ewma_alpha = kwargs.pop('vertical_coupling_alpha', resusp_ewma_alpha)
+        organomin_coupling_fraction = kwargs.pop('organomin_decoupling_factor', organomin_coupling_fraction)
 
         # Additive formulation parameters
         self.alpha_FF_base = alpha_FF_base
@@ -279,8 +287,8 @@ class Flocs(BaseStateVar):
         self.counter_settling_by_turbulence = counter_settling_by_turbulence
         self.settling_velocity_factor = settling_velocity_factor
         self.apply_settling = apply_settling
-        self.vertical_coupling_alpha = vertical_coupling_alpha
-        self.organomin_decoupling_factor = organomin_decoupling_factor
+        self.resusp_ewma_alpha = resusp_ewma_alpha
+        self.organomin_coupling_fraction = organomin_coupling_fraction
 
         # Initialize tau_cr with base value (will be updated by TEP coupling if active)
         self.tau_cr = tau_cr_base

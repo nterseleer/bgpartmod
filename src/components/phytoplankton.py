@@ -123,6 +123,7 @@ class Phyto(BaseOrg):
         self.mmDSi = None
         self.limI = None
         self.limI_local = None
+        self.z_irrad = None
         self.PAR_t = None
         self.PAR_t_water_column = None
         self.PAR_t_water_column_theoretical = None
@@ -392,15 +393,15 @@ class Phyto(BaseOrg):
                 I_H = I_0 * np.exp(-self.kd * H)
 
                 I_bottom = max(I_H, self.I_min)
-                z_irrad = min(np.log(I_0 / I_bottom) / self.kd, H)
+                self.z_irrad = min(np.log(I_0 / I_bottom) / self.kd, H)
 
                 # self.limI = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0))
-                #              / (self.kd * z_irrad)) * (z_irrad / H)
+                #              / (self.kd * self.z_irrad)) * (self.z_irrad / H)
 
-                limI_local = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0)) / (self.kd * z_irrad))
+                limI_local = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0)) / (self.kd * self.z_irrad))
                 self.limI_local = limI_local
                 # Weighting: effective fraction of water column contributing to growth
-                self.limI = limI_local * min(self.eta_photic * z_irrad / H, 1.0)
+                self.limI = limI_local * min(self.eta_photic * self.z_irrad / H, 1.0)
 
             else:
                 self.limI = 0.0

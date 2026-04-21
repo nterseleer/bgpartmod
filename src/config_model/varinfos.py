@@ -493,17 +493,29 @@ ref_values = {
         'units': '[]',
         'complete_name': "Resuspension rate"
     },
-    'Macroflocs+vertical_coupling_alpha': {
+    'Macroflocs+resusp_ewma_alpha': {
         'reference_value': 0.,
-        'symbol': 'alpha^{C:Nf}',
+        'symbol': r'\alpha_{EWMA}^{resusp}',
         'units': '[]',
-        'complete_name': "alpha^{C:Nf}"
+        'complete_name': "EWMA smoothing alpha for resuspension"
     },
-    'Macroflocs+organomin_decoupling_factor': {
-        'reference_value': 1.,
-        'symbol': 'BGC-FLOCS_{decoupling}',
+    'Macroflocs+vertical_coupling_alpha': {  # backward compat (to remove when obsolete)
+        'reference_value': 0.,
+        'symbol': r'\alpha_{EWMA}^{resusp}',
         'units': '[]',
-        'complete_name': "Decoupling factor for BGC-FLOCS"
+        'complete_name': "EWMA smoothing alpha for resuspension"
+    },
+    'Macroflocs+organomin_coupling_fraction': {
+        'reference_value': 1.,
+        'symbol': 'f_{OM}',
+        'units': '[]',
+        'complete_name': "Organo-mineral coupling fraction"
+    },
+    'Macroflocs+organomin_decoupling_factor': {  # backward compat (to remove when obsolete)
+        'reference_value': 1.,
+        'symbol': 'f_{OM}',
+        'units': '[]',
+        'complete_name': "Organo-mineral coupling fraction"
     },
     'Macroflocs+settling_velocity_factor': {
         'reference_value': 1.,
@@ -949,6 +961,16 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                         'munits': '-',
                         'longname': 'Phytoplankton light limitation',
                         'cleanname': 'Phy_{lim}^{I}'},
+        "Phy_limI_local": {'units': '-',
+                        'munits': '-',
+                        'longname': 'Phytoplankton light limitation in photic zone only',
+                        'cleanname': 'Phy_{lim_{local}}^{I}'},
+
+        "Phy_limI_vs_limI_local_ratio": {'units': '-',
+                        'munits': '-',
+                        'oprt': 'Phy_limI / Phy_limI_local',
+                         'longname': 'limI : limI_{local}',
+                        'cleanname': 'Phy_{lim}^{I} : Phy_{lim_{local}}^{I}'},
 
            "Phy_kd": {'units': 'm^{-1}',
                       'munits': 'm^{-1}',
@@ -1099,6 +1121,10 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                         'oprt': 'Phy_PAR_t_water_column_theoretical/Phy_PAR_t',
                                       'longname': 'PAR_{water}:PAR_{incident}',
                                       'cleanname': 'PAR_w:PAR_0^{theoretical}'},
+            "Phy_z_irrad": {'units': 'm',
+                                      'munits': 'm',
+                                      'longname': 'z_{irrad}',
+                                      'cleanname': 'Photic depth'},
 
            "Phy_PC": {'units': 'd^{-1}',
                       'munits': 'd^{-1}',
