@@ -40,6 +40,7 @@ class Phyto(BaseOrg):
                  T_ref_grazing=283.15,  # [K] Reference temperature for grazing (10°C)
                  K_grazing=20.0,  # [mmol C m-3] Half-saturation constant for grazing (Michaelis-Menten)
                  grazing_loss_max=0.0,  # [mmol C m-3 d-1] Maximum grazing loss rate (default: disabled)
+                 grazing_holling_exponent=1.0,  # [-] Holling exponent: 1.0=type II (MM), 2.0=type III (sigmoidal)
                  kdvar=False,  # Whether to apply an extinction coefficient in the water column to incident light
                  eps_kd=8e-4 * varinfos.molmass_C,  # Diffuse attenuation cross section of phytoplankton [m2 mgC-1]
                  divide_water_depth_ratio=1.,  # ratio to divide water depth to restrain light attenuation
@@ -97,6 +98,7 @@ class Phyto(BaseOrg):
         self.T_ref_grazing = T_ref_grazing
         self.K_grazing = K_grazing
         self.grazing_loss_max = grazing_loss_max
+        self.grazing_holling_exponent = grazing_holling_exponent
         self.kdvar = kdvar
         self.eps_kd = eps_kd
         self.divide_water_depth_ratio = divide_water_depth_ratio
@@ -499,9 +501,10 @@ class Phyto(BaseOrg):
 
     def get_sink_mortality(self, t, t_idx=None):
         # Optimization: Use pre-computed temperature limitation for grazing
+        n = self.grazing_holling_exponent
         grazing_loss = (self.grazing_loss_max *
                         self.limT_grazing_array[t_idx] *
-                        self.C / (self.K_grazing + self.C))
+                        self.C**n / (self.K_grazing**n + self.C**n))
         self.sink_mortality.C = self.C * self.mortrate + grazing_loss
         if self.N is not None:
             self.sink_mortality.N = self.sink_mortality.C * self.QN
