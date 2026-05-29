@@ -133,6 +133,13 @@ ref_values = {
         'units': '[mmolC m-3]',
         'complete_name': 'Half-saturation constant for Phyto grazing'
     },
+    'Phy+grazing_holling_exponent': {
+        'reference_value': 1.,
+        'symbol': 'exp_{Holling}',
+        'units': '[-]',
+        'complete_name': 'Holling exponent for Phyto grazing'
+    },
+
     'Phy+KDIP': {
         'reference_value': 0.05,
         'symbol': 'K^{Phy}_{DIP}',
