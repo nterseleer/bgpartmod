@@ -1248,6 +1248,17 @@ class Setup:
 
 if __name__ == "__main__":
 
+    from config_model import phys_setup
+    setup = Setup(**phys_setup.MOW1_3yrs_gshear2_vary_mu_water)
+    print(setup.mu_water_array)
+    print(setup.mu_water_array.min())
+    print(setup.mu_water_array.max())
+
+    input('DONE check mu_water')
+
+
+
+
     """Test the tidal implementation with MOW1_STATION configuration."""
     print("Testing Tidal Implementation in BGC Physical Setup")
     print("=" * 60)
