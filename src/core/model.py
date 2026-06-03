@@ -715,6 +715,9 @@ class Model:
                         setup=self.setup,
                         model=self
                     )
+                    # Guard against division-by-zero in ratio expressions (e.g. a
+                    # denominator that is 0 at night) producing +/-inf.
+                    self.df[var] = self.df[var].replace([np.inf, -np.inf], np.nan)
                 except KeyError:
                     if self.verbose:
                         print(f'KeyError in output preparation for {var}')
@@ -774,6 +777,9 @@ class Model:
                         setup=self.setup,
                         model=self
                     )
+                    # Guard against division-by-zero in ratio expressions (e.g. a
+                    # denominator that is 0 at night) producing +/-inf.
+                    self.df[var] = self.df[var].replace([np.inf, -np.inf], np.nan)
                     computed.append(var)
                     if verbose:
                         print(f"  ✓ Successfully computed '{var}'")

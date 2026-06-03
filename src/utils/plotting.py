@@ -238,6 +238,19 @@ def prepare_model_obs_data(
             full_df = model.df
             name = getattr(model, 'name', f'Model {i + 1}')
 
+        # Compute on-the-fly any requested derived variable that has an 'oprt' in
+        # the live output config (varinfos.doutput) but is missing from the model
+        # df -- e.g. a variable added to varinfos after the simulation was built or
+        # saved to a pickle. Needs the model object since eval_expr may reference
+        # model./setup. Raw DataFrame inputs cannot be completed this way and fall
+        # through to the NaN-fill standardization below.
+        if variables_to_plot and not isinstance(model, pd.DataFrame):
+            missing = [v for v in variables_to_plot if v not in full_df.columns]
+            if missing and hasattr(model, 'compute_derived_variables'):
+                model.compute_derived_variables(missing, output_config=varinfos.doutput,
+                                                verbose=False)
+                full_df = model.df  # refreshed with the newly computed column(s)
+
         # Performance optimization: only copy necessary columns
         if required_columns:
             # Find available columns from the required set
@@ -250,6 +263,14 @@ def prepare_model_obs_data(
         else:
             # If no specific columns requested, copy all (backward compatibility)
             model_data = full_df.copy()
+
+        # Sanitize +/-inf -> NaN on the plotting copy (model.df untouched). Handles
+        # ratio-type variables that are inf where a denominator hits 0 (e.g.
+        # Phy_limI/Phy_limI_theoretical at night, where limI is floored to 1e-6 but
+        # the denominator is 0), including columns loaded from older pickles built
+        # before the compute-time guard existed. Without this, a single inf in a
+        # resampling window turns the whole averaged value into inf and the curve vanishes.
+        model_data = model_data.replace([np.inf, -np.inf], np.nan)
 
         # Handle duplicate names by adding a counter
         original_name = name

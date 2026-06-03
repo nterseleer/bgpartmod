@@ -6,6 +6,16 @@ from src.config_model import varinfos
 from ..utils import functions as fns
 
 
+def _floor_clip(x):
+    """Clip a limitation factor to [1e-6, 1] (numerical-protection mode)."""
+    return np.clip(x, 1e-6, 1.)
+
+
+def _floor_min(x):
+    """Floor a limitation factor at 1e-6, no upper bound (default mode)."""
+    return max(1e-6, x)
+
+
 class Phyto(BaseOrg):
     def __init__(self,
                  mu_max=3.,  # [d-1]
@@ -108,6 +118,9 @@ class Phyto(BaseOrg):
         self.name = name
         self.bound_temp_to_1 = bound_temp_to_1
         self.apply_numerical_protections = apply_numerical_protections
+        # Floor policy fixed once at construction (the flag never changes at runtime):
+        # clip to [1e-6, 1] under numerical protection, else just floor at 1e-6.
+        self._floor = _floor_clip if apply_numerical_protections else _floor_min
         self._C_MIN = 1e-12  # [mmol m-3] Minimum pool for safe calculations
         self.I_min = I_min
         self.corrected_limI = corrected_limI
@@ -124,7 +137,8 @@ class Phyto(BaseOrg):
         self.mmDIP = None
         self.mmDSi = None
         self.limI = None
-        self.limI_local = None
+        self.limI_upper_layer = None
+        self.limI_theoretical = None
         self.z_irrad = None
         self.PAR_t = None
         self.PAR_t_water_column = None
@@ -379,14 +393,6 @@ class Phyto(BaseOrg):
 
         self.PC_max = self.mu_max * self.limNUT * self.limT
 
-        if False :
-            self.limI = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column) / (
-                    self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0
-
-            self.limI_theoretical = 1 - np.exp((-self.alpha * self.thetaC * self.PAR_t_water_column_theoretical) / (
-                    self.PC_max * varinfos.molmass_C)) if self.PC_max > 0 else 0
-
-
         if self.corrected_limI:
             if self.PC_max > 0 and self.PAR_t > self.I_min and self.kd > 0:  # ← I_min au lieu de 0
                 a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
@@ -397,20 +403,32 @@ class Phyto(BaseOrg):
                 I_bottom = max(I_H, self.I_min)
                 self.z_irrad = min(np.log(I_0 / I_bottom) / self.kd, H)
 
-                # self.limI = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0))
-                #              / (self.kd * self.z_irrad)) * (self.z_irrad / H)
-
-                limI_local = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0)) / (self.kd * self.z_irrad))
-                self.limI_local = limI_local
-                # Weighting: effective fraction of water column contributing to growth
-                self.limI = limI_local * min(self.eta_photic * self.z_irrad / H, 1.0)
+                # Mean light limitation within the irradiated (photic) layer [0, z_irrad]
+                limI_upper_layer = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0)) / (self.kd * self.z_irrad))
+                self.limI_upper_layer = limI_upper_layer
+                # Applied limitation: upper-layer mean diluted over the column by the
+                # irradiated fraction z_irrad/H, with photic enrichment, capped at 1.
+                self.limI = limI_upper_layer * min(self.eta_photic * self.z_irrad / H, 1.0)
+                # Theoretical limitation: same dilution but WITHOUT enrichment/cap
+                # (reference denominator isolating the eta_photic effect in the ratio).
+                self.limI_theoretical = limI_upper_layer * self.z_irrad / H
 
             else:
                 self.limI = 0.0
-                self.limI_local = 0.0
+                self.limI_upper_layer = 0.0
+                self.limI_theoretical = 0.0
 
 
-        self.limI = np.clip(self.limI, 1e-6, 1.) if self.apply_numerical_protections else max(1e-6, self.limI)
+        # Apply the same numerical floor (policy decided once in __init__) to limI and
+        # its diagnostic companions so the ratios limI/limI_upper_layer and
+        # limI/limI_theoretical stay bounded in (0, 1] (otherwise a 0 denominator at
+        # night, while limI is floored to 1e-6, yields inf). limI is floored before
+        # being used for PC below.
+        self.limI = self._floor(self.limI)
+        if self.limI_upper_layer is not None:
+            self.limI_upper_layer = self._floor(self.limI_upper_layer)
+        if self.limI_theoretical is not None:
+            self.limI_theoretical = self._floor(self.limI_theoretical)
         self.PC = self.PC_max * self.limI
         C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
         self.source_PP.C = self.PC * C_safe
