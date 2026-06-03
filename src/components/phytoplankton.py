@@ -61,8 +61,9 @@ class Phyto(BaseOrg):
                  name='DefaultPhyto',
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
                  apply_numerical_protections=False,  # Whether to apply numerical safeguards
-                 I_min = 1, #[µmol photon m-2 d-1] min irradiance threshold for Ei
-                 corrected_limI = True, #TMP to be removed 20260309
+                 I_min = 1, # [µmol photon m-2 d-1] Non-zero irradiance floor bounding the
+                            # light-integration depth z_upper_layer (numerical stability,
+                            # NOT the photic-zone limit). See get_source_PP.
                  eta_photic = 1.,   # [-] photic enrichment factor
                  ):
 
@@ -123,7 +124,6 @@ class Phyto(BaseOrg):
         self._floor = _floor_clip if apply_numerical_protections else _floor_min
         self._C_MIN = 1e-12  # [mmol m-3] Minimum pool for safe calculations
         self.I_min = I_min
-        self.corrected_limI = corrected_limI
         self.eta_photic = eta_photic
 
         self.lim_N = None
@@ -139,10 +139,9 @@ class Phyto(BaseOrg):
         self.limI = None
         self.limI_upper_layer = None
         self.limI_theoretical = None
-        self.z_irrad = None
+        self.z_upper_layer = None
         self.PAR_t = None
-        self.PAR_t_water_column = None
-        self.PAR_t_water_column_theoretical = None
+        self.I_H = None  # Irradiance reaching the seabed [µE m-2 d-1] (diagnostic)
 
         self.limQUOTA = Elms()
         self.limQUOTAmin = Elms()
@@ -381,81 +380,56 @@ class Phyto(BaseOrg):
             self.kd += np.sum(self._cached_spm_eps_kds * spm_masses)
 
     def get_source_PP(self, t, t_idx=None):
-        """Calculate primary production for Onur22 formulation."""
+        """Calculate primary production for Onur22 formulation.
+
+        Light limitation is integrated vertically over the sunlit upper layer
+        [0, z_upper_layer]; rho_Chl (Chl synthesis regulation) is derived from the
+        same integral so the two stay mutually consistent. When there is no usable
+        light (night, or null PC_max/kd) production and every light-related term
+        collapse to exactly 0.
+        """
         # Optimization: Use pre-computed arrays for faster access
         self.PAR_t = self.setup.PAR_array[t_idx]
         if self.kdvar:
             self.get_kd()
 
-        self.PAR_t_water_column_theoretical = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx])
-        self.PAR_t_water_column = self.PAR_t * np.exp(-self.kd * self.setup.water_depth_array[t_idx] /
-                                                      self.divide_water_depth_ratio)
-
         self.PC_max = self.mu_max * self.limNUT * self.limT
+        H = self.setup.water_depth_array[t_idx]       # total water depth
+        self.I_H = self.PAR_t * np.exp(-self.kd * H)  # irradiance reaching the seabed (diagnostic)
 
-        if self.corrected_limI:
-            if self.PC_max > 0 and self.PAR_t > self.I_min and self.kd > 0:  # ← I_min au lieu de 0
-                a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
-                I_0 = self.PAR_t
-                H = self.setup.water_depth_array[t_idx]
-                I_H = I_0 * np.exp(-self.kd * H)
+        if self.PC_max > 0 and self.PAR_t > self.I_min and self.kd > 0:
+            a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
+            I_0 = self.PAR_t                          # incident irradiance at the surface
 
-                I_bottom = max(I_H, self.I_min)
-                self.z_irrad = min(np.log(I_0 / I_bottom) / self.kd, H)
+            # The light-limitation integral is evaluated only over the "upper layer":
+            # the sunlit slab [0, z_upper_layer] where irradiance stays above I_min.
+            # I_min is a small non-zero irradiance floor (NOT the photic-zone limit,
+            # which is far shallower given the turbidity): it caps the integration
+            # depth so the 1/(kd·z) and exp1() terms below stay numerically stable in
+            # turbid/deep water. Light below z_upper_layer is treated as negligible.
+            I_base = max(self.I_H, self.I_min)        # irradiance at the base of the upper layer
+            self.z_upper_layer = min(np.log(I_0 / I_base) / self.kd, H)
 
-                # Mean light limitation within the irradiated (photic) layer [0, z_irrad]
-                limI_upper_layer = (1.0 - (exp1(a * I_bottom) - exp1(a * I_0)) / (self.kd * self.z_irrad))
-                self.limI_upper_layer = limI_upper_layer
-                # Applied limitation: upper-layer mean diluted over the column by the
-                # irradiated fraction z_irrad/H, with photic enrichment, capped at 1.
-                self.limI = limI_upper_layer * min(self.eta_photic * self.z_irrad / H, 1.0)
-                # Theoretical limitation: same dilution but WITHOUT enrichment/cap
-                # (reference denominator isolating the eta_photic effect in the ratio).
-                self.limI_theoretical = limI_upper_layer * self.z_irrad / H
+            # Mean light limitation over the upper layer [0, z_upper_layer]. Each factor
+            # is floored (policy fixed in __init__) so the post-hoc diagnostic ratios
+            # limI/limI_upper_layer and limI/limI_theoretical stay bounded in (0, 1] and
+            # limI stays in (0, 1) for the log() inversion below.
+            limI_upper_layer = 1.0 - (exp1(a * I_base) - exp1(a * I_0)) / (self.kd * self.z_upper_layer)
+            self.limI_upper_layer = self._floor(limI_upper_layer)
+            # Applied limitation: upper-layer mean diluted over the full column by the
+            # upper-layer fraction z_upper_layer/H, with photic enrichment, capped at 1.
+            self.limI = self._floor(limI_upper_layer * min(self.eta_photic * self.z_upper_layer / H, 1.0))
+            # Theoretical limitation: same dilution but WITHOUT enrichment/cap (i.e.
+            # eta_photic = 1, homogeneous vertical distribution) — reference denominator
+            # isolating the eta_photic effect in the limI/limI_theoretical ratio.
+            self.limI_theoretical = self._floor(limI_upper_layer * self.z_upper_layer / H)
 
-            else:
-                self.limI = 0.0
-                self.limI_upper_layer = 0.0
-                self.limI_theoretical = 0.0
+            self.PC = self.PC_max * self.limI
 
-
-        # Apply the same numerical floor (policy decided once in __init__) to limI and
-        # its diagnostic companions so the ratios limI/limI_upper_layer and
-        # limI/limI_theoretical stay bounded in (0, 1] (otherwise a 0 denominator at
-        # night, while limI is floored to 1e-6, yields inf). limI is floored before
-        # being used for PC below.
-        self.limI = self._floor(self.limI)
-        if self.limI_upper_layer is not None:
-            self.limI_upper_layer = self._floor(self.limI_upper_layer)
-        if self.limI_theoretical is not None:
-            self.limI_theoretical = self._floor(self.limI_theoretical)
-        self.PC = self.PC_max * self.limI
-        C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
-        self.source_PP.C = self.PC * C_safe
-
-        if self.debug_mode and any(p is not None and p < 0 for p in (self.C, self.N, self.P, self.Si, self.Chl)):
-            print(f'DEBUG: Negative pools - C={self.C}, N={self.N}, P={self.P}, Si={self.Si}, Chl={self.Chl}')
-            print(f'  limI={self.limI}, PC_max={self.PC_max}, PC={self.PC}')
-            print(f'  limI components: alpha={self.alpha}, thetaC={self.thetaC}, PAR={self.PAR_t_water_column}')
-
-        # Calculate rho_Chl for chlorophyll production
-        # rho_chl must be in [mgChl mmolN-1] (see source_Chlprod.Chl)
-        # QN_max is in [molN:molC], theta_max is in [mgChl molC-1]
-        if False:
-            if self.PAR_t_water_column < 0.01:
-                self.rho_Chl = 0.
-            else:
-                thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
-                denom = self.alpha * thetaC_safe * self.PAR_t_water_column
-                rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
-                self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) if self.apply_numerical_protections else rho_Chl_raw
-
-        if self.corrected_limI:
-            # Irradiance effective cohérente avec l'intégrale verticale
-            if self.limI > 1e-6 and self.PC_max > 0:
-                a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
-                # limI est la limitation dans la zone éclairée
-                # On en déduit l'irradiance effective : 1 - exp(-a·Ī) = limI
+            # rho_Chl (Chl synthesis regulation) coherent with the vertical integral.
+            # Invert the limitation to the effective irradiance Ī: 1 - exp(-a·Ī) = limI.
+            # rho_Chl in [mgChl mmolN-1]; QN_max in [molN molC-1]; theta_max in [mgChl molC-1].
+            if self.limI > 1e-6:
                 I_eff = -np.log(1.0 - self.limI) / a if self.limI < 1.0 else I_0
                 thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
                 denom = self.alpha * thetaC_safe * I_eff
@@ -464,16 +438,24 @@ class Phyto(BaseOrg):
                     if self.apply_numerical_protections else rho_Chl_raw
             else:
                 self.rho_Chl = 0.
+
         else:
-            # Ancien calcul (inchangé)
-            if self.PAR_t_water_column < 0.01:
-                self.rho_Chl = 0.
-            else:
-                thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
-                denom = self.alpha * thetaC_safe * self.PAR_t_water_column
-                rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
-                self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) \
-                    if self.apply_numerical_protections else rho_Chl_raw
+            # No usable light: production and all light-related terms vanish. The
+            # diagnostic ratios limI/limI_* become NaN here (0/0); plotting.py
+            # sanitizes those to gaps.
+            self.z_upper_layer = 0.0
+            self.limI = 0.0
+            self.limI_upper_layer = 0.0
+            self.limI_theoretical = 0.0
+            self.PC = 0.0
+            self.rho_Chl = 0.0
+
+        C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
+        self.source_PP.C = self.PC * C_safe
+
+        if self.debug_mode and any(p is not None and p < 0 for p in (self.C, self.N, self.P, self.Si, self.Chl)):
+            print(f'DEBUG: Negative pools - C={self.C}, N={self.N}, P={self.P}, Si={self.Si}, Chl={self.Chl}')
+            print(f'  limI={self.limI}, PC_max={self.PC_max}, PC={self.PC}')
 
 
 
