@@ -29,7 +29,7 @@ Phy_diagnostics_full = {
             'limNUT', 'limQUOTA.N', 'limQUOTA.P', 'limQUOTA.Si',
             'limQUOTAmin.N', 'limQUOTAmin.P', 'limQUOTAmin.Si',
             'mmNH4', 'mmNO3', 'mmDIP', 'mmDSi',
-            'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl', 'limI', 'limT',
+            'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl', 'limI', 'limI_upper_layer', 'limI_theoretical', 'limT',
             'PAR_t', 'PAR_t_water_column', 'PAR_t_water_column_theoretical',
             'source_uptake.NH4', 'source_uptake.NO3', 'source_uptake.N',
             'source_uptake.P', 'source_uptake.Si',
