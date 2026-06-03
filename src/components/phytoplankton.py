@@ -1,5 +1,7 @@
+import warnings
+
 import numpy as np
-from scipy.special import exp1
+from scipy.special import exp1, gamma, gammaincc
 
 from ..core.base import BaseOrg, Elms
 from src.config_model import varinfos
@@ -15,6 +17,9 @@ def _floor_min(x):
     """Floor a limitation factor at 1e-6, no upper bound (default mode)."""
     return max(1e-6, x)
 
+_M_EPS = 1e-6  # slope below which the exponential biomass profile is numerically
+               # indistinguishable from homogeneous: use the exact E1 form there
+               # (gamma(s)*gammaincc(s,x) loses precision as s = m/kd -> 0).
 
 class Phyto(BaseOrg):
     def __init__(self,
@@ -64,7 +69,16 @@ class Phyto(BaseOrg):
                  I_min = 1, # [µmol photon m-2 d-1] Non-zero irradiance floor bounding the
                             # light-integration depth z_upper_layer (numerical stability,
                             # NOT the photic-zone limit). See get_source_PP.
-                 eta_photic = 1.,   # [-] photic enrichment factor
+                 eta_photic = 1.,   # [-] photic enrichment factor (legacy light-limitation path only)
+                 use_biomass_profile_limI=True,  # Whether to use the biomass-weighted light-limitation
+                                                 # formulation (True) or the legacy eta_photic scheme (False)
+                 biomass_profile_slope=0.0,  # [m-1] m0, baseline slope of the exponential biomass
+                                             # profile B(z)=B0*exp(-m*z); 0 = homogeneous (legacy m=0)
+                 biomass_profile_slope_seasonal_amp=0.0,  # [m-1] seasonal amplitude of the slope; 0 = none
+                 biomass_profile_slope_peak_doy=165,  # day-of-year of the seasonal max (~mid-June,
+                                                      # Silori 2025 Fig 4b)
+                 compound_production_factor=1.0,  # [-] lumped multiplier on realised production for
+                                                  # 0D-unresolved processes; 1.0 = off
                  ):
 
         super().__init__(dtype=dtype)
@@ -125,6 +139,25 @@ class Phyto(BaseOrg):
         self._C_MIN = 1e-12  # [mmol m-3] Minimum pool for safe calculations
         self.I_min = I_min
         self.eta_photic = eta_photic
+        self.use_biomass_profile_limI = use_biomass_profile_limI
+        self.biomass_profile_slope = biomass_profile_slope
+        self.biomass_profile_slope_seasonal_amp = biomass_profile_slope_seasonal_amp
+        self.biomass_profile_slope_peak_doy = biomass_profile_slope_peak_doy
+        self.compound_production_factor = compound_production_factor
+        # Effective biomass-profile slope per timestep (precomputed in set_coupling) and its
+        # current value (diagnostic, set in get_source_PP).
+        self.biomass_profile_slope_array = None
+        self.biomass_profile_slope_t = None
+        # eta_photic is meaningful only in the legacy path; warn (once) if it is set while the
+        # biomass-profile path is active. No auto-conversion: the eta->m mapping is not static
+        # (it depends on kd/I0/H).
+        if self.use_biomass_profile_limI and self.eta_photic != 1.0:
+            warnings.warn(
+                "eta_photic != 1.0 is ignored when use_biomass_profile_limI is True; the photic "
+                "enrichment is replaced by the biomass-profile slope (biomass_profile_slope). "
+                "Set use_biomass_profile_limI=False to keep the legacy eta_photic scheme.",
+                DeprecationWarning, stacklevel=2,
+            )
 
         self.lim_N = None
         self.lim_P = None
@@ -213,6 +246,26 @@ class Phyto(BaseOrg):
             self._precompute_temp_limitation(
                 A_E=self.A_E_grazing, T_ref=self.T_ref_grazing, boltz=True,
                 bound_temp_to_1=self.bound_temp_to_1, suffix='_grazing'
+            )
+
+            # Pre-compute the effective biomass-profile slope m(t) for the biomass-weighted
+            # light-limitation path. doy is taken from setup.dates (same indexing as PAR_array
+            # and the limT arrays). With seasonal_amp=0 this is a constant array (= baseline
+            # slope), so biomass_profile_slope=0 reproduces the homogeneous (legacy m=0) case.
+            # np.maximum(0, .) enforces m >= 0.
+            # A fractional (intra-day) component is added to dayofyear so that m(t) varies
+            # smoothly at the setup timestep instead of stepping once per calendar day.
+            intraday_frac = (
+                self.setup.dates.hour * 3600
+                + self.setup.dates.minute * 60
+                + self.setup.dates.second
+            ).to_numpy() / 86400.0
+            doy = self.setup.dates.dayofyear.to_numpy().astype(self.dtype) + intraday_frac.astype(self.dtype)
+            self.biomass_profile_slope_array = np.maximum(
+                0.0,
+                self.biomass_profile_slope
+                + self.biomass_profile_slope_seasonal_amp
+                * np.cos(2 * np.pi * (doy - self.biomass_profile_slope_peak_doy) / 365.25)
             )
 
     def get_sources(self, t, t_idx):
@@ -384,9 +437,16 @@ class Phyto(BaseOrg):
 
         Light limitation is integrated vertically over the sunlit upper layer
         [0, z_upper_layer]; rho_Chl (Chl synthesis regulation) is derived from the
-        same integral so the two stay mutually consistent. When there is no usable
-        light (night, or null PC_max/kd) production and every light-related term
-        collapse to exactly 0.
+        same integral so the two stay mutually consistent. Two paths are available
+        (selected by use_biomass_profile_limI):
+        - biomass-weighted: the depth-mean P-I limitation is weighted by an exponential
+          biomass profile B(z)=B0*exp(-m*z) and diluted over the column by the biomass
+          fraction; m=0 reduces exactly to the homogeneous case. Realised production may
+          additionally carry compound_production_factor (production only).
+        - legacy: homogeneous depth-mean diluted by z_upper_layer/H with the eta_photic
+          enrichment factor.
+        When there is no usable light (night, or null PC_max/kd) production and every
+        light-related term collapse to exactly 0.
         """
         # Optimization: Use pre-computed arrays for faster access
         self.PAR_t = self.setup.PAR_array[t_idx]
@@ -397,47 +457,110 @@ class Phyto(BaseOrg):
         H = self.setup.water_depth_array[t_idx]       # total water depth
         self.I_H = self.PAR_t * np.exp(-self.kd * H)  # irradiance reaching the seabed (diagnostic)
 
+        # Diagnostic: effective biomass-profile slope at this step (set in EVERY branch).
+        self.biomass_profile_slope_t = (self.biomass_profile_slope_array[t_idx]
+                                        if self.biomass_profile_slope_array is not None else 0.0)
+
         if self.PC_max > 0 and self.PAR_t > self.I_min and self.kd > 0:
-            a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
-            I_0 = self.PAR_t                          # incident irradiance at the surface
+            if self.use_biomass_profile_limI:
+                # ---- Biomass-weighted light limitation -------------------------------
+                # The depth-mean P-I limitation is weighted by an exponential biomass
+                # profile B(z)=B0*exp(-m*z) (m>=0; m=0 = homogeneous). The weighted mean
+                # of 1-exp(-a*I(z)) over [0, z_upper_layer], with I(z)=I0*exp(-kd*z),
+                # closes in the upper incomplete gamma function Γ(s,x), s=m/kd
+                # (s=0 -> Γ(0,x)=E1(x), the homogeneous/legacy case).
+                a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
+                I_0 = self.PAR_t                          # incident irradiance at the surface
+                # I_base: irradiance at the base of the upper layer (numerical floor I_min,
+                # NOT the photic-zone limit; see the legacy branch for the rationale).
+                I_base = max(self.I_H, self.I_min)
+                z_up = min(np.log(I_0 / I_base) / self.kd, H)
+                m = self.biomass_profile_slope_array[t_idx]
 
-            # The light-limitation integral is evaluated only over the "upper layer":
-            # the sunlit slab [0, z_upper_layer] where irradiance stays above I_min.
-            # I_min is a small non-zero irradiance floor (NOT the photic-zone limit,
-            # which is far shallower given the turbidity): it caps the integration
-            # depth so the 1/(kd·z) and exp1() terms below stay numerically stable in
-            # turbid/deep water. Light below z_upper_layer is treated as negligible.
-            I_base = max(self.I_H, self.I_min)        # irradiance at the base of the upper layer
-            self.z_upper_layer = min(np.log(I_0 / I_base) / self.kd, H)
+                # Biomass-weighted mean light limitation over [0, z_up] (E1 fallback for
+                # m <= _M_EPS (numerically homogeneous),
+                # exact and numerically cleanest). The full-column dilution uses the biomass
+                # fraction in the upper layer (NOT z_up/H, which under-estimates limI once m>0).
+                if m <= _M_EPS:
+                    limI_up = 1.0 - (exp1(a * I_base) - exp1(a * I_0)) / (self.kd * z_up)
+                    frac = z_up / H
+                else:
+                    s = m / self.kd
+                    # gammaincc is the *regularised* upper incomplete gamma (needs s>0), so
+                    # Γ(s,x) = gamma(s)*gammaincc(s,x); G = Γ(s,a*I_base) - Γ(s,a*I_0).
+                    G = gamma(s) * (gammaincc(s, a * I_base) - gammaincc(s, a * I_0))
+                    limI_up = 1.0 - s * (a * I_0) ** (-s) * G / (1.0 - np.exp(-m * z_up))
+                    frac = (1.0 - np.exp(-m * z_up)) / (1.0 - np.exp(-m * H))
 
-            # Mean light limitation over the upper layer [0, z_upper_layer]. Each factor
-            # is floored (policy fixed in __init__) so the post-hoc diagnostic ratios
-            # limI/limI_upper_layer and limI/limI_theoretical stay bounded in (0, 1] and
-            # limI stays in (0, 1) for the log() inversion below.
-            limI_upper_layer = 1.0 - (exp1(a * I_base) - exp1(a * I_0)) / (self.kd * self.z_upper_layer)
-            self.limI_upper_layer = self._floor(limI_upper_layer)
-            # Applied limitation: upper-layer mean diluted over the full column by the
-            # upper-layer fraction z_upper_layer/H, with photic enrichment, capped at 1.
-            self.limI = self._floor(limI_upper_layer * min(self.eta_photic * self.z_upper_layer / H, 1.0))
-            # Theoretical limitation: same dilution but WITHOUT enrichment/cap (i.e.
-            # eta_photic = 1, homogeneous vertical distribution) — reference denominator
-            # isolating the eta_photic effect in the limI/limI_theoretical ratio.
-            self.limI_theoretical = self._floor(limI_upper_layer * self.z_upper_layer / H)
+                self.z_upper_layer = z_up
+                self.limI_upper_layer = self._floor(limI_up)
+                self.limI = self._floor(limI_up * frac)   # geometric, biomass-weighted
 
-            self.PC = self.PC_max * self.limI
+                # Homogeneous reference (forced m=0) for the limI/limI_theoretical ratio.
+                limI_up_m0 = 1.0 - (exp1(a * I_base) - exp1(a * I_0)) / (self.kd * z_up)
+                self.limI_theoretical = self._floor(limI_up_m0 * (z_up / H))
 
-            # rho_Chl (Chl synthesis regulation) coherent with the vertical integral.
-            # Invert the limitation to the effective irradiance Ī: 1 - exp(-a·Ī) = limI.
-            # rho_Chl in [mgChl mmolN-1]; QN_max in [molN molC-1]; theta_max in [mgChl molC-1].
-            if self.limI > 1e-6:
-                I_eff = -np.log(1.0 - self.limI) / a if self.limI < 1.0 else I_0
-                thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
-                denom = self.alpha * thetaC_safe * I_eff
-                rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
-                self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) \
-                    if self.apply_numerical_protections else rho_Chl_raw
+                # Realised production carries the compound factor (production ONLY), capped at
+                # PC_max. PC_geom is the geometric rate feeding the Chl:C acclimation (rho_Chl),
+                # so the compound factor does not contaminate Chl:C.
+                PC_geom = self.PC_max * self.limI
+                self.PC = self.PC_max * min(self.limI * self.compound_production_factor, 1.0)
+
+                # rho_Chl (Chl synthesis regulation) coherent with the vertical integral, tied
+                # to the GEOMETRIC field (PC_geom, NOT self.PC). Invert the limitation to the
+                # effective irradiance Ī: 1 - exp(-a·Ī) = limI.
+                if self.limI > 1e-6:
+                    I_eff = -np.log(1.0 - self.limI) / a if self.limI < 1.0 else I_0
+                    thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
+                    denom = self.alpha * thetaC_safe * I_eff
+                    rho_Chl_raw = self.theta_max / self.QN_max * (PC_geom * varinfos.molmass_C / denom)
+                    self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) \
+                        if self.apply_numerical_protections else rho_Chl_raw
+                else:
+                    self.rho_Chl = 0.
+
             else:
-                self.rho_Chl = 0.
+                # ---- Legacy light limitation (eta_photic enrichment) -----------------
+                a = self.alpha * self.thetaC / (self.PC_max * varinfos.molmass_C)
+                I_0 = self.PAR_t                          # incident irradiance at the surface
+
+                # The light-limitation integral is evaluated only over the "upper layer":
+                # the sunlit slab [0, z_upper_layer] where irradiance stays above I_min.
+                # I_min is a small non-zero irradiance floor (NOT the photic-zone limit,
+                # which is far shallower given the turbidity): it caps the integration
+                # depth so the 1/(kd·z) and exp1() terms below stay numerically stable in
+                # turbid/deep water. Light below z_upper_layer is treated as negligible.
+                I_base = max(self.I_H, self.I_min)        # irradiance at the base of the upper layer
+                self.z_upper_layer = min(np.log(I_0 / I_base) / self.kd, H)
+
+                # Mean light limitation over the upper layer [0, z_upper_layer]. Each factor
+                # is floored (policy fixed in __init__) so the post-hoc diagnostic ratios
+                # limI/limI_upper_layer and limI/limI_theoretical stay bounded in (0, 1] and
+                # limI stays in (0, 1) for the log() inversion below.
+                limI_upper_layer = 1.0 - (exp1(a * I_base) - exp1(a * I_0)) / (self.kd * self.z_upper_layer)
+                self.limI_upper_layer = self._floor(limI_upper_layer)
+                # Applied limitation: upper-layer mean diluted over the full column by the
+                # upper-layer fraction z_upper_layer/H, with photic enrichment, capped at 1.
+                self.limI = self._floor(limI_upper_layer * min(self.eta_photic * self.z_upper_layer / H, 1.0))
+                # Theoretical limitation: same dilution but WITHOUT enrichment/cap (i.e.
+                # eta_photic = 1, homogeneous vertical distribution) — reference denominator
+                # isolating the eta_photic effect in the limI/limI_theoretical ratio.
+                self.limI_theoretical = self._floor(limI_upper_layer * self.z_upper_layer / H)
+
+                self.PC = self.PC_max * self.limI
+
+                # rho_Chl (Chl synthesis regulation) coherent with the vertical integral.
+                # Invert the limitation to the effective irradiance Ī: 1 - exp(-a·Ī) = limI.
+                # rho_Chl in [mgChl mmolN-1]; QN_max in [molN molC-1]; theta_max in [mgChl molC-1].
+                if self.limI > 1e-6:
+                    I_eff = -np.log(1.0 - self.limI) / a if self.limI < 1.0 else I_0
+                    thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
+                    denom = self.alpha * thetaC_safe * I_eff
+                    rho_Chl_raw = self.theta_max / self.QN_max * (self.PC * varinfos.molmass_C / denom)
+                    self.rho_Chl = np.clip(rho_Chl_raw, 0., self.theta_max * 10) \
+                        if self.apply_numerical_protections else rho_Chl_raw
+                else:
+                    self.rho_Chl = 0.
 
         else:
             # No usable light: production and all light-related terms vanish. The

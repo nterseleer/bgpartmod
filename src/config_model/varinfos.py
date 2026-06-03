@@ -121,6 +121,30 @@ ref_values = {
         'units': '[-]',
         'complete_name': 'Concentration ratio in photic layer'
     },
+    'Phy+biomass_profile_slope': {
+        'reference_value': 0.,
+        'symbol': 'm_{biomass}',
+        'units': '[m-1]',
+        'complete_name': 'Baseline slope of the exponential biomass profile'
+    },
+    'Phy+biomass_profile_slope_seasonal_amp': {
+        'reference_value': 0.,
+        'symbol': 'm^{amp}_{biomass}',
+        'units': '[m-1]',
+        'complete_name': 'Seasonal amplitude of the biomass-profile slope'
+    },
+    'Phy+biomass_profile_slope_peak_doy': {
+        'reference_value': 165,
+        'symbol': 'doy^{peak}_{m}',
+        'units': '[doy]',
+        'complete_name': 'Day-of-year of the biomass-profile slope seasonal max'
+    },
+    'Phy+compound_production_factor': {
+        'reference_value': 1.,
+        'symbol': 'f_{compound}',
+        'units': '[-]',
+        'complete_name': 'Compound multiplier on realised primary production'
+    },
     'Phy+grazing_loss_max': {
         'reference_value': 0.,
         'symbol': 'grazing^{max}_{loss}',
@@ -1134,6 +1158,11 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                                       'munits': 'm',
                                       'longname': 'z_{upper}',
                                       'cleanname': 'Upper-layer (light-integration) depth'},
+
+            "Phy_biomass_profile_slope_t": {'units': 'm^{-1}',
+                                      'munits': 'm^{-1}',
+                                      'longname': 'Effective biomass-profile slope m(t)',
+                                      'cleanname': 'm_{biomass}'},
 
            "Phy_PC": {'units': 'd^{-1}',
                       'munits': 'd^{-1}',
