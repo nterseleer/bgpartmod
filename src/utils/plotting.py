@@ -285,8 +285,14 @@ def prepare_model_obs_data(
             expanded_filter = _expand_time_filter(time_filter, buffer_days)
             if expanded_filter is not None:
                 model_data = _filter_by_time(model_data, expanded_filter)
-            # Apply temporal averaging
-            model_data = model_data.resample(f'{mean_window_days}D').mean()
+            # Apply temporal averaging.
+            # origin='epoch' anchors the resampling bins to a fixed global grid (1970-01-01)
+            # instead of the default per-series start_day. This is essential when overlaying
+            # simulations that start on different dates (e.g. a full run vs a cropped restart):
+            # otherwise each series gets its own bin grid and any sub-window periodicity
+            # (notably the ~14.7 d spring-neap residual in bed_shear_stress / water_depth)
+            # appears phase-shifted between curves even though the underlying signal is identical.
+            model_data = model_data.resample(f'{mean_window_days}D', origin='epoch').mean()
             # Crop back to original time_filter
             if time_filter is not None:
                 model_data = _filter_by_time(model_data, time_filter)
