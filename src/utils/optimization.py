@@ -1036,7 +1036,9 @@ class Optimization:
             best_config = fns.update_config(self.config['dconf'], self.summary['best_parameters'])
             # Only add plotting diagnostics for components present in best_config
             filtered_plotting_diag = {k: v for k, v in config.plotting_diagnostics.items() if k in best_config}
-            best_config = fns.deep_update(best_config, filtered_plotting_diag)
+            best_config = fns.deep_update(best_config, filtered_plotting_diag,
+                                          config.smoothed_ratio_diagnostics) # smoothed_ratio_diagnostics added to be
+                                            # able to recompute the EWMA vertical-coupling state
             model_kwargs = {
                 **self.config['modkwargs'],
                 'verbose': True,
