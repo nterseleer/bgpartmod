@@ -72,7 +72,7 @@ class Phyto(BaseOrg):
                  eta_photic = 1.,   # [-] photic enrichment factor (legacy light-limitation path only)
                  use_biomass_profile_limI=True,  # Whether to use the biomass-weighted light-limitation
                                                  # formulation (True) or the legacy eta_photic scheme (False)
-                 biomass_profile_slope=0.0,  # [m-1] m0, baseline slope of the exponential biomass
+                 biomass_profile_slope_base=0.0,  # [m-1] m0, baseline slope of the exponential biomass
                                              # profile B(z)=B0*exp(-m*z); 0 = homogeneous (legacy m=0)
                  biomass_profile_slope_seasonal_amp=0.0,  # [m-1] seasonal amplitude of the slope; 0 = none
                  biomass_profile_slope_peak_doy=165,  # day-of-year of the seasonal max (~mid-June,
@@ -140,7 +140,7 @@ class Phyto(BaseOrg):
         self.I_min = I_min
         self.eta_photic = eta_photic
         self.use_biomass_profile_limI = use_biomass_profile_limI
-        self.biomass_profile_slope = biomass_profile_slope
+        self.biomass_profile_slope_base = biomass_profile_slope_base
         self.biomass_profile_slope_seasonal_amp = biomass_profile_slope_seasonal_amp
         self.biomass_profile_slope_peak_doy = biomass_profile_slope_peak_doy
         self.compound_production_factor = compound_production_factor
@@ -154,7 +154,7 @@ class Phyto(BaseOrg):
         if self.use_biomass_profile_limI and self.eta_photic != 1.0:
             warnings.warn(
                 "eta_photic != 1.0 is ignored when use_biomass_profile_limI is True; the photic "
-                "enrichment is replaced by the biomass-profile slope (biomass_profile_slope). "
+                "enrichment is replaced by the biomass-profile slope (biomass_profile_slope_base). "
                 "Set use_biomass_profile_limI=False to keep the legacy eta_photic scheme.",
                 DeprecationWarning, stacklevel=2,
             )
@@ -251,7 +251,7 @@ class Phyto(BaseOrg):
             # Pre-compute the effective biomass-profile slope m(t) for the biomass-weighted
             # light-limitation path. doy is taken from setup.dates (same indexing as PAR_array
             # and the limT arrays). With seasonal_amp=0 this is a constant array (= baseline
-            # slope), so biomass_profile_slope=0 reproduces the homogeneous (legacy m=0) case.
+            # slope), so biomass_profile_slope_base=0 reproduces the homogeneous (legacy m=0) case.
             # np.maximum(0, .) enforces m >= 0.
             # A fractional (intra-day) component is added to dayofyear so that m(t) varies
             # smoothly at the setup timestep instead of stepping once per calendar day.
@@ -265,11 +265,11 @@ class Phyto(BaseOrg):
             seasonal_factor = (1.0 + np.cos(2 * np.pi * (doy - self.biomass_profile_slope_peak_doy) / 365.25)) / 2.0
             self.biomass_profile_slope_array = np.maximum(
                 0.0,
-                self.biomass_profile_slope + self.biomass_profile_slope_seasonal_amp * seasonal_factor
+                self.biomass_profile_slope_base + self.biomass_profile_slope_seasonal_amp * seasonal_factor
             )
             # self.biomass_profile_slope_array = np.maximum(
             #     0.0,
-            #     self.biomass_profile_slope
+            #     self.biomass_profile_slope_base
             #     + self.biomass_profile_slope_seasonal_amp
             #     * np.cos(2 * np.pi * (doy - self.biomass_profile_slope_peak_doy) / 365.25)
             # )

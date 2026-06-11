@@ -121,7 +121,7 @@ ref_values = {
         'units': '[-]',
         'complete_name': 'Concentration ratio in photic layer'
     },
-    'Phy+biomass_profile_slope': {
+    'Phy+biomass_profile_slope_base': {
         'reference_value': 0.,
         'symbol': 'm_{biomass}',
         'units': '[m-1]',
