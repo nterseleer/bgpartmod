@@ -261,12 +261,18 @@ class Phyto(BaseOrg):
                 + self.setup.dates.second
             ).to_numpy() / 86400.0
             doy = self.setup.dates.dayofyear.to_numpy().astype(self.dtype) + intraday_frac.astype(self.dtype)
+
+            seasonal_factor = (1.0 + np.cos(2 * np.pi * (doy - self.biomass_profile_slope_peak_doy) / 365.25)) / 2.0
             self.biomass_profile_slope_array = np.maximum(
                 0.0,
-                self.biomass_profile_slope
-                + self.biomass_profile_slope_seasonal_amp
-                * np.cos(2 * np.pi * (doy - self.biomass_profile_slope_peak_doy) / 365.25)
+                self.biomass_profile_slope + self.biomass_profile_slope_seasonal_amp * seasonal_factor
             )
+            # self.biomass_profile_slope_array = np.maximum(
+            #     0.0,
+            #     self.biomass_profile_slope
+            #     + self.biomass_profile_slope_seasonal_amp
+            #     * np.cos(2 * np.pi * (doy - self.biomass_profile_slope_peak_doy) / 365.25)
+            # )
 
     def get_sources(self, t, t_idx):
         # Optimization: Use pre-computed arrays for faster access
