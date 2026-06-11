@@ -872,7 +872,7 @@ class Optimization:
 
         # Save winning configuration (only if it doesn't exist)
         winning_config_path = os.path.join(self.optdir, f"{self.name}_WINNING_CONFIG.json")
-        if not os.path.exists(winning_config_path):
+        if not os.path.exists(winning_config_path) or rerun_best:
             if not self.is_multi_case:
                 # Single-case: save one winning config
                 winning_config = fns.update_config(
@@ -896,7 +896,7 @@ class Optimization:
 
         # Save summary stats (only if it doesn't exist)
         summary_path = os.path.join(self.optdir, f"{self.name}_SUMMARY.json")
-        if not os.path.exists(summary_path):
+        if not os.path.exists(summary_path) or rerun_best:
             fns.write_dict_to_file(
                 self.summary,
                 f"{self.name}_SUMMARY",
