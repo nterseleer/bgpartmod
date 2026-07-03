@@ -1,0 +1,11 @@
+# HPC (ECMWF) dependencies
+# ------------------------------------------------------------------------
+# Uniquement les paquets PUR-PYTHON que `module load python3` ne fournit PAS.
+# Les grosses libs compilées (numpy, scipy, matplotlib, pandas, pyarrow...)
+# sont déjà dans le module et réutilisées via un venv --system-site-packages.
+# NE PAS utiliser requirements.txt ici : c'est un pip freeze local (python3.12,
+# versions pinnées + PyQt5) qui masquerait/casserait les libs du module.
+#
+# Installé automatiquement par _private/RUNS/run_optim.sh.
+deepdiff==8.5.0
+dill==0.4.0
