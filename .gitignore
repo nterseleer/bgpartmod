@@ -27,6 +27,7 @@ AGENTS.md
 
 .venv
 .venv/
+venv-hpc/
 
 .idea/
 
