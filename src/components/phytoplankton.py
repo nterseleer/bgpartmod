@@ -28,8 +28,8 @@ class Phyto(BaseOrg):
                  v_max_P=0.075,  # [molP molC-1 d-1] # Onur22
                  v_max_Si=1.2,  # [molSi molC-1 d-1] # Onur22
                  alpha=0.46 * 1e-5,  # [gC m-2 (g Chla µmol quanta)-1
-                 QN_min=0.04,  # [gN gC-1]
-                 QN_max=0.167,  # [gN gC-1]
+                 QN_min=0.04,  # [molN molC-1]
+                 QN_max=0.167,  # [molN molC-1]
                  QP_min=0.003,
                  QP_max=0.012,
                  QSi_min=0.06,
@@ -57,7 +57,7 @@ class Phyto(BaseOrg):
                  grazing_loss_max=0.0,  # [mmol C m-3 d-1] Maximum grazing loss rate (default: disabled)
                  grazing_holling_exponent=1.0,  # [-] Holling exponent: 1.0=type II (MM), 2.0=type III (sigmoidal)
                  kdvar=False,  # Whether to apply an extinction coefficient in the water column to incident light
-                 eps_kd=8e-4 * varinfos.molmass_C,  # Diffuse attenuation cross section of phytoplankton [m2 mgC-1]
+                 eps_kd=8e-4 * varinfos.molmass_C,  # Diffuse attenuation cross section of phytoplankton [m2 mmolC-1]
                  divide_water_depth_ratio=1.,  # ratio to divide water depth to restrain light attenuation
                  prescribe_SPM_from_setup=False,  # Whether to use prescribed SPM from Setup (for BGC-only runs)
                  prescribed_SPM_eps_kd=0.066e3,  # [m² kg⁻¹] Light attenuation cross section for prescribed SPM

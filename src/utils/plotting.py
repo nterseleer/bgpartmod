@@ -527,6 +527,7 @@ def plot_results(
         plot_obs = True,
         figsize: Optional[Tuple[int, int]] = None,
         model_styles: Optional[List[Dict]] = None,
+        multi_window_styles: Optional[List[Dict]] = None,
         fill_between_models: Optional[Tuple[Any, Any]] = None,
         fill_alpha: float = 0.3,
         fill_color: str = 'magenta',
@@ -665,6 +666,10 @@ def plot_results(
     base_styles = model_styles if model_styles else get_model_styles(
         len(fns.flatten_simulation_list(models)))
 
+    # Per-window layer styles (linewidth/alpha for each mean_window_days value).
+    # Falls back to the module default; can be overridden via plot_config.
+    window_styles = multi_window_styles if multi_window_styles else MULTI_WINDOW_STYLES
+
     # Track fill_between for legend
     fill_between_data = None
 
@@ -691,8 +696,8 @@ def plot_results(
         # Apply layer-specific style overrides
         # Offset index so that the last layer always uses the foreground style
         n_layers = len(mean_window_values)
-        style_offset = max(0, len(MULTI_WINDOW_STYLES) - n_layers)
-        layer_style_config = MULTI_WINDOW_STYLES[min(layer_idx + style_offset, len(MULTI_WINDOW_STYLES) - 1)]
+        style_offset = max(0, len(window_styles) - n_layers)
+        layer_style_config = window_styles[min(layer_idx + style_offset, len(window_styles) - 1)]
         layer_overrides = {k: v for k, v in layer_style_config.items() if v is not None}
         layer_styles = [{**s, **layer_overrides} for s in base_styles]
 
