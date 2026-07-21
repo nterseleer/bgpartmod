@@ -1013,10 +1013,29 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                          'longname': 'limI : limI_{theoretical}',
                         'cleanname': 'Phy_{lim}^{I} : Phy_{lim_{theoretical}}^{I}'},
 
+        # Effective light limitation actually experienced by production:
+        # PC / PC_max = min(limI * compound_production_factor, 1). Unlike Phy_limI (which
+        # already carries the biomass-profile slope m but NOT the compound factor), this
+        # ratio folds in BOTH the biomass-profile enrichment and the compound production
+        # factor, i.e. the realised light-limitation term multiplying mu_max*limNUT*limT.
+        "Phy_limI_effective": {'units': '-',
+                        'munits': '-',
+                        'oprt': 'Phy_PC / Phy_PC_max',
+                         'longname': 'Effective light limitation (incl. biomass profile & compound factor)',
+                        'cleanname': 'Phy_{lim_{eff}}^{I}'},
+
            "Phy_kd": {'units': 'm^{-1}',
                       'munits': 'm^{-1}',
                       'longname': 'Light attenuation coefficient',
                       'cleanname': 'k_d'},
+
+           # Photic depth = depth of the 1% surface-PAR level = ln(100)/kd. In this turbid
+           # system it stays sub-metre, illustrating how constraining the light regime is.
+           "Phy_z_photic": {'units': 'm',
+                      'munits': 'm',
+                      'oprt': '4.605170185988091 / Phy_kd',
+                      'longname': 'Photic depth (1% surface PAR)',
+                      'cleanname': 'z_{1\\%}'},
 
            # Contributions to kd from different components
            "kd_contrib_Phy": {'units': 'm^{-1}',
@@ -1060,6 +1079,29 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                               'oprt': "model.components['Cil'].eps_kd * mCil_C",
                               'longname': 'Light attenuation from Ciliates',
                               'cleanname': 'k_d^{Cil}'},
+
+           "kd_contrib_Heterotrophs": {'units': 'm^{-1}',
+                                       'munits': 'm^{-1}',
+                                       'oprt': "model.components['BacA'].eps_kd * mBacA_C "
+                                               "+ model.components['BacF'].eps_kd * mBacF_C "
+                                               "+ model.components['HF'].eps_kd * mHF_C "
+                                               "+ model.components['Cil'].eps_kd * mCil_C",
+                                       'longname': 'Light attenuation from Heterotrophs (Bacteria, HF, Ciliates)',
+                                       'cleanname': 'k_d^{Het}'},
+
+           "kd_contrib_Detritus": {'units': 'm^{-1}',
+                                   'munits': 'm^{-1}',
+                                   'oprt': "model.components['DetL'].eps_kd * mDetL_C "
+                                           "+ model.components['DetS'].eps_kd * mDetS_C",
+                                   'longname': 'Light attenuation from Detritus (large + small)',
+                                   'cleanname': 'k_d^{Det}'},
+
+           "kd_contrib_Flocs": {'units': 'm^{-1}',
+                                'munits': 'm^{-1}',
+                                'oprt': "model.components['Microflocs'].eps_kd * Microflocs_massconcentration "
+                                        "+ model.components['Micro_in_Macro'].eps_kd * Micro_in_Macro_massconcentration",
+                                'longname': 'Light attenuation from mineral flocs (free microflocs + microflocs-in-macroflocs)',
+                                'cleanname': 'k_d^{Flocs}'},
 
            "kd_contrib_Microflocs": {'units': 'm^{-1}',
                                      'munits': 'm^{-1}',
