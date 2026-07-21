@@ -13,7 +13,7 @@ import dill
 import numpy as np
 import pandas as pd
 from deepdiff import DeepDiff
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Tuple
 
 from src.utils import functions as fns
 from src.config_system import path_config as path_cfg
@@ -859,6 +859,75 @@ def compare_simulations(models: Union[List, Dict[str, Any]],
     return differences
 
 
+def integrate_annual_flux(simulation, var, period: int = 2023) -> float:
+    """Depth-integrated annual sum of a rate flux -> [<flux unit> m-2 yr-1].
+
+    Generalises _integrate_PP to any rate diagnostic (or a sum of several). Fluxes in the
+    model are volumetric rates [X m-3 d-1]; multiplying the annual time-integral by the
+    water-column depth gives an areal annual budget directly comparable across pathways
+    and across simulations (the currency of a carbon-flux Sankey / bar comparison).
+
+    Args:
+        simulation: Model with .df (DatetimeIndex) and .setup.base_water_depth.
+        var: Single df column name, or a list of column names whose values are summed
+             (e.g. the four aggregate-coupled sink_vertical_loss.C for total C export).
+        period: Year to integrate over. If None, integrate the whole run.
+
+    Returns:
+        Depth-integrated annual flux [<flux unit> m-2 yr-1]. Missing columns contribute
+        NaN (so a partially-diagnosed run surfaces the gap rather than silently dropping
+        a term).
+    """
+    df = simulation.df[simulation.df.index.year == period] if period else simulation.df
+    dt = (df.index[1] - df.index[0]).total_seconds() / 86400  # timestep in days
+    depth = simulation.setup.base_water_depth                  # water column depth in m
+    cols = [var] if isinstance(var, str) else list(var)
+    total = 0.0
+    for c in cols:
+        if c not in df.columns:
+            return float('nan')
+        total += pd.to_numeric(df[c], errors='coerce').sum()
+    return total * dt * depth
+
+
+def compare_annual_fluxes(sims, fluxes, period: int = 2023, names=None,
+                          ref_index: int = 0) -> pd.DataFrame:
+    """Tabulate depth-integrated annual C fluxes for several simulations and their change.
+
+    The Step-1 signal check behind the REF vs NO-TEP carbon-cycle analysis: does switching
+    the TEP->flocculation coupling off reorganise the fluxes (PP -> DOC/Det -> bacteria ->
+    export), not just the standing stocks? Feed it the pathway fluxes and read the relative
+    change column before deciding whether a Sankey is worth building.
+
+    Args:
+        sims: list of Model simulations (e.g. [sim_ref, sim_notep]).
+        fluxes: either a list of df column names, or a dict {label: column-or-list} where a
+                list value is summed (integrate_annual_flux). Labels keep the table readable.
+        period: year to integrate over (default 2023), passed to integrate_annual_flux.
+        names: display names per simulation (default: each sim.name).
+        ref_index: which simulation is the reference for the relative-change column.
+
+    Returns:
+        DataFrame indexed by flux label, one column of [mmol C m-2 yr-1] per simulation
+        plus 'rel_change_%' ((other - ref)/ref * 100 for the two-simulation case, else the
+        last simulation vs the reference).
+    """
+    if names is None:
+        names = [getattr(s, 'name', f'sim{i}') for i, s in enumerate(sims)]
+    if not isinstance(fluxes, dict):
+        fluxes = {v if isinstance(v, str) else '+'.join(v): v for v in fluxes}
+
+    data = {name: [integrate_annual_flux(s, var, period) for var in fluxes.values()]
+            for name, s in zip(names, sims)}
+    table = pd.DataFrame(data, index=list(fluxes.keys()))
+
+    ref_col = names[ref_index]
+    other_col = names[-1] if names[-1] != ref_col else names[min(1, len(names) - 1)]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        table['rel_change_%'] = (table[other_col] / table[ref_col] - 1.0) * 100.0
+    return table
+
+
 def _integrate_PP(simulation, var: str = 'Phy_source_PP.C', period: int = 2023) -> float:
     """Integrate primary production over a given year.
 
@@ -870,10 +939,7 @@ def _integrate_PP(simulation, var: str = 'Phy_source_PP.C', period: int = 2023) 
     Returns:
         Depth-integrated annual PP [mmol C m-2].
     """
-    df = simulation.df[simulation.df.index.year == period] if period else simulation.df
-    dt = (df.index[1] - df.index[0]).total_seconds() / 86400  # timestep in days
-    depth = simulation.setup.base_water_depth                  # water column depth in m
-    return df[var].sum() * dt * depth
+    return integrate_annual_flux(simulation, var, period)
 
 
 def compare_annual_PP(sim1, sim2, period: int = 2023, var: str = 'Phy_source_PP.C') -> None:
@@ -893,3 +959,96 @@ def compare_annual_PP(sim1, sim2, period: int = 2023, var: str = 'Phy_source_PP.
     var_label = varinfos.doutput.get(var, {}).get('longname', var)
     print(f"{var_label} ({period}):  {sim1.name} = {pp1:.1f}  |  {sim2.name} = {pp2:.1f}  [mmol C m-2 yr-1]"
           f"  ->  {rel_change:+.1f}% {direction}")
+
+
+# Organic-C pools and the external nodes of the carbon-flux network (Sankey).
+_SANKEY_HET = ['BacF', 'BacA', 'HF', 'Cil']
+_SANKEY_PREY = ['DOCS', 'DOCL', 'TEPC', 'DetS', 'DetL', 'BacF', 'BacA', 'HF']
+
+
+def carbon_flux_links(sim, period: int = 2023) -> Dict[Tuple[str, str], float]:
+    """Depth-integrated annual carbon-flux network of one simulation, as {(src, tgt): flux}.
+
+    The link set behind the REF-vs-NO-TEP carbon Sankey. Every link is a depth-integrated
+    annual C flux [mmol C m-2 yr-1] between two organic-C pools (Phy, DOCS, DOCL, TEPC,
+    DetS, DetL, BacF, BacA, HF, Cil) or an external node: 'DIC_in' (primary production),
+    'CO2' (respiration + remineralization + sloppy-feeding-to-DIM), 'Export' (settling
+    sink_vertical_loss) and 'Leak' (the calibrated DetL kleak loss, kept separate from the
+    resolved sedimentation export).
+
+    Topology is read off the model's couplings and diagnosed budgets: producer/loss links
+    come from the losing side (`<pool>_sink_<proc>.C`, whose target is unique per process)
+    or the receiving side for the exudation split (`DOC{S,L}_source_exudation.C`). Grazing
+    is exact on the prey side (`<prey>_sink_ingestion.C`) and split among consumers by the
+    static preference matrix read from `sim.config` (the only approximation; the realised
+    preference is biomass-weighted, so multi-consumer links -- TEP/DetS grazed by
+    BacA/HF/Cil -- are approximate while unique-consumer links are exact). Heterotroph
+    metabolic outputs (sloppy feeding to DOCS, respiration to CO2) are closed by mass
+    balance from the routed intake, assimilation and respiration, so each node balances
+    without assuming a fixed assimilation efficiency (the QN/QP-corrected efficiency is far
+    below the nominal value, most ingested C returning to DOC).
+
+    Node totals reconcile with the diagnosed C_sources/C_sinks and the whole system closes
+    to ~2-3% of PP (residual of the grazing split).
+    """
+    A = lambda col: (integrate_annual_flux(sim, col, period)
+                     if col in sim.df.columns else 0.0)
+
+    def graze_split(prey):
+        w = {h: sim.config[h]['parameters'].get(f'pref_{prey}', 0.0) for h in _SANKEY_HET}
+        w = {h: p for h, p in w.items() if p > 0}
+        tot = sum(w.values())
+        return {h: p / tot for h, p in w.items()} if tot > 0 else {}
+
+    L: Dict[Tuple[str, str], float] = {}
+
+    def add(src, tgt, val):
+        if val and not (isinstance(val, float) and np.isnan(val)):
+            L[(src, tgt)] = L.get((src, tgt), 0.0) + val
+
+    # Phytoplankton
+    add('DIC_in', 'Phy', A('Phy_source_PP.C'))
+    add('Phy', 'CO2', A('Phy_sink_respiration.C'))
+    add('Phy', 'DOCS', A('DOCS_source_exudation.C'))                          # exudation, small fraction
+    add('Phy', 'DOCL', A('DOCL_source_exudation.C') + A('Phy_sink_lysis.C'))  # exud (large frac) + lysis
+    add('Phy', 'DetS', A('Phy_sink_mortality.C'))
+    add('Phy', 'DetL', A('Phy_sink_aggregation.C'))
+
+    # Dissolved organics
+    for doc in ('DOCS', 'DOCL'):
+        add(doc, 'TEPC', A(f'{doc}_sink_aggregation.C'))
+        add(doc, 'CO2', A(f'{doc}_sink_remineralization.C') + A(f'{doc}_sink_breakdown.C'))
+
+    # TEP
+    add('TEPC', 'DOCL', A('TEPC_sink_breakdown.C'))
+    add('TEPC', 'DetL', A('TEPC_sink_aggregation.C'))
+    add('TEPC', 'Export', A('TEPC_sink_vertical_loss.C'))
+    add('TEPC', 'Leak', A('TEPC_sink_leakage_out.C'))
+
+    # Detritus
+    add('DetS', 'DetL', A('DetS_sink_aggregation.C'))
+    add('DetS', 'CO2', A('DetS_sink_remineralization.C'))
+    add('DetS', 'Export', A('DetS_sink_vertical_loss.C'))
+    add('DetL', 'CO2', A('DetL_sink_remineralization.C'))
+    add('DetL', 'Export', A('DetL_sink_vertical_loss.C'))
+    add('DetL', 'Leak', A('DetL_sink_leakage_out.C'))               # calibrated kleak loss
+
+    # Grazing: exact on the prey side, split among consumers by preference
+    for prey in _SANKEY_PREY:
+        tot = A(f'{prey}_sink_ingestion.C')
+        for cons, wgt in graze_split(prey).items():
+            add(prey, cons, tot * wgt)
+
+    # Heterotroph metabolic outputs, closed by mass balance from routed intake
+    for h in _SANKEY_HET:
+        intake = sum(v for (a, b), v in L.items() if b == h)
+        assim = A(f'{h}_source_ing_C_assimilated')
+        resp = A(f'{h}_sink_respiration.C')
+        f_dom = sim.config[h]['parameters']['f_unass_excr']
+        unassim = max(intake - assim - resp, 0.0)
+        add(h, 'DOCS', unassim * f_dom)                # sloppy feeding -> DOCS
+        add(h, 'CO2', unassim * (1 - f_dom) + resp)    # sloppy-to-DIM + respiration
+        add(h, 'DOCL', A(f'{h}_sink_lysis.C'))
+        add(h, 'DetS', A(f'{h}_sink_mortality.C'))
+        add(h, 'Export', A(f'{h}_sink_vertical_loss.C'))
+    return L

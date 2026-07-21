@@ -226,6 +226,7 @@ class Setup:
         self.prescribe_TEP = prescribe_TEP
         self.TEP_sim_name = TEP_sim_name
         self.TEP_column = TEP_column
+        self.tep_year = tep_year  # stored so extend_duration can rebuild the forcing
         self.TEP = None
         self.TEP_array = None
         if self.prescribe_TEP:
@@ -235,6 +236,7 @@ class Setup:
         self.prescribe_Flocs = prescribe_Flocs
         self.Flocs_sim_name = Flocs_sim_name
         self.Flocs_columns = Flocs_columns
+        self.flocs_year = flocs_year  # stored so extend_duration can rebuild the forcing
         self.Microflocs_massconc_array = None
         self.Micro_in_Macro_massconc_array = None
         self.Macroflocs_sink_sed_array = None
@@ -1244,6 +1246,128 @@ class Setup:
             print(f"    g_shear_rate_min={cropped.g_shear_rate_min:.2f}, delta={cropped.delta_g_shear_rate:.2f}")
 
         return cropped
+
+    def extend_duration(self, additional_days: float,
+                        new_name: Optional[str] = None) -> 'Setup':
+        """
+        Create a new Setup extended by `additional_days` at the END, keeping every
+        existing timestep bit-identical (no temporal shift). Inverse of crop_from_date.
+
+        Why this is drift-free
+        ----------------------
+        The tidal forcings (water depth, shear, bed stress) are deterministic functions
+        of the ELAPSED time ``t`` via ``t_eval = np.arange(tmin, tmax, used_dt)``.
+        Enlarging tmax only APPENDS points to t_eval, so existing steps keep their exact
+        tidal phase. PAR / temperature / riverine loads are climatologies interpolated
+        onto ``self.dates``; re-running their builders on the extended date grid
+        reproduces the existing portion identically and appends the new tail. The date
+        index is extended by APPEND (not a ``periods=`` rebuild) so the original
+        timestamps are preserved to the nanosecond -- essential for the optimization
+        score-reproducibility check.
+
+        Normalization constants (T_max/T_min for limT; g_shear_rate_min/
+        delta_g_shear_rate for normalized_shear in flocs.py) are INHERITED from the
+        original full cycle, exactly as in crop_from_date, so the extra days cannot
+        alter limitation normalizations.
+
+        Parameters
+        ----------
+        additional_days : float
+            Number of days to append after the current end_date.
+        new_name : str, optional
+            Name for the extended setup. Defaults to '<name>_extended'.
+
+        Returns
+        -------
+        Setup
+            A new Setup covering [start_date, end_date + additional_days].
+        """
+        import copy
+
+        if additional_days <= 0:
+            raise ValueError(f"additional_days must be > 0 (got {additional_days})")
+
+        extended = copy.copy(self)
+        extended.name = new_name if new_name else f"{self.name}_extended"
+
+        # Preserve full-cycle normalization constants (inherited, like crop_from_date)
+        T_max, T_min = self.T_max, self.T_min
+        g_shear_rate_min, delta_g_shear_rate = self.g_shear_rate_min, self.delta_g_shear_rate
+
+        # --- 1. Extend the time grid (append-only) --------------------------------
+        extended.tmax = self.tmax + additional_days
+        extended.end_date = self.start_date + pd.Timedelta(days=extended.tmax)
+        extended.t_span = [self.tmin, extended.tmax]
+
+        # np.arange is deterministic: the first len(self.t_eval) values are bit-identical
+        # and only new points are appended.
+        extended.t_eval = np.arange(self.tmin, extended.tmax, self.used_dt, dtype=self.dtype)
+        n_append = len(extended.t_eval) - len(self.t_eval)
+
+        # Append to the date index at the existing spacing so the original timestamps
+        # are preserved exactly (a periods= rebuild would drift them sub-second).
+        step = self.dates[1] - self.dates[0]
+        appended_dates = pd.date_range(self.dates[-1] + step, periods=n_append, freq=step)
+        extended.dates = self.dates.append(appended_dates)
+
+        # Two-timestep sub-grid
+        if self.two_dt:
+            extended.dates1 = extended.dates[::self.dt_ratio]
+            extended.dates1_set = set(extended.dates1)
+
+        # --- 2. Rebuild all time-dependent forcing on the extended grid ------------
+        # Same builders/order as __init__; each is a pure function of dates/t_eval +
+        # stored parameters, so the existing portion is reproduced bit-identically and
+        # the new tail is appended. (Keep this list in sync with __init__.)
+        if extended.riverine_loads:
+            extended._load_riverine_loads()
+        if extended.prescribe_TEP:
+            extended._load_prescribed_TEP(False, extended.tep_year)
+        if extended.prescribe_Flocs:
+            extended._load_prescribed_Flocs(False, extended.flocs_year)
+
+        extended.PAR = extended._initialize_PAR(False)
+        extended.T = extended._initialize_TEMP(False)
+        extended.mu_water = extended._initialize_mu_water()  # depends on T
+
+        extended.water_depth = extended._create_tidal_parameter_dataframe(
+            'WaterDepth', extended.base_water_depth, extended.vary_water_depth,
+            extended.water_depth_amplitude_spring, extended.water_depth_amplitude_neap,
+            extended.water_depth_phase_shift, False, 1.0)
+        extended.g_shear_rate = extended._create_tidal_parameter_dataframe(
+            'ShearRate', extended.base_g_shear_rate, extended.vary_g_shear,
+            extended.shear_rate_amplitude_spring, extended.shear_rate_amplitude_neap,
+            extended.shear_rate_phase_shift, extended.shear_rate_additive_mode, 2.0)
+        extended.bed_shear_stress = extended._create_tidal_parameter_dataframe(
+            'BedShearStress', extended.base_bed_shear_stress, extended.vary_bed_shear,
+            extended.bed_shear_stress_amplitude_spring, extended.bed_shear_stress_amplitude_neap,
+            extended.bed_shear_stress_phase_shift, extended.bed_shear_stress_additive_mode, 2.0)
+
+        # Pre-computed arrays (critical for model performance)
+        extended.g_shear_rate_array = extended.g_shear_rate['ShearRate'].values.astype(self.dtype)
+        extended.bed_shear_stress_array = extended.bed_shear_stress['BedShearStress'].values.astype(self.dtype)
+        extended.water_depth_array = extended.water_depth['WaterDepth'].values.astype(self.dtype)
+        extended.T_array = extended.T['T'].values.astype(self.dtype)
+        extended.PAR_array = extended.PAR['PAR'].values.astype(self.dtype)
+        extended.mu_water_array = extended.mu_water['mu_water'].values.astype(self.dtype)
+
+        # --- 3. Restore inherited full-cycle normalization constants --------------
+        extended.T_max, extended.T_min = T_max, T_min
+        extended.g_shear_rate_min, extended.delta_g_shear_rate = g_shear_rate_min, delta_g_shear_rate
+
+        # Rebuild date-to-index mapping
+        extended.dates_to_index = {date: idx for idx, date in enumerate(extended.dates)}
+
+        if self.verbose:
+            print(f"Setup extended: {self.name} -> {extended.name}")
+            print(f"  Original: {self.start_date} to {self.end_date} ({self.tmax} days)")
+            print(f"  Extended: {extended.start_date} to {extended.end_date} ({extended.tmax} days)")
+            print(f"  Array lengths: {len(self.t_eval)} -> {len(extended.t_eval)} (+{n_append})")
+            print(f"  Inherited normalization constants (from full cycle):")
+            print(f"    T_max={extended.T_max:.2f} K, T_min={extended.T_min:.2f} K")
+            print(f"    g_shear_rate_min={extended.g_shear_rate_min:.2f}, delta={extended.delta_g_shear_rate:.2f}")
+
+        return extended
 
 
 if __name__ == "__main__":

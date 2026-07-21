@@ -20,6 +20,7 @@ from src.core import model
 from src.core import phys  # Import nécessaire pour la désérialisation pickle des objets Setup
 from src.config_system import path_config as path_cfg
 from src.config_model import config
+from src.config_model import config_diagnostics
 from src.utils import simulation_manager as sim_manager
 
 # Constants
@@ -1035,9 +1036,9 @@ class Optimization:
 
             best_config = fns.update_config(self.config['dconf'], self.summary['best_parameters'])
             # Only add plotting diagnostics for components present in best_config
-            filtered_plotting_diag = {k: v for k, v in config.plotting_diagnostics.items() if k in best_config}
+            filtered_plotting_diag = {k: v for k, v in config_diagnostics.plotting.items() if k in best_config}
             best_config = fns.deep_update(best_config, filtered_plotting_diag,
-                                          config.smoothed_ratio_diagnostics) # smoothed_ratio_diagnostics added to be
+                                          config_diagnostics.smoothed_ratios) # smoothed_ratios added to be
                                             # able to recompute the EWMA vertical-coupling state
             model_kwargs = {
                 **self.config['modkwargs'],
@@ -1045,6 +1046,14 @@ class Optimization:
                 'do_diagnostics': True,
                 'full_diagnostics': False
             }
+
+            # Extend the run a few days past the analysis window so the biweekly
+            # (14-d) trend of the LAST plotted day is a fully centered mean (data on
+            # both sides), matching the centered averaging used for scoring. The
+            # 2021-2023 portion stays bit-identical, so the score-reproducibility
+            # check below still passes. See Setup.extend_duration.
+            self.setup = self.setup.extend_duration(additional_days=15)
+
             best_model = model.Model(best_config, setup=self.setup, name=self.name, **model_kwargs)
 
             if savemodel:
@@ -1069,8 +1078,11 @@ class Optimization:
                 )
                 best_config = fns.update_config(case.dconf, filtered_params)
                 # Only add plotting diagnostics for components present in best_config
-                filtered_plotting_diag = {k: v for k, v in config.plotting_diagnostics.items() if k in best_config}
-                best_config = fns.deep_update(best_config, filtered_plotting_diag)
+                filtered_plotting_diag = {k: v for k, v in config_diagnostics.plotting.items() if k in best_config}
+                best_config = fns.deep_update(best_config, filtered_plotting_diag,
+                                              config_diagnostics.smoothed_ratios) # as in the single-case
+                                                # branch: without it the EWMA vertical-coupling state cannot be
+                                                # transferred and a restart from this model re-seeds (and drifts)
                 model_kwargs = {
                     **self.config['modkwargs'],
                     'verbose': True,
