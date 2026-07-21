@@ -268,10 +268,19 @@ class Flocs(BaseStateVar):
         self.diagnostics = None
         self.classname = 'Floc'
         self.name = name
-        # Initialize alphas with base values (will be updated by TEP coupling if active)
-        self.alpha_PP = alpha_PP_base
-        self.alpha_PF = alpha_PF_base
-        self.alpha_FF = alpha_FF_base
+        # Initialize alphas with base values (will be updated by TEP coupling if active).
+        # These seed only the row-0 diagnostic: get_tep_parameters() overwrites them at every
+        # derivative evaluation, so the trajectory is unaffected. Mirror the unified_alphas
+        # logic of FlocParameters here, otherwise row 0 reports the class default alpha_FF_base
+        # (0.02) instead of the configured alpha_PP_base (which unified_alphas ties FF/PF to).
+        # NOTE residual: Macroflocs.tau_cr / nf still show their class default at row 0 (their
+        # base lives on the Microflocs "master", not yet wired at __init__); harmless, same reason.
+        if unified_alphas:
+            self.alpha_PP = self.alpha_PF = self.alpha_FF = alpha_PP_base
+        else:
+            self.alpha_PP = alpha_PP_base
+            self.alpha_PF = alpha_PF_base
+            self.alpha_FF = alpha_FF_base
         self.p_exp = p_exp
         self.q_exp = q_exp
         self.f_frac_floc_break = f_frac_floc_break
@@ -332,9 +341,9 @@ class Flocs(BaseStateVar):
         self.sink_breakdown = None
 
     def set_coupling(self,
-                     coupled_Np=None,
-                     coupled_Nf=None,
-                     coupled_Nt=None,
+                     coupled_Np=None, # Microflocs
+                     coupled_Nf=None, # Macroflocs
+                     coupled_Nt=None, # Micro_in_Macro
                      coupled_glue=None,
                      ):
         self.coupled_Np = coupled_Np if self.name != 'Microflocs' else self
