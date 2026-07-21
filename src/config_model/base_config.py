@@ -17,40 +17,6 @@ from src.utils import functions as fns
 heterotrophs_list = ['BacF', 'BacA', 'Cil', 'HF']
 potential_targets = ['DOCS', 'DOCL', 'TEPC', 'DetS', 'DetL'] + heterotrophs_list
 
-# ===============================================================================
-# PHYTOPLANKTON DIAGNOSTICS CONFIGURATIONS - SEPARATE FOR PERFORMANCE CONTROL
-# ===============================================================================
-
-# Full phytoplankton diagnostics
-Phy_diagnostics_full = {
-    'Phy': {
-        'diagnostics': [
-            'lim_N', 'lim_P', 'lim_Si', 'QN', 'QP', 'QSi', 'thetaC',
-            'limNUT', 'limQUOTA.N', 'limQUOTA.P', 'limQUOTA.Si',
-            'limQUOTAmin.N', 'limQUOTAmin.P', 'limQUOTAmin.Si',
-            'mmNH4', 'mmNO3', 'mmDIP', 'mmDSi',
-            'kd', 'PC_max', 'PC', 'source_PP.C', 'rho_Chl', 'limI', 'limI_upper_layer', 'limI_theoretical', 'limT',
-            'PAR_t', 'I_H',
-            'source_uptake.NH4', 'source_uptake.NO3', 'source_uptake.N',
-            'source_uptake.P', 'source_uptake.Si',
-            'source_Chlprod.Chl',
-            'sink_lysis.C', 'sink_lysis.N', 'sink_lysis.Chl', 'sink_lysis.P', 'sink_lysis.Si',
-            'sink_mortality.C', 'sink_mortality.N', 'sink_mortality.Chl', 'sink_mortality.P',
-            'sink_mortality.Si',
-            'sink_exudation.C', 'sink_exudation.N', 'sink_exudation.Chl', 'sink_exudation.P',
-            'sink_exudation.Si',
-            'frac_exud_small',
-            'sink_respiration.C', 'sink_respiration.N', 'sink_respiration.Chl', 'sink_respiration.P',
-            'sink_respiration.Si',
-            'sink_ingestion.C', 'sink_ingestion.N', 'sink_ingestion.Chl', 'sink_ingestion.P',
-            'sink_ingestion.Si',
-            'sink_aggregation.C', 'sink_aggregation.N', 'sink_aggregation.Chl', 'sink_aggregation.P',
-            'sink_aggregation.Si',
-            'coupled_Microflocs_massconcentration', 'coupled_Micro_in_Macro_massconcentration'
-        ]
-    }
-}
-
 
 # ===============================================================================
 # BASE CONFIGURATION (based on KERIMOGLU ET AL 2022)
@@ -468,9 +434,5 @@ Onur = {
 
 }
 
-# ===============================================================================
-# CREATE OPTIMIZATION-OPTIMIZED CONFIGURATIONS WITH MINIMAL DIAGNOSTICS
-# ===============================================================================
-
-# Main configuration for classical simulation with full diagnostics output
-Onur_full = fns.deep_update(Onur, Phy_diagnostics_full)
+# `Onur` above carries the model composition only. To get diagnostics out of it, merge a
+# level from config_diagnostics, e.g. fns.deep_update(Onur, config_diagnostics.reference).
