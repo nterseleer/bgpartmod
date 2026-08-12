@@ -185,6 +185,7 @@ class Phyto(BaseOrg):
         self.source_Chlprod = Elms()
         self.sink_lysis = Elms()
         self.sink_mortality = Elms()
+        self.sink_grazing = Elms()  # DIAGNOSTIC-ONLY mirror of the grazing-closure flux (see get_sink_mortality)
         self.sink_exudation = Elms()
         self.sink_respiration = Elms()
         self.sink_ingestion = Elms()
@@ -642,6 +643,28 @@ class Phyto(BaseOrg):
             self.sink_mortality.P = self.sink_mortality.C * self.QP
         if self.Si is not None:
             self.sink_mortality.Si = self.sink_mortality.C * self.QSi
+
+        # DIAGNOSTIC-ONLY split of the implicit grazing-closure flux.
+        # grazing_loss is *kept inside* sink_mortality.C above, hence still routed to DetS
+        # via DetS.coupled_mortality_sources (routing and mass balance unchanged). sink_grazing
+        # is a passive mirror so the grazing term can be isolated in the analysis
+        # (Phy_sink_grazing.*). It is therefore deliberately NOT added to the *_sinks sums in
+        # get_sinks() — doing so would double-count the loss.
+        #
+        # TODO (next optimization round, when backward-compat with running/previous sims is no
+        #   longer required): promote this to a first-class flux — move grazing_loss OUT of
+        #   get_sink_mortality into a dedicated get_sink_grazing(t, t_idx), add sink_grazing to
+        #   the *_sinks sums in get_sinks(), and add the symmetric get_source_grazing() in
+        #   detritus.Detritus fed by a new DetS 'coupled_grazing_sources': ['Phy'] in
+        #   base_config (plus matching config_diagnostics entries). Mass-neutral, but it changes
+        #   the model/config structure, hence deferred.
+        self.sink_grazing.C = grazing_loss
+        if self.N is not None:
+            self.sink_grazing.N = grazing_loss * self.QN
+        if self.P is not None:
+            self.sink_grazing.P = grazing_loss * self.QP
+        if self.Si is not None:
+            self.sink_grazing.Si = grazing_loss * self.QSi
 
     def get_sink_exudation(self):
         """Calculate exudation for Onur22 formulation."""
