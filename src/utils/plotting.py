@@ -549,6 +549,10 @@ def plot_variable(
         tick_params_kwargs['width'] = tick_width
     if tick_params_kwargs:
         ax.tick_params(axis='both', **tick_params_kwargs)
+    if tick_labelsize is not None:
+        # tick_params ignores the axis offset/multiplier text ("1e11"), which would
+        # otherwise stay at the default 10 pt and collide with the panel above.
+        ax.yaxis.get_offset_text().set_fontsize(tick_labelsize)
 
     # Adjust spine (frame) width if specified
     if spine_width is not None:
@@ -557,6 +561,130 @@ def plot_variable(
 
     if show_subplot_titles:
         ax.set_title(fns.cleantext(long_name))
+
+
+def _resolve_layer_context(models, model_styles, mean_window_days, multi_window_styles,
+                           calibrated_vars):
+    """Shared preliminary setup for plot_results and plot_variable_panel.
+
+    Auto-extracts calibrated_vars from the models (first that carries any), normalises
+    mean_window_days to a list of layers, and resolves the base per-model styles and the
+    per-window (multi-window) styles. Returns
+    (mean_window_values, base_styles, window_styles, calibrated_vars).
+    """
+    if calibrated_vars is None:
+        for m in fns.flatten_simulation_list(models):
+            if getattr(m, 'calibrated_vars', None):
+                calibrated_vars = m.calibrated_vars
+                break
+    mean_window_values = (list(mean_window_days)
+                          if isinstance(mean_window_days, (tuple, list)) else [mean_window_days])
+    base_styles = model_styles if model_styles else get_model_styles(
+        len(fns.flatten_simulation_list(models)))
+    window_styles = multi_window_styles if multi_window_styles else MULTI_WINDOW_STYLES
+    return mean_window_values, base_styles, window_styles, calibrated_vars
+
+
+def _layer_styles(base_styles, window_styles, layer_idx, n_layers):
+    """Per-model styles for one mean-window layer: overlay that layer's window style
+    (linewidth/alpha) onto the base styles. The offset makes the LAST layer always use the
+    foreground (last) window style, whatever the number of layers.
+    """
+    style_offset = max(0, len(window_styles) - n_layers)
+    overrides = {k: v for k, v in
+                 window_styles[min(layer_idx + style_offset, len(window_styles) - 1)].items()
+                 if v is not None}
+    return [{**s, **overrides} for s in base_styles]
+
+
+def plot_variable_panel(ax, models, var, observations=None,
+                        mean_window_days=1, daily_mean=None, center_trend=True,
+                        time_filter=None, model_styles=None, multi_window_styles=None,
+                        plot_obs=True, calibrated_vars=None, add_labels=True,
+                        show_subplot_titles=True, apply_plt_ylim=True,
+                        fill_between_models=None, fill_alpha=0.3, fill_color='magenta',
+                        date_format='%d/%m', xlabel_rotation=45, **plot_var_kwargs):
+    """Draw ONE variable (one or several models) into a caller-supplied ax.
+
+    The single-panel, ax-aware entry point sitting between plot_variable (which needs data
+    already prepared) and plot_results (which builds a whole figure). It runs the SAME internal
+    pipeline as plot_results -- prepare_model_obs_data + plot_variable, including multi-window
+    layer support (mean_window_days may be a tuple, e.g. (1, 14) for a daily line under a
+    biweekly trend) -- but for a single axis and WITHOUT any figure-level behaviour (grid,
+    global fig.legend, tight_layout, save). Use it to compose custom multi-panel figures that
+    mix variable time series with, e.g., plot_element_distribution_stacked panels.
+
+    Arguments mirror the matching plot_results / plot_variable parameters; extra keyword
+    arguments are forwarded to plot_variable. Returns the axis (the caller owns the figure,
+    hence its legend, layout and saving).
+    """
+    mean_window_values, base_styles, window_styles, calibrated_vars = _resolve_layer_context(
+        models, model_styles, mean_window_days, multi_window_styles, calibrated_vars)
+
+    # Plot each mean-window layer (background to foreground), exactly as plot_results does.
+    for layer_idx, mwd in enumerate(mean_window_values):
+        is_first = (layer_idx == 0)
+        is_last = (layer_idx == len(mean_window_values) - 1)
+
+        data_list, merged, _, names = prepare_model_obs_data(
+            models, observations, mwd, daily_mean, [var], time_filter, center_trend=center_trend)
+
+        layer_fill = None
+        if is_first and fill_between_models is not None:
+            fill_list, _, _, _ = prepare_model_obs_data(
+                list(fill_between_models), None, mwd, daily_mean, [var], time_filter,
+                center_trend=center_trend)
+            if len(fill_list) == 2:
+                layer_fill = (fill_list[0], fill_list[1])
+
+        layer_styles = _layer_styles(base_styles, window_styles, layer_idx, len(mean_window_values))
+
+        plot_variable(
+            ax, data_list, names, var, merged, layer_styles,
+            fill_between_data=layer_fill, fill_alpha=fill_alpha, fill_color=fill_color,
+            add_labels=(add_labels and is_last), plot_obs=(plot_obs and is_first),
+            calibrated_vars=calibrated_vars,
+            show_subplot_titles=(show_subplot_titles and is_last),
+            apply_plt_ylim=apply_plt_ylim, **plot_var_kwargs)
+
+    if date_format:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter(date_format))
+    if xlabel_rotation is not None:
+        for label in ax.get_xticklabels():
+            label.set_rotation(xlabel_rotation)
+    return ax
+
+
+def paper_grid(nrows: int, ncols: int = 1, panel: Optional[Tuple[float, float]] = None,
+               sharex: bool = True, **margins) -> Tuple[plt.Figure, np.ndarray]:
+    """Panel grid whose FIGURE SIZE is derived from the composition, not the reverse.
+
+    The publication layout fixes the axes box (`panel`, in inches) and the margins/gaps
+    (`plot_config.FIG_MARGINS`, also in inches) and derives the figure size from them:
+
+        width  = left + ncols*pw + (ncols-1)*wgap + right
+        height = top  + nrows*ph + (nrows-1)*hgap + bottom
+
+    Every figure built this way therefore has strictly identical panels, gaps and margins,
+    whatever its nrows x ncols -- unlike the usual `figsize` + tight_layout route, where the
+    axes box is the residual left over after label-dependent margins (so panels of the same
+    nominal size end up different, and a short panel can be shorter than its own ylabel).
+
+    No tight_layout is involved: the geometry is exact and reproducible, which is what makes
+    the saved file paste at 100% at a known size (see paper_config.save_fig).
+
+    Returns (fig, axes) with axes flattened, as plot_results expects.
+    """
+    from src.config_model import plot_config
+    pw, ph = panel or plot_config.PANEL_SIZE
+    m = {**plot_config.FIG_MARGINS, **margins}
+    fig_w, fig_h = plot_config.paper_figsize(nrows, ncols, panel=(pw, ph), **margins)
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    gs = fig.add_gridspec(nrows, ncols,
+                          left=m['left'] / fig_w, right=1 - m['right'] / fig_w,
+                          bottom=m['bottom'] / fig_h, top=1 - m['top'] / fig_h,
+                          wspace=m['wgap'] / pw, hspace=m['hgap'] / ph)
+    return fig, gs.subplots(sharex=sharex, squeeze=False).flatten()
 
 
 def plot_results(
@@ -571,6 +699,8 @@ def plot_results(
         ncols: Optional[int] = None,
         plot_obs = True,
         figsize: Optional[Tuple[int, int]] = None,
+        panel_size: Optional[Tuple[float, float]] = None,
+        axes: Optional[np.ndarray] = None,
         model_styles: Optional[List[Dict]] = None,
         multi_window_styles: Optional[List[Dict]] = None,
         fill_between_models: Optional[Tuple[Any, Any]] = None,
@@ -593,6 +723,7 @@ def plot_results(
         tight_layout: bool = True,
         hspace: Optional[float] = None,
         wspace: Optional[float] = None,
+        fold_axis_factors: bool = False,
         save: bool = False,
         filename: Optional[str] = None,
         figdir: Optional[str] = None,
@@ -618,7 +749,12 @@ def plot_results(
             on both sides of time_filter when available (spin-up before, run extension after).
         time_filter: Time filtering criterion (None, year string, date range tuple, or slice)
         ncols: Number of columns in subplot grid (auto-detected from PlottedVariablesSet if None)
-        figsize: Figure size (auto-detected from PlottedVariablesSet if None, otherwise auto-calculated)
+        figsize: Figure size (auto-detected from PlottedVariablesSet if None, otherwise auto-calculated).
+            Ignored when panel_size or axes is given.
+        panel_size: (width, height) of ONE axes box in inches. When given, the figure is built by
+            paper_grid: fixed physical margins, figure size derived from nrows x ncols, no
+            tight_layout -- the publication route, where every figure shares the same panel box.
+        axes: Draw into these pre-built axes (e.g. from paper_grid) instead of creating a figure.
         model_styles: List of style dictionaries for each model
         fill_between_models: Optional tuple of (low_model, high_model) to create variability range with fill_between
         fill_alpha: Transparency of fill_between area (default: 0.3)
@@ -639,6 +775,9 @@ def plot_results(
         tight_layout: Whether to apply tight_layout for better spacing
         hspace: Height space between subplots (None = matplotlib default)
         wspace: Width space between subplots (None = matplotlib default)
+        fold_axis_factors: Move each y-axis multiplier ('1e11') from its floating text
+            above the panel into the ylabel (see fold_axis_factor). Recommended for
+            stacked/compact figures, where that text otherwise sits between two panels.
         save: Whether to save the figure
         filename: Filename for saved figure (auto-generated from PlottedVariablesSet.name if None)
         figdir: directory for saved figures
@@ -678,49 +817,43 @@ def plot_results(
         raise ValueError("Number of columns must be positive")
     if label_position not in ['top_left', 'top_right', 'bottom_left', 'bottom_right']:
         raise ValueError(f"Invalid label_position: {label_position}")
-    # Extract calibrated_vars from models if not provided
-    if calibrated_vars is None:
-        # Flatten models list to check for calibrated_vars
-        flat_models = fns.flatten_simulation_list(models)
-        for model in flat_models:
-            if hasattr(model, 'calibrated_vars') and model.calibrated_vars:
-                calibrated_vars = model.calibrated_vars
-                break
-
-    # Normalize mean_window_days to list for multi-window support
-    if isinstance(mean_window_days, (tuple, list)):
-        mean_window_values = list(mean_window_days)
-    else:
-        mean_window_values = [mean_window_days]
+    # Preliminary layer/style context, shared with plot_variable_panel: auto-extract
+    # calibrated_vars, normalise mean_window_days to layers, resolve base + window styles.
+    mean_window_values, base_styles, window_styles, calibrated_vars = _resolve_layer_context(
+        models, model_styles, mean_window_days, multi_window_styles, calibrated_vars)
 
     # Calculate grid dimensions
     nrows = (len(variables_list) + ncols - 1) // ncols
-    if figsize is None:
-        figsize = (5 * ncols, 4 * nrows)
 
-    # Create figure and axes
-    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True)
-    if nrows == 1 and ncols == 1:
-        axes = np.array([axes])
-    axes = axes.flatten()
+    # Three ways to get the axes; the first two use a FIXED geometry (paper_grid), so the
+    # figure-level layout steps below (tight_layout, subplots_adjust) must be skipped.
+    fixed_layout = True
+    if axes is not None:
+        axes = np.asarray(axes).flatten()
+        fig = axes[0].figure
+    elif panel_size is not None:
+        fig, axes = paper_grid(nrows, ncols, panel=panel_size)
+    else:
+        fixed_layout = False
+        if figsize is None:
+            figsize = (5 * ncols, 4 * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, sharex=True)
+        if nrows == 1 and ncols == 1:
+            axes = np.array([axes])
+        axes = axes.flatten()
 
     # Set intelligent figure title from PlottedVariablesSet
     if isinstance(variables, PlottedVariablesSet):
         fig.canvas.manager.set_window_title(variables.name.replace('_', ' '))
 
     # Extract legend-related and obs-specific kwargs before passing to plot_variable
-    legend_kwargs = ['add_legend', 'legend_fontsize', 'legend_position']
+    legend_keys = ['add_legend', 'legend_fontsize', 'legend_position', 'legend_axis',
+                   'legend_kwargs']
     obs_specific_kwargs = ['obs_kwargs_calibrated', 'obs_kwargs_non_calibrated']
     plot_var_kwargs = {k: v for k, v in plot_kwargs.items()
-                       if k not in legend_kwargs}
+                       if k not in legend_keys}
 
-    # Get base model styles
-    base_styles = model_styles if model_styles else get_model_styles(
-        len(fns.flatten_simulation_list(models)))
-
-    # Per-window layer styles (linewidth/alpha for each mean_window_days value).
-    # Falls back to the module default; can be overridden via plot_config.
-    window_styles = multi_window_styles if multi_window_styles else MULTI_WINDOW_STYLES
+    # base_styles / window_styles come from _resolve_layer_context above.
 
     # Track fill_between for legend
     fill_between_data = None
@@ -747,13 +880,8 @@ def plot_results(
                 layer_fill_between = (fill_data_list[0], fill_data_list[1])
                 fill_between_data = layer_fill_between  # Track for legend
 
-        # Apply layer-specific style overrides
-        # Offset index so that the last layer always uses the foreground style
-        n_layers = len(mean_window_values)
-        style_offset = max(0, len(window_styles) - n_layers)
-        layer_style_config = window_styles[min(layer_idx + style_offset, len(window_styles) - 1)]
-        layer_overrides = {k: v for k, v in layer_style_config.items() if v is not None}
-        layer_styles = [{**s, **layer_overrides} for s in base_styles]
+        # Per-window layer styles (shared helper: last layer uses the foreground style)
+        layer_styles = _layer_styles(base_styles, window_styles, layer_idx, len(mean_window_values))
 
         # Plot each variable
         for i, var in enumerate(variables_list):
@@ -846,21 +974,37 @@ def plot_results(
         }
         bbox_anchor = bbox_anchor_map.get(legend_pos, (0.98, 0.5))
 
-        fig.legend(
-            handles,
-            labels,
-            loc=legend_pos,
-            bbox_to_anchor=bbox_anchor,
-            fontsize=plot_kwargs.get('legend_fontsize', DEFAULT_LEGEND_FONTSIZE)
-        )
+        # legend_axis: draw the legend INSIDE that subplot (axes coordinates) instead of
+        # at figure level -- needed when the figure is saved at its exact final size and a
+        # figure-level legend would either overlap the panels or fall outside the canvas.
+        # legend_kwargs: overrides passed straight to .legend() (bbox_to_anchor, ncol, ...).
+        call_kwargs = {'loc': legend_pos, 'bbox_to_anchor': bbox_anchor,
+                       'fontsize': plot_kwargs.get('legend_fontsize', DEFAULT_LEGEND_FONTSIZE)}
+        legend_axis = plot_kwargs.get('legend_axis')
+        if legend_axis is not None:
+            call_kwargs['bbox_to_anchor'] = None   # axes-relative placement by default
+        call_kwargs.update(plot_kwargs.get('legend_kwargs') or {})
 
-    # Apply layout adjustments
-    if tight_layout:
-        plt.tight_layout()
+        if legend_axis is None:
+            fig.legend(handles, labels, **call_kwargs)
+        else:
+            axes[legend_axis].legend(handles, labels, **call_kwargs)
+
+    # Fold the '1e11'-style axis multipliers into the ylabels before laying out (the
+    # factor is only known once drawn, and folding frees the space above each panel).
+    if fold_axis_factors:
+        fig.canvas.draw()
+        for ax in axes:
+            fold_axis_factor(ax)
+
+    # Apply layout adjustments (skipped on a fixed geometry: paper_grid already placed the
+    # axes at exact physical margins, which tight_layout would undo).
+    if tight_layout and not fixed_layout:
+        fig.tight_layout()
 
     # Apply custom spacing if provided
-    if hspace is not None or wspace is not None:
-        plt.subplots_adjust(
+    if (hspace is not None or wspace is not None) and not fixed_layout:
+        fig.subplots_adjust(
             hspace=hspace if hspace is not None else plt.rcParams['figure.subplot.hspace'],
             wspace=wspace if wspace is not None else plt.rcParams['figure.subplot.wspace']
         )
@@ -1260,7 +1404,9 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
                                       stacked=True, time_filter=None, mean_window_days=None,
                                       center_trend=True, save=False,
                                       filename='element_distribution_stacked',
-                                      figdir=None, fnametimestamp=True, **kwargs):
+                                      figdir=None, fnametimestamp=True,
+                                      ax=None, compartments=None, colors=None,
+                                      title=None, add_legend=True, **kwargs):
     """
     Create a stacked area plot showing element distribution across model compartments
 
@@ -1301,6 +1447,20 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
         Directory to save figure (uses FIGURE_PATH if None)
     fnametimestamp : bool, default True
         Whether to add timestamp to filename
+    ax : matplotlib.axes.Axes, optional
+        Draw into this axis instead of creating a new figure (enables side-by-side
+        REF/NO-TEP panels via one call per axis). When given, the function does not
+        run tight_layout or save (the caller owns the figure).
+    compartments : dict, optional
+        Custom grouping {group_name: [column names]} overriding both the built-in
+        group_by_compartment map and the per-variable mode. Columns absent from the
+        (time-filtered) data are dropped. Lets callers separate e.g. TEP from bulk DOC.
+    colors : list, optional
+        Colour cycle for the groups/curves (defaults to DEFAULT_COLORS).
+    title : str, optional
+        Override the auto-generated axis title (e.g. 'REF' / 'NO-TEP').
+    add_legend : bool, default True
+        Whether to draw the legend on this axis (set False on all but one panel).
     **kwargs : dict
         Additional plotting arguments
 
@@ -1347,9 +1507,17 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
             center_trend=center_trend,
         )[0][0]
 
-    if group_by_compartment:
+    if compartments is not None:
+        # Caller-supplied grouping {name: [columns]}. Keep only columns present in the
+        # (time-filtered) data; drop empty groups. Order follows the dict.
+        compartment_totals = {}
+        for comp_name, variables in compartments.items():
+            vv = [v for v in variables if v in available_vars]
+            if vv:
+                compartment_totals[comp_name] = sum(model_output[v] for v in vv)
+    elif group_by_compartment:
         # Define compartments based on variable naming patterns
-        compartments = {
+        default_compartments = {
             'Phytoplankton': [var for var in available_vars if var.startswith('Phy_')],
             'Heterotrophs': [var for var in available_vars if
                              any(var.startswith(x) for x in ['BacF_', 'BacA_', 'HF_', 'Cil_'])],
@@ -1363,7 +1531,7 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
 
         # Remove empty compartments and calculate totals
         compartment_totals = {}
-        for comp_name, variables in compartments.items():
+        for comp_name, variables in default_compartments.items():
             if variables:  # Only include non-empty compartments
                 compartment_totals[comp_name] = sum(model_output[var] for var in variables)
     else:
@@ -1375,8 +1543,12 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
             clean_label = var_info.get('cleanname', var.replace('_', ' '))
             compartment_totals[clean_label] = model_output[var]
 
-    # Create figure
-    fig, ax = plt.subplots(figsize=(6, 4))
+    # Create figure, or draw into a caller-supplied ax (side-by-side panels)
+    own_fig = ax is None
+    if own_fig:
+        fig, ax = plt.subplots(figsize=(6, 4))
+    else:
+        fig = ax.figure
 
     # Create stacked area plot with distinct colors
     if compartment_totals:
@@ -1393,19 +1565,20 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
         else:
             data_to_plot = list(compartment_totals.values())
 
-        # Use DEFAULT_COLORS for better color distinction
-        colors = DEFAULT_COLORS[:len(compartment_totals)]
+        # Use DEFAULT_COLORS for better color distinction (or caller-supplied colors)
+        plot_colors = (colors if colors is not None else DEFAULT_COLORS)[:len(compartment_totals)]
         if stacked:
             ax.stackplot(model_output.index,
                          *data_to_plot,
                          labels=compartment_totals.keys(),
-                         colors=colors,
+                         colors=plot_colors,
                          alpha=0.8)
         else:
-            for data, label, color in zip(data_to_plot, compartment_totals.keys(), colors):
+            for data, label, color in zip(data_to_plot, compartment_totals.keys(), plot_colors):
                 ax.plot(model_output.index, data, label=label, color=color, linewidth=2, alpha=0.8)
 
-        ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+        if add_legend:
+            ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
     # Formatting
     ax.set_xlabel('Time [d]')
@@ -1419,15 +1592,18 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
         ax.set_title(f'{element_name} Distribution Across Model Compartments')
         # ax.set_ylim(0, 800)
 
+    if title is not None:
+        ax.set_title(title)
+
     ax.grid(True, alpha=0.3)
 
-    plt.tight_layout()
-
-    # Save if requested
-    if save:
-        if figdir is None:
-            figdir = FIGURE_PATH
-        save_figure(fig, filename=filename, figdir=figdir, add_timestamp=fnametimestamp)
+    # Only manage whole-figure layout/saving when we own the figure; otherwise the
+    # caller composes the panels and saves the combined figure.
+    if own_fig:
+        plt.tight_layout()
+        if save:
+            save_figure(fig, filename=filename, figdir=figdir or FIGURE_PATH,
+                        add_timestamp=fnametimestamp)
 
     return fig, ax
 
@@ -1918,6 +2094,37 @@ def plot_par_vs_depth(
         save_figure(fig, filename=filename, figdir=figdir, add_timestamp=fnametimestamp)
 
     return fig, ax
+
+
+def fold_axis_factor(ax: plt.Axes, axis: str = 'y') -> plt.Axes:
+    """Fold the axis multiplier ('1e11', '1e-8') from its floating text into the label.
+
+    Matplotlib draws the common factor as a small text ABOVE the axes, which in a stacked
+    figure floats between two panels (and reads as belonging to the wrong one). This moves
+    it into the label instead: 'Microflocs [m$^{-3}$]' -> 'Microflocs [$10^{11}$ m$^{-3}$]'.
+
+    The factor is only known once the figure has been drawn: call after fig.canvas.draw().
+    No-op when the axis carries no multiplier, or when it carries an additive offset
+    (e.g. '+1.5e3'), which cannot be folded into a unit.
+    """
+    axobj = ax.yaxis if axis == 'y' else ax.xaxis
+    # matplotlib writes the exponent with a Unicode minus (U+2212), not ASCII '-'.
+    txt = axobj.get_offset_text().get_text().replace('−', '-')
+    mantissa, _, exponent = txt.partition('e')
+    if not exponent or mantissa not in ('1', ''):
+        return ax
+    factor = rf'$10^{{{int(exponent)}}}$'
+    label = axobj.get_label().get_text()
+    if label.endswith(']') and '[' in label:
+        head, _, units = label.rpartition('[')
+        units = units[:-1].strip()
+        units = '' if units in ('', '-') else f' {units}'
+        label = f'{head}[{factor}{units}]'
+    else:
+        label = f'{label} [{factor}]'
+    axobj.get_label().set_text(label)
+    axobj.get_offset_text().set_visible(False)
+    return ax
 
 
 def add_subplot_label(ax: plt.Axes,
@@ -2477,7 +2684,9 @@ def create_parameter_table(df: pd.DataFrame,
                            parameters: List[tuple],
                            costname: str = 'cost',
                            fontsize: int = 12,
-                           figsize: tuple = (12, 7)) -> plt.Figure:
+                           figsize: tuple = (12, 7),
+                           savefig: bool = False,
+                           name: str = 'parameter_table') -> plt.Figure:
     """
     Create parameter summary table figure.
 
@@ -2487,6 +2696,8 @@ def create_parameter_table(df: pd.DataFrame,
         costname: Name of cost column
         fontsize: Table font size
         figsize: Figure size
+        savefig: Whether to save figure
+        name: Base filename for saving
     """
     # Prepare pars_info
     pars_info = []
@@ -2528,6 +2739,9 @@ def create_parameter_table(df: pd.DataFrame,
     # Color header
     for i in range(len(tab_df.columns)):
         table[(0, i)].set_facecolor('#d6d6d6')
+
+    if savefig:
+        save_figure(fig, filename=f'{name}.png')
 
     return fig
 
@@ -2734,32 +2948,49 @@ def save_figure(fig: plt.Figure,
 # Default layout for the organic-C network produced by
 # simulation_manager.carbon_flux_links. Positions are on a 0-1 canvas (x flows
 # left->right along the trophic chain; external sinks are on the right column).
+# Node positions on an EQUAL-ASPECT canvas (x is stretched wide, y in [0, 1]); the drawing
+# routine sets ax.set_aspect('equal') so ribbon widths stay constant regardless of slope.
+# Left->right columns follow the trophic chain Phy -> DOC -> TEP -> Det -> Bac -> Protozoa,
+# with the paired pools (DOCS/DOCL, DetS/DetL, BacF/BacA, HF/Cil) vertically aligned, and the
+# external sinks (DIC, Leak, Export) in the rightmost column. No DIC source node: Phy is the
+# network source, so its bar height reads as the annual primary production.
+# Shared node layout for the flux-network Sankeys (utils.flux_network.flux_links). Currency-
+# agnostic: only the nodes that carry a flux in a given currency are drawn, so the C-only TEP
+# node vanishes for N/P/Si, and the inorganic return node (DIC for C; NH4/DIP/DSi for N/P/Si)
+# occupies the same top-right external slot -- exactly one shows per currency.
 CARBON_SANKEY_POS = {
-    'DIC_in': (0.03, 0.50), 'Phy': (0.16, 0.74),
-    'DOCS': (0.35, 0.90), 'DOCL': (0.35, 0.62),
-    'TEPC': (0.50, 0.78), 'DetS': (0.42, 0.32), 'DetL': (0.58, 0.15),
-    'BacF': (0.71, 0.90), 'BacA': (0.71, 0.42), 'HF': (0.83, 0.66), 'Cil': (0.90, 0.56),
-    'CO2': (0.95, 0.86), 'Leak': (0.95, 0.36), 'Export': (0.95, 0.13),
+    'Phy':  (0.12, 0.50),
+    'DOCS': (0.58, 0.82), 'DOCL': (0.58, 0.58),
+    'TEPC': (1.04, 0.66),
+    'DetS': (1.50, 0.30), 'DetL': (1.50, 0.11),
+    'BacF': (1.96, 0.83), 'BacA': (1.96, 0.46),
+    'HF':   (2.42, 0.70), 'Cil':  (2.42, 0.52),
+    'DIC':  (2.86, 0.88), 'Leak': (2.86, 0.42), 'Export': (2.86, 0.12),
+    # Inorganic-return nodes (N/P/Si), same external column; NO3 slightly lower in case it shows.
+    'NH4':  (2.86, 0.88), 'DIP': (2.86, 0.88), 'DSi': (2.86, 0.88), 'NO3': (2.86, 0.66),
 }
 CARBON_SANKEY_CAT = {
     'Phy': 'phy', 'DOCS': 'dom', 'DOCL': 'dom', 'TEPC': 'tep', 'DetS': 'det',
     'DetL': 'det', 'BacF': 'bac', 'BacA': 'bac', 'HF': 'zoo', 'Cil': 'zoo',
-    'DIC_in': 'ext', 'CO2': 'ext', 'Export': 'ext', 'Leak': 'ext',
+    'DIC': 'ext', 'Export': 'ext', 'Leak': 'ext',
+    'NH4': 'ext', 'DIP': 'ext', 'DSi': 'ext', 'NO3': 'ext',
 }
 CARBON_SANKEY_COL = {
     'phy': '#2e8b57', 'dom': '#4aa3df', 'tep': '#e08a1e', 'det': '#8c6d3f',
     'bac': '#d1495b', 'zoo': '#8e44ad', 'ext': '#8a8f98',
 }
-_CARBON_SANKEY_LAB = {'DIC_in': 'DIC', 'CO2': 'CO$_2$', 'Export': 'Export', 'Leak': 'Leak'}
+_CARBON_SANKEY_LAB = {'DIC': 'DIC', 'Export': 'Export', 'Leak': 'Leak',
+                      'NH4': 'NH4', 'DIP': 'DIP', 'DSi': 'DSi', 'NO3': 'NO3'}
 _CARBON_SANKEY_LEGEND = {'phy': 'Phytoplankton', 'dom': 'DOC', 'tep': 'TEP',
                          'det': 'Detritus', 'bac': 'Bacteria', 'zoo': 'Protozoa',
                          'ext': 'External'}
 
+# x of the rightmost (external-sink) column; labels there sit outside the box.
+_SANKEY_RIGHT_X = 2.7
+_SANKEY_NODE_W = 0.07
 
-_SANKEY_NODE_W = 0.026
 
-
-def _sankey_ribbon(p0, p1, w, ctrl, n=28):
+def _sankey_ribbon(p0, p1, w, ctrl, n=120):
     """Constant-width-`w` ribbon polygon along a cubic Bezier p0->p1 whose control points
     sit a horizontal distance `ctrl` inside each endpoint, so the ribbon leaves and enters
     horizontally (perpendicular to the vertical node bars) regardless of the vertical drop."""
@@ -2777,12 +3008,18 @@ def _sankey_ribbon(p0, p1, w, ctrl, n=28):
 
 
 def _draw_carbon_sankey(ax, links, scale, pos, cat, col, lab, min_flux, title, subtitle,
-                        ref_flux, mode='stacked', min_node_h=0.03, ctrl_min=0.11,
-                        alpha=0.55):
+                        ref_flux, mode='stacked', min_node_h=0.03, ctrl_min=0.35,
+                        alpha=0.48):
     from matplotlib.path import Path as _MPath
     from matplotlib.patches import PathPatch, FancyBboxPatch, Rectangle
-    ax.set_xlim(-0.04, 1.18)
-    ax.set_ylim(0, 1)
+    # Equal aspect is essential: ribbon width is applied perpendicular to the curve in data
+    # units, so without it the x/y stretch would make a ribbon look thicker where it runs
+    # oblique/vertical than where it runs horizontal. With equal aspect the width is constant
+    # in display units all along each flux, and the horizontal entry/exit (via the Bezier
+    # control points) makes the width at each node bar equal to the stacked share.
+    ax.set_aspect('equal')
+    ax.set_xlim(-0.14, 3.02)
+    ax.set_ylim(-0.04, 1.04)
     ax.axis('off')
     if title:
         ax.text(0.5, 1.05, title, ha='center', va='bottom', fontsize=12,
@@ -2824,7 +3061,7 @@ def _draw_carbon_sankey(ax, links, scale, pos, cat, col, lab, min_flux, title, s
     for (a, b), v in sorted(links.items(), key=lambda kv: -kv[1]):
         p0 = (pos[a][0] + _SANKEY_NODE_W / 2, src_anchor[(a, b)])
         p1 = (pos[b][0] - _SANKEY_NODE_W / 2, tgt_anchor[(a, b)])
-        ctrl = max(0.4 * abs(p1[0] - p0[0]), ctrl_min)
+        ctrl = max(0.55 * abs(p1[0] - p0[0]), ctrl_min)
         ax.add_patch(PathPatch(_MPath(_sankey_ribbon(p0, p1, v * scale, ctrl)),
                      facecolor=col[cat[a]], edgecolor='none', alpha=alpha, zorder=1))
     for n in nodes:
@@ -2833,22 +3070,21 @@ def _draw_carbon_sankey(ax, links, scale, pos, cat, col, lab, min_flux, title, s
         ax.add_patch(FancyBboxPatch((x - _SANKEY_NODE_W / 2, y - h / 2), _SANKEY_NODE_W, h,
                      boxstyle='round,pad=0.002,rounding_size=0.008', facecolor=col[cat[n]],
                      edgecolor='black', linewidth=0.6, zorder=3))
-        if x > 0.9:  # right-hand external sinks: label outside the box (avoids clipping)
-            ax.text(x + _SANKEY_NODE_W / 2 + 0.012, y, lab.get(n, n), ha='left',
+        if x > _SANKEY_RIGHT_X:  # right-hand external sinks: label outside the box
+            ax.text(x + _SANKEY_NODE_W / 2 + 0.04, y, lab.get(n, n), ha='left',
                     va='center', fontsize=7.5, fontweight='bold', color=col[cat[n]],
                     zorder=4)
-        else:
+        else:  # all pool labels horizontal, centred inside the box
             ax.text(x, y, lab.get(n, n), ha='center', va='center', fontsize=6.2,
-                    fontweight='bold', color='white', zorder=4,
-                    rotation=90 if h < 0.05 else 0)
+                    fontweight='bold', color='white', zorder=4)
     if ref_flux:
-        ax.add_patch(Rectangle((0.0, 0.02), 0.09, ref_flux * scale, facecolor='0.4',
+        ax.add_patch(Rectangle((0.0, -0.02), 0.28, ref_flux * scale, facecolor='0.4',
                      edgecolor='none', alpha=0.5))
-        ax.text(0.10, 0.02 + ref_flux * scale / 2, f'= {ref_flux:.0f}', va='center',
+        ax.text(0.30, -0.02 + ref_flux * scale / 2, f'= {ref_flux:.0f}', va='center',
                 fontsize=6.5, color='0.3')
 
 
-def plot_carbon_sankey(links_list, names, mode='stacked', scale=None, min_flux=400,
+def plot_carbon_sankey(links_list, names, mode='stacked', scale=None, min_flux=100,
                        ref_flux=10000.0, subtitles=None, pos=None, cat=None, col=None,
                        figsize_per_panel=None, suptitle=None, orient='vertical'):
     """Draw one carbon-flux network per simulation as side-by-side Sankey diagrams.
@@ -2890,12 +3126,14 @@ def plot_carbon_sankey(links_list, names, mode='stacked', scale=None, min_flux=4
                 return max((max(sum(v for (a, b), v in L.items() if a == n and v >= min_flux),
                                 sum(v for (a, b), v in L.items() if b == n and v >= min_flux))
                             for n in nn), default=1.0)
-            scale = 0.17 / max(_thru(L) for L in links_list)
+            scale = 0.26 / max(_thru(L) for L in links_list)
         else:
             scale = 0.11 / max(max(L.values()) for L in links_list)
     n = len(links_list)
+    # Panel aspect follows the equal-aspect canvas (x span ~3.16, y span ~1.08 -> ~2.9:1),
+    # so the default per-panel height ~ width / 2.9 avoids large white margins.
     if orient == 'vertical':
-        fpp = figsize_per_panel or (11.0, 4.8)
+        fpp = figsize_per_panel or (13.0, 4.6)
         fig, axes = plt.subplots(n, 1, figsize=(fpp[0], fpp[1] * n))
     else:
         fpp = figsize_per_panel or (7.8, 7.4)
@@ -2914,6 +3152,125 @@ def plot_carbon_sankey(links_list, names, mode='stacked', scale=None, min_flux=4
     fig.suptitle(suptitle, fontsize=12, y=0.99)
     fig.tight_layout(rect=[0, 0.045, 1, 0.95])
     return fig, axes
+
+
+def _hex_to_rgba(hexcol, alpha=1.0):
+    h = hexcol.lstrip('#')
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return f'rgba({r},{g},{b},{alpha})'
+
+
+def _sankey_busiest_column(L, pos):
+    """Value (flux units) of the busiest x-column = the largest sum of node throughputs
+    (max of in/out per node) among nodes sharing an x. This is what drives plotly's
+    auto-scale, so equalising it across panels equalises their value-per-pixel scale."""
+    from collections import defaultdict
+    nodes = set(a for a, b in L) | set(b for a, b in L)
+    out_t = {n: sum(v for (a, b), v in L.items() if a == n) for n in nodes}
+    in_t = {n: sum(v for (a, b), v in L.items() if b == n) for n in nodes}
+    colsum = defaultdict(float)
+    for n in nodes:
+        colsum[round(pos[n][0], 3)] += max(out_t[n], in_t[n])
+    return max(colsum.values()) if colsum else 1.0
+
+
+def plot_carbon_sankey_plotly(links_list, names, min_flux=100, pos=None, cat=None, col=None,
+                              link_alpha=0.45, node_thickness=18, node_pad=9,
+                              width=1000, height=480, vspacing = 0.0, save_path=None, suptitle=None,
+                              equal_scale=True, show_subplot_titles=False,
+                              panel_letters=('a', 'b', 'c', 'd')):
+    """Plotly alternative to plot_carbon_sankey: the SAME carbon_flux_links, drawn with
+    plotly's built-in Sankey (go.Sankey) -- orthogonal rounded ribbons with native overlap
+    transparency, in the style of Kerimoglu et al. (2022, Fig. SI-4).
+
+    Reuses the shared layout/colours (CARBON_SANKEY_POS/CAT/COL): node x from the same left
+    -> right columns, y flipped to plotly's top-down convention, link colour = source colour
+    at `link_alpha`. Panels are stacked (one Sankey subplot per simulation) so REF vs NO-TEP
+    compare directly. plotly + kaleido are imported lazily (optional dependency); pass
+    save_path to write a static PNG (needs kaleido), else the interactive Figure is returned.
+
+    equal_scale (default True): plotly auto-scales EACH Sankey to fill its panel, so without
+    this REF and NO-TEP would use different value-per-pixel scales and their node/ribbon sizes
+    would NOT be comparable (e.g. Phy would look bigger in NO-TEP despite a smaller PP). A
+    transparent 'scale' spacer link of a common value is added to every panel so the busiest
+    column -- hence the scale -- is identical across panels. Set False for per-panel autoscale.
+
+    Paper-figure layout (defaults): no suptitle, no centred subplot titles, and a bold panel
+    letter ('a', 'b', ...) in each panel's top-left corner (`panel_letters`, set to None/() to
+    drop). Pass suptitle=... to restore a title, show_subplot_titles=True to centre `names`
+    above each panel. height is per-panel (total = height * n_panels).
+
+    Returns the plotly Figure.
+    """
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    pos = pos or CARBON_SANKEY_POS
+    cat = cat or CARBON_SANKEY_CAT
+    col = col or CARBON_SANKEY_COL
+    xs_all = [p[0] for p in pos.values()]
+    x0, x1 = min(xs_all), max(xs_all)
+
+    # Pre-filter and, for a shared scale, size a transparent spacer to the busiest column
+    # across ALL panels (its lone column then sets the same scale in every panel).
+    Ls = [{k: v for k, v in L.items() if v >= min_flux and k[0] in pos and k[1] in pos}
+          for L in links_list]
+    V_scale = 1.06 * max(_sankey_busiest_column(L, pos) for L in Ls) if equal_scale else None
+
+    fig = make_subplots(rows=len(Ls), cols=1,
+                        specs=[[{"type": "sankey"}] for _ in Ls],
+                        subplot_titles=names if show_subplot_titles else None,
+                        vertical_spacing=vspacing)
+
+    for row, L in enumerate(Ls, start=1):
+        nodes = [n for n in pos if any(n in (a, b) for (a, b) in L)]
+        idx = {n: i for i, n in enumerate(nodes)}
+        # plotly needs x,y in (0,1); normalise x to columns, flip y to top-down.
+        nx = [0.04 + 0.92 * (pos[n][0] - x0) / (x1 - x0) for n in nodes]
+        ny = [min(0.97, max(0.03, 1.0 - pos[n][1])) for n in nodes]
+        labels = [_CARBON_SANKEY_LAB.get(n, n) for n in nodes]
+        node_colors = [_hex_to_rgba(col[cat[n]], 1.0) for n in nodes]
+        s, t, val, lc = [], [], [], []
+        for (a, b), v in L.items():
+            s.append(idx[a]); t.append(idx[b]); val.append(v)
+            lc.append(_hex_to_rgba(col[cat[a]], link_alpha))
+        if V_scale is not None:
+            # Two off-diagram, fully transparent spacer nodes carrying a fixed-value link:
+            # forces the busiest column (hence the scale) to V_scale in every panel.
+            si = len(nodes); ti = len(nodes) + 1
+            labels += ['', '']
+            nx += [0.995, 0.999]; ny += [0.5, 0.5]
+            node_colors += ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']
+            s.append(si); t.append(ti); val.append(V_scale)
+            lc.append('rgba(0,0,0,0)')
+        fig.add_trace(go.Sankey(
+            arrangement='snap',
+            node=dict(label=labels, x=nx, y=ny, color=node_colors,
+                      thickness=node_thickness, pad=node_pad,
+                      line=dict(width=0)),   # no border -> the transparent spacer is invisible
+            link=dict(source=s, target=t, value=val, color=lc)),
+            row=row, col=1)
+
+    n = len(Ls)
+    fig.update_layout(width=width, height=height * n, title_text=suptitle, font_size=11)
+    if not suptitle:
+        # No title, but KEEP vertical headroom: the recycling links routing over the top node
+        # (e.g. BacF -> DOCS) arc above it, and their apex overshoots the panel top by an amount
+        # that grows with pixel height -- so a fixed top margin clips them on tall figures.
+        # Scale the top/bottom margins with the figure height to always clear the loops.
+        m = max(50, int(0.14 * height * n))
+        fig.update_layout(margin=dict(t=m, b=int(m * 0.55), l=12, r=12))
+    if panel_letters:
+        # Bold letter in each panel's top-left corner. make_subplots stacks rows top->down
+        # with equal heights `rh` separated by `vspacing`; row i (0-based) starts at y_top.
+        rh = (1 - (n - 1) * vspacing) / n
+        for i, letter in zip(range(n), panel_letters):
+            fig.add_annotation(x=0.0, y=1 - i * (rh + vspacing), xref='paper', yref='paper',
+                               text=f'<b>{letter}</b>', showarrow=False,
+                               xanchor='left', yanchor='top', font=dict(size=17))
+    if save_path:
+        fig.write_image(save_path, scale=2)
+    return fig
 
 
 # ============================================================================

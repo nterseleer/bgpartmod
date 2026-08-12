@@ -24,3 +24,7 @@ scipy==1.15.3
 six==1.17.0
 typing==3.7.4.3
 tzdata==2025.2
+
+# Optional: plotly Sankey alternative for the C-flux diagram (plot_carbon_sankey_plotly)
+plotly==6.9.0
+kaleido==1.3.0
