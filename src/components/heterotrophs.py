@@ -83,6 +83,11 @@ class Heterotrophs(BaseOrg):
             # else:
             #     setattr(self, k, v)
 
+        # Per-prey ingestion mirror (see set_coupling): [(target_index, prey_name)] to export,
+        # empty unless the matching 'ing_<prey>_C' diagnostics are requested. Empty -> the
+        # mirror loop in get_source_ingestion is a no-op (free during optimisation).
+        self._ingestion_mirror = []
+
         self.dt2 = dt2
         self.bound_temp_to_1 = bound_temp_to_1
 
@@ -141,6 +146,19 @@ class Heterotrophs(BaseOrg):
                 A_E=self.A_E, T_ref=self.T_ref, boltz=True,
                 bound_temp_to_1=self.bound_temp_to_1, suffix=''
             )
+
+        # Diagnostic mirror of the per-prey ingestion. source_ingestion.C[prey] is a dict and
+        # cannot be exported as a diagnostic column; this flattens the entries the caller asked
+        # for into scalar 'ing_<prey>_C' attributes (mass-neutral, pure output). GATED on the
+        # requested diagnostics AND on preference>0, so it is empty during optimisation (no
+        # diagnostics) and the hot-loop update in get_source_ingestion costs nothing there.
+        # The exact grazing split (prey -> consumers) it enables replaces the static-preference
+        # approximation in flux_network. N/P/Si follow as prey_sink_ingestion.<cur> x C-share.
+        diags = self.diagnostics or []
+        self._ingestion_mirror = [(i, t.name) for i, t in enumerate(self.coupled_targets)
+                                  if self.pref.get(t.name, 0.0) > 0 and f'ing_{t.name}_C' in diags]
+        for _, name in self._ingestion_mirror:
+            setattr(self, f'ing_{name}_C', np.nan)  # must exist before the first diagnostic read
 
     def get_sources(self, t=None, t_idx=None):
         # Optimization: Use pre-computed temperature limitation
@@ -274,6 +292,10 @@ class Heterotrophs(BaseOrg):
             self.source_ingestion.N[t.name] = ingestion_C[i] * t.N / t.C if t.N is not None else 0.
             self.source_ingestion.P[t.name] = ingestion_C[i] * t.P / t.C if t.P is not None else 0.
             self.source_ingestion.Si[t.name] = ingestion_C[i] * t.Si / t.C if t.Si is not None else 0.
+
+        # Diagnostic mirror (gated: empty list -> no-op). See set_coupling.
+        for i, name in self._ingestion_mirror:
+            setattr(self, f'ing_{name}_C', ingestion_C[i])
 
 
     def get_sink_ingestion(self):

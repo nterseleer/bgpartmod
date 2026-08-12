@@ -1241,6 +1241,20 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                        'longname': 'Net Primary Production',
                                'cleanname': 'NPP'},
 
+           # Phy_sink_mortality.C bundles pure mortality (mortrate*C) AND the implicit
+           # grazing-closure flux (see Phyto.get_sink_mortality). grazing is logged as its
+           # own diagnostic (Phy_sink_grazing.C); mortality_pure is the mortality with the
+           # grazing part removed, so budgets can show the two separately while still summing
+           # to the same total. Both are routed to DetS in the model.
+           "Phy_sink_grazing.C": {'units': 'mmolC m^{-3} d^{-1}',
+                                  'munits': 'mmolC m^{-3} d^{-1}',
+                                  'longname': 'Grazing-closure loss (unresolved zooplankton)',
+                                  'cleanname': 'grazing'},
+           "Phy_sink_mortality_pure.C": {'units': 'mmolC m^{-3} d^{-1}',
+                                         'oprt': 'Phy_sink_mortality.C-Phy_sink_grazing.C',
+                                         'longname': 'Mortality (excl. grazing closure)',
+                                         'cleanname': 'mortality'},
+
            "Phy_source_Chlprod.Chl": {'units': 'mgChl m^{-3} d^{-1}',
                                       'munits': 'mgChl m^{-3} d^{-1}',
                                       'longname': 'Chlorophyll production',

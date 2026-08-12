@@ -961,94 +961,132 @@ def compare_annual_PP(sim1, sim2, period: int = 2023, var: str = 'Phy_source_PP.
           f"  ->  {rel_change:+.1f}% {direction}")
 
 
-# Organic-C pools and the external nodes of the carbon-flux network (Sankey).
-_SANKEY_HET = ['BacF', 'BacA', 'HF', 'Cil']
-_SANKEY_PREY = ['DOCS', 'DOCL', 'TEPC', 'DetS', 'DetL', 'BacF', 'BacA', 'HF']
+# Canonical left->right, top->bottom reading order of the flux network (matches the Sankey
+# layout), incl. the aggregate node names (DOC/Det/Bac) so aggregated tables order too.
+_SANKEY_POOL_ORDER = ['Phy', 'DOCS', 'DOCL', 'DOC', 'TEPC', 'DetS', 'DetL', 'Det',
+                      'BacF', 'BacA', 'Bac', 'HF', 'Cil']
 
 
 def carbon_flux_links(sim, period: int = 2023) -> Dict[Tuple[str, str], float]:
     """Depth-integrated annual carbon-flux network of one simulation, as {(src, tgt): flux}.
 
-    The link set behind the REF-vs-NO-TEP carbon Sankey. Every link is a depth-integrated
-    annual C flux [mmol C m-2 yr-1] between two organic-C pools (Phy, DOCS, DOCL, TEPC,
-    DetS, DetL, BacF, BacA, HF, Cil) or an external node: 'DIC_in' (primary production),
-    'CO2' (respiration + remineralization + sloppy-feeding-to-DIM), 'Export' (settling
-    sink_vertical_loss) and 'Leak' (the calibrated DetL kleak loss, kept separate from the
-    resolved sedimentation export).
+    Thin currency='C' wrapper around `flux_network.flux_links` (kept for backward
+    compatibility and as the regression anchor: the generic engine reproduces this network
+    edge-for-edge). Every link is a depth-integrated annual C flux [mmol C m-2 yr-1] between
+    two organic-C pools (Phy, DOCS, DOCL, TEPC, DetS, DetL, BacF, BacA, HF, Cil) or an
+    external node: 'DIC' (respiration + remineralization + sloppy-feeding-to-DIM), 'Export'
+    (settling sink_vertical_loss) and 'Leak' (the calibrated kleak loss). Primary production
+    is not drawn as an inflow, so Phy is the network source and its bar height reads as PP.
 
-    Topology is read off the model's couplings and diagnosed budgets: producer/loss links
-    come from the losing side (`<pool>_sink_<proc>.C`, whose target is unique per process)
-    or the receiving side for the exudation split (`DOC{S,L}_source_exudation.C`). Grazing
-    is exact on the prey side (`<prey>_sink_ingestion.C`) and split among consumers by the
-    static preference matrix read from `sim.config` (the only approximation; the realised
-    preference is biomass-weighted, so multi-consumer links -- TEP/DetS grazed by
-    BacA/HF/Cil -- are approximate while unique-consumer links are exact). Heterotroph
-    metabolic outputs (sloppy feeding to DOCS, respiration to CO2) are closed by mass
-    balance from the routed intake, assimilation and respiration, so each node balances
-    without assuming a fixed assimilation efficiency (the QN/QP-corrected efficiency is far
-    below the nominal value, most ingested C returning to DOC).
-
-    Node totals reconcile with the diagnosed C_sources/C_sinks and the whole system closes
-    to ~2-3% of PP (residual of the grazing split).
+    Topology, the grazing preference split (the only approximation) and the heterotroph
+    mass-balance closure are documented in `flux_network`. Node totals reconcile with the
+    diagnosed C_sources/C_sinks; the system closes to ~2-3% of PP (grazing-split residual).
     """
-    A = lambda col: (integrate_annual_flux(sim, col, period)
-                     if col in sim.df.columns else 0.0)
+    from src.utils import flux_network  # local import avoids a module-load cycle
+    return flux_network.flux_links(sim, currency='C', period=period)
 
-    def graze_split(prey):
-        w = {h: sim.config[h]['parameters'].get(f'pref_{prey}', 0.0) for h in _SANKEY_HET}
-        w = {h: p for h, p in w.items() if p > 0}
-        tot = sum(w.values())
-        return {h: p / tot for h, p in w.items()} if tot > 0 else {}
 
-    L: Dict[Tuple[str, str], float] = {}
+def aggregate_flux_links(links, groups) -> Dict[Tuple[str, str], float]:
+    """Merge nodes of a flux network {(src, tgt): flux} into aggregate nodes.
 
-    def add(src, tgt, val):
-        if val and not (isinstance(val, float) and np.isnan(val)):
-            L[(src, tgt)] = L.get((src, tgt), 0.0) + val
+    Companion to `flux_balance_table`/`carbon_flux_links` for a coarser view (e.g. DOC =
+    DOCS+DOCL, Det = DetS+DetL, Bac = BacF+BacA). Parallel links that collapse onto the same
+    (src, tgt) after relabelling are summed; links internal to a single aggregate become
+    self-loops and are dropped (they no longer cross a node boundary, so they are not a flux
+    between the reported pools -- e.g. DOCS->DOCL vanishes inside 'DOC').
 
-    # Phytoplankton
-    add('DIC_in', 'Phy', A('Phy_source_PP.C'))
-    add('Phy', 'CO2', A('Phy_sink_respiration.C'))
-    add('Phy', 'DOCS', A('DOCS_source_exudation.C'))                          # exudation, small fraction
-    add('Phy', 'DOCL', A('DOCL_source_exudation.C') + A('Phy_sink_lysis.C'))  # exud (large frac) + lysis
-    add('Phy', 'DetS', A('Phy_sink_mortality.C'))
-    add('Phy', 'DetL', A('Phy_sink_aggregation.C'))
+    Args:
+        links: the flux network to coarsen.
+        groups: {member_node: aggregate_name}; nodes absent from it keep their own name.
 
-    # Dissolved organics
-    for doc in ('DOCS', 'DOCL'):
-        add(doc, 'TEPC', A(f'{doc}_sink_aggregation.C'))
-        add(doc, 'CO2', A(f'{doc}_sink_remineralization.C') + A(f'{doc}_sink_breakdown.C'))
+    Returns:
+        A new links dict on the aggregated node set.
+    """
+    m = lambda n: groups.get(n, n)
+    out: Dict[Tuple[str, str], float] = {}
+    for (a, b), v in links.items():
+        A, B = m(a), m(b)
+        if A == B:
+            continue
+        out[(A, B)] = out.get((A, B), 0.0) + v
+    return out
 
-    # TEP
-    add('TEPC', 'DOCL', A('TEPC_sink_breakdown.C'))
-    add('TEPC', 'DetL', A('TEPC_sink_aggregation.C'))
-    add('TEPC', 'Export', A('TEPC_sink_vertical_loss.C'))
-    add('TEPC', 'Leak', A('TEPC_sink_leakage_out.C'))
 
-    # Detritus
-    add('DetS', 'DetL', A('DetS_sink_aggregation.C'))
-    add('DetS', 'CO2', A('DetS_sink_remineralization.C'))
-    add('DetS', 'Export', A('DetS_sink_vertical_loss.C'))
-    add('DetL', 'CO2', A('DetL_sink_remineralization.C'))
-    add('DetL', 'Export', A('DetL_sink_vertical_loss.C'))
-    add('DetL', 'Leak', A('DetL_sink_leakage_out.C'))               # calibrated kleak loss
+def flux_balance_table(links_a, links_b, names=('REF', 'NO-TEP'), pools=None,
+                       min_flux=0.0) -> pd.DataFrame:
+    """Per-pool incoming/outgoing flux balance of two flux-link networks + their change.
 
-    # Grazing: exact on the prey side, split among consumers by preference
-    for prey in _SANKEY_PREY:
-        tot = A(f'{prey}_sink_ingestion.C')
-        for cons, wgt in graze_split(prey).items():
-            add(prey, cons, tot * wgt)
+    The tabular companion to the REF-vs-NO-TEP Sankey: given two link dicts
+    {(src, tgt): flux} as returned by `carbon_flux_links` (currency-agnostic -- works for a
+    future N/P/DSi network too), it lists, for each pool, every flux entering and leaving it,
+    with the absolute value, its share of that pool's total in- (or out-) throughput, in both
+    simulations, and the absolute + relative change between them. Reads straight off the
+    Sankey links so the table and the diagram tell exactly the same story.
 
-    # Heterotroph metabolic outputs, closed by mass balance from routed intake
-    for h in _SANKEY_HET:
-        intake = sum(v for (a, b), v in L.items() if b == h)
-        assim = A(f'{h}_source_ing_C_assimilated')
-        resp = A(f'{h}_sink_respiration.C')
-        f_dom = sim.config[h]['parameters']['f_unass_excr']
-        unassim = max(intake - assim - resp, 0.0)
-        add(h, 'DOCS', unassim * f_dom)                # sloppy feeding -> DOCS
-        add(h, 'CO2', unassim * (1 - f_dom) + resp)    # sloppy-to-DIM + respiration
-        add(h, 'DOCL', A(f'{h}_sink_lysis.C'))
-        add(h, 'DetS', A(f'{h}_sink_mortality.C'))
-        add(h, 'Export', A(f'{h}_sink_vertical_loss.C'))
-    return L
+    Args:
+        links_a, links_b: the two networks; `names[0]` is the reference for the change columns.
+        names: (name_a, name_b) column labels.
+        pools: pool order to report. If None, every non-external node that has any flux, in
+               the canonical Sankey reading order (`_SANKEY_POOL_ORDER`; unknown nodes appended
+               by descending throughput). External nodes (DIC, Export, Leak, DIC_in, CO2) only
+               ever appear as counterparts, never as a pool.
+        min_flux: drop counterpart links whose value is < min_flux in BOTH sims (the per-pool
+                  '(total)' rows always use the full, unfiltered throughput).
+
+    Returns:
+        Tidy DataFrame, columns:
+          pool, direction ('in'|'out'), counterpart,
+          <name_a>, <name_a>_pct, <name_b>, <name_b>_pct, abs_change, rel_change_%
+        A '(total)' counterpart row precedes each (pool, direction) block (pct = 100),
+        giving the pool's absolute in/out throughput and how much it moved.
+    """
+    na, nb = names
+    _EXTERNAL = {'DIC', 'CO2', 'Export', 'Leak', 'DIC_in'}
+    nodes = set(a for a, _ in links_a) | set(b for _, b in links_a) \
+        | set(a for a, _ in links_b) | set(b for _, b in links_b)
+
+    def out_tot(L, p):
+        return sum(v for (a, b), v in L.items() if a == p)
+
+    def in_tot(L, p):
+        return sum(v for (a, b), v in L.items() if b == p)
+
+    if pools is None:
+        cand = [p for p in nodes if p not in _EXTERNAL]
+        rank = {p: i for i, p in enumerate(_SANKEY_POOL_ORDER)}
+        pools = sorted(cand, key=lambda p: (rank.get(p, len(rank)),
+                                            -(out_tot(links_a, p) + in_tot(links_a, p))))
+
+    rows = []
+    for pool in pools:
+        for direction in ('in', 'out'):
+            if direction == 'out':
+                tot_a, tot_b = out_tot(links_a, pool), out_tot(links_b, pool)
+                counterparts = {b for (a, b) in links_a if a == pool} \
+                    | {b for (a, b) in links_b if a == pool}
+                val = lambda L, cp: L.get((pool, cp), 0.0)
+            else:
+                tot_a, tot_b = in_tot(links_a, pool), in_tot(links_b, pool)
+                counterparts = {a for (a, b) in links_a if b == pool} \
+                    | {a for (a, b) in links_b if b == pool}
+                val = lambda L, cp: L.get((cp, pool), 0.0)
+            if tot_a == 0.0 and tot_b == 0.0:
+                continue
+
+            def mkrow(cp, va, vb, ta, tb):
+                return {
+                    'pool': pool, 'direction': direction, 'counterpart': cp,
+                    na: va, f'{na}_pct': 100.0 * va / ta if ta else np.nan,
+                    nb: vb, f'{nb}_pct': 100.0 * vb / tb if tb else np.nan,
+                    'abs_change': vb - va,
+                    'rel_change_%': (vb / va - 1.0) * 100.0 if va else np.nan,
+                }
+
+            rows.append(mkrow('(total)', tot_a, tot_b, tot_a, tot_b))
+            cps = sorted(counterparts, key=lambda cp: -val(links_a, cp))
+            for cp in cps:
+                va, vb = val(links_a, cp), val(links_b, cp)
+                if max(va, vb) < min_flux:
+                    continue
+                rows.append(mkrow(cp, va, vb, tot_a, tot_b))
+    return pd.DataFrame(rows)
