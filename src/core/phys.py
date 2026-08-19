@@ -372,7 +372,13 @@ class Setup:
         # Interpolate onto self.dates
         newdf = pd.DataFrame(index=self.dates)
         combined_df = tep_df.join(newdf, how='outer')
-        combined_df[self.TEP_column] = combined_df[self.TEP_column].interpolate(method='time')
+        # bfill/ffill close the edges: interpolate() only fills forward, so a source
+        # simulation whose timestamps drift by a fraction of a second (float accumulation
+        # over ~1e6 steps) starts just after self.dates[0] and leaves the first sample NaN.
+        # That single NaN reaches coupled_glue.C at t_idx=0 and NaNs every derivative on
+        # the first step, which would silently invalidate a whole optimisation.
+        combined_df[self.TEP_column] = (combined_df[self.TEP_column]
+                                        .interpolate(method='time').bfill().ffill())
 
         # Extract array directly
         self.TEP_array = combined_df.loc[self.dates, self.TEP_column].values.astype(self.dtype)
@@ -440,7 +446,8 @@ class Setup:
         newdf = pd.DataFrame(index=self.dates)
         combined_df = flocs_df.join(newdf, how='outer')
         for col in self.Flocs_columns.values():
-            combined_df[col] = combined_df[col].interpolate(method='time')
+            # bfill/ffill for the same edge reason as in _load_prescribed_TEP
+            combined_df[col] = combined_df[col].interpolate(method='time').bfill().ffill()
 
         # Extract arrays and convert back to model units (g/l = kg/m³)
         # sim.df stores data in output units (mg/l), so we need to divide by trsfrm factor

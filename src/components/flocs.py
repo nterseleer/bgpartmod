@@ -141,6 +141,10 @@ class Flocs(BaseStateVar):
                  name,
                  p_exp=0.4,
                  q_exp=0.1,
+                 dynamic_q_exp=False,  # [-] If True, q = 3 - nf(t) (Lee et al. 2011, 2014) instead of the fixed q_exp
+                 d_crit_growth=None,   # [m] Critical diameter above which breakage ramps up (Lee et al. 2011: 450e-6). None disables it
+                 d_crit_exponent=10.,  # [-] Steepness of that ramp
+                 d_crit_max_factor=100.,  # [-] Cap on the ramp, so an explicit Euler step cannot overshoot
                  f_frac_floc_break=0.1,
                  efficiency_break=2e-4,
                  mu_viscosity=1e-6,
@@ -283,6 +287,12 @@ class Flocs(BaseStateVar):
             self.alpha_FF = alpha_FF_base
         self.p_exp = p_exp
         self.q_exp = q_exp
+        self.dynamic_q_exp = dynamic_q_exp
+        self.q_exp_at_t = q_exp  # [-] Exponent actually used at this step (diagnostic)
+        self.d_crit_growth = d_crit_growth
+        self.d_crit_exponent = d_crit_exponent
+        self.d_crit_max_factor = d_crit_max_factor
+        self.growth_limiter = 1.0  # [-] Breakage enhancement applied at this step (diagnostic)
         self.f_frac_floc_break = f_frac_floc_break
         self.efficiency_break = efficiency_break
         # Initialize with base value (will be updated by TEP coupling if active)
@@ -356,12 +366,21 @@ class Flocs(BaseStateVar):
 
             self.p_exp = self.coupled_Np.p_exp
             self.q_exp = self.coupled_Np.q_exp
+            self.dynamic_q_exp = self.coupled_Np.dynamic_q_exp
+            self.d_crit_growth = self.coupled_Np.d_crit_growth
+            self.d_crit_exponent = self.coupled_Np.d_crit_exponent
+            self.d_crit_max_factor = self.coupled_Np.d_crit_max_factor
             self.mu_viscosity = self.coupled_Np.mu_viscosity
             self.d_p_microflocdiam = self.coupled_Np.d_p_microflocdiam
             self.sinking_leak = self.coupled_Np.sinking_leak
             self.diam = self.coupled_Np.diam
 
             self.efficiency_break = self.coupled_Np.efficiency_break
+            # density must follow d_p_microflocdiam: both define the flocculus building block
+            # and are only ever configured on the Microflocs "master". Without this line,
+            # Micro_in_Macro computes its mass concentration and Macroflocs its settling
+            # constant with the class default (2500) whatever the master carries.
+            self.density = self.coupled_Np.density
             # Initialize with base value (will be updated by TEP coupling if active)
             self.fyflocstrength = self.coupled_Np.fyflocstrength_base
 
@@ -373,6 +392,14 @@ class Flocs(BaseStateVar):
             self.spinup_days = self.coupled_Np.spinup_days
 
             self.prescribe_tep_from_setup = self.coupled_Np.prescribe_tep_from_setup
+
+        # set_ICs() runs before the couplings are wired, so Micro_in_Macro seeded its
+        # mass concentration with its own class defaults for diam and density. Refresh it
+        # now that both are inherited, otherwise row 0 of the SPMC diagnostic is wrong
+        # (the trajectory itself is fine: update_val recomputes it at every step).
+        if self.name == 'Micro_in_Macro' and self.numconc is not None:
+            self.massconcentration = (self.numconc * np.pi / 6.
+                                      * self.diam * self.diam * self.diam * self.density)
 
         # Initialize macrofloc diameter if couplings are now established
         if self.name == 'Macroflocs':
@@ -634,11 +661,31 @@ class Flocs(BaseStateVar):
                                        self._np_diam_cubed * self.g_shear_rate_at_t *
                                        self.coupled_Nf.numconc * self.coupled_Nf.numconc)
 
+            # q = 3 - nf closes the breakage kinetics dimensionally in Lee et al. (2011, 2014).
+            # Following nf(t) rather than a fixed q_exp turns it into an extra TEP -> breakage
+            # channel, since nf carries the TEP effect (nf_base + delta_nf * mm_TEP).
+            self.q_exp_at_t = (3.0 - self.nf_fractal_dim) if self.dynamic_q_exp else self.q_exp
+
+            # Shear-induced breakage alone cannot bound macrofloc growth: less breakage gives a
+            # larger D_F, FF aggregation scales as D_F^(3-nf) and so grows too, N_F collapses
+            # and the run ends in NaN. Lee et al. (2011) close this with a critical diameter
+            # above which "the breakage rate was set sufficiently high to break all flocs".
+            # Same idea here as a smooth ramp (an abrupt threshold would ring at dt = 86 s),
+            # capped so that one explicit Euler step cannot overshoot the correction.
+            # Inactive while D_F < d_crit_growth, hence a no-op for the reference configuration.
+            if self.d_crit_growth is not None:
+                floc_diam = self._ncnum_frac_1_div_nf * self.coupled_Np.diam
+                self.growth_limiter = min(self.d_crit_max_factor,
+                                          max(1.0, (floc_diam / self.d_crit_growth)
+                                              ** self.d_crit_exponent))
+            else:
+                self.growth_limiter = 1.0
+
             self._breakage_base = (self.efficiency_break * self.g_shear_rate_at_t *
                                    self._ncnum_frac_1_div_nf_minus_1 ** self.p_exp *
                                    (self._mu_times_g_shear * self._ncnum_frac_2_div_nf *
-                                    self._np_diam_squared / self.fyflocstrength) ** self.q_exp *
-                                   self.coupled_Nf.numconc)
+                                    self._np_diam_squared / self.fyflocstrength) ** self.q_exp_at_t *
+                                   self.coupled_Nf.numconc * self.growth_limiter)
 
         # =====================================================
         # SMS ASSEMBLY (pool-specific)
