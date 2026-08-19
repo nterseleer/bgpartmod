@@ -790,6 +790,15 @@ class Optimization:
                 param_dict = dict(zip(self.config['optimized_parameters'], parameters))
                 newconfig = fns.update_config(self.config['dconf'], param_dict)
                 trial = model.Model(newconfig, setup=self.setup, **self.config['modkwargs'])
+                # A diverged run is not a bad fit, it is no fit at all. Model.error is set
+                # when the derivatives go NaN, but _pad_results only NaNs the POOLS: the
+                # diagnostics (Macroflocs_diam, the mass concentrations behind SPMC -- i.e.
+                # exactly the flocs-only calibration targets) keep whatever they held, so a
+                # likelihood can still be computed from them. warnings_as_errors catches most
+                # of these upstream, but only when the worker inherits the warning filter and
+                # only for divergences that raise. This check does not depend on either.
+                if getattr(trial, 'error', False):
+                    return self.config['badlnl']
                 lnl = trial.get_likelihood(
                     self.obs,
                     calibrated_vars=self.calibrated_vars,
@@ -807,6 +816,8 @@ class Optimization:
                     case_param_dict = self._build_case_param_dict(parameters, case.case_id)
                     case_dconf = fns.update_config(case.dconf, case_param_dict)
                     trial = model.Model(case_dconf, setup=case.setup, **self.config['modkwargs'])
+                    if getattr(trial, 'error', False):   # see the single-case branch above
+                        return self.config['badlnl']
                     lnl = trial.get_likelihood(
                         case.obs,
                         calibrated_vars=case.calibrated_vars,
