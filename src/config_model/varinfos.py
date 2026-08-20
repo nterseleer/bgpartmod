@@ -554,18 +554,6 @@ ref_values = {
         'units': '[]',
         'complete_name': "v_{settl} fraction"
     },
-    'Macroflocs+settling_vel_min_fraction': {
-        'reference_value': 0.001,
-        'symbol': 'frac^{v_{settl}}_{min}',
-        'units': '[]',
-        'complete_name': "Min v_{settl} fraction"
-    },
-    'Macroflocs+settling_vel_max_fraction': {
-        'reference_value': 0.01,
-        'symbol': 'frac^{v_{settl}}_{max}',
-        'units': '[]',
-        'complete_name': "Max v_{settl} fraction"
-    },
     # Macroflocs+ parameters not in params_to_optimize
     'Macroflocs+sinking_leak': {
         'reference_value': 0.,

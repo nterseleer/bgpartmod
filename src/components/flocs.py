@@ -179,11 +179,8 @@ class Flocs(BaseStateVar):
                  prescribe_tep_from_setup = False,  # [-] Use prescribed TEP from Setup instead of coupled_glue
                  #
                  resuspension_rate = 0.,       # [kg/m²/s/Pa]
-                 settling_vel_min_fraction = 0.1,  # [-] Minimum fraction of settling velocity retained at max shear
-                 settling_vel_max_fraction = 1.0,  # [-] Maximum fraction of settling velocity retained at min shear
                  apply_settling = True, # Boolean. Whether to apply sediment settling
-                 counter_settling_by_turbulence = False, # Boolean, whether to account for settling by turbulent water
-                 settling_velocity_factor = None,  # [-] Constant fraction of base settling velocity (overrides counter_settling_by_turbulence if set)
+                 settling_velocity_factor = None,  # [-] Constant fraction of base settling velocity (None = w_s natif)
 
                  # Vertical coupling parameters for BGC components
                  resusp_ewma_alpha = 0.0,  # [-] α=0: fixed ratio (Option A), α>0: adaptive smoothing (Option B1)
@@ -208,6 +205,22 @@ class Flocs(BaseStateVar):
         super().__init__(dtype=dtype)
 
         # Backward compatibility (to remove when obsolete)
+        # counter_settling_by_turbulence retire (2026-08) : modulation de w_s par le
+        # cisaillement, heritee de flocs_Settling_vs_Resuspension, jamais active dans une
+        # configuration retenue -- et un piege, puisqu'elle se reveillait des que
+        # settling_velocity_factor passait a None. Ignore, SAUF si la config l'activait :
+        # elle attendrait alors un comportement que le code ne sait plus produire.
+        # Ne crier que si la branche etait REELLEMENT atteinte : settling_velocity_factor la
+        # court-circuitait, donc les configs qui definissent le facteur (OPT542 et ses derives,
+        # figes dans leurs pkl) sont inchangees et doivent continuer a tourner telles quelles.
+        if kwargs.pop('counter_settling_by_turbulence', False) and settling_velocity_factor is None:
+            raise ValueError(
+                f"{name}: counter_settling_by_turbulence a ete retire de Flocs, et cette "
+                f"configuration l'atteignait vraiment (settling_velocity_factor = None). "
+                f"Elle attend une modulation de w_s par le cisaillement qui n'existe plus.")
+        kwargs.pop('settling_vel_min_fraction', None)
+        kwargs.pop('settling_vel_max_fraction', None)
+
         resusp_ewma_alpha = kwargs.pop('vertical_coupling_alpha', resusp_ewma_alpha)
         organomin_coupling_fraction = kwargs.pop('organomin_decoupling_factor', organomin_coupling_fraction)
 
@@ -301,9 +314,6 @@ class Flocs(BaseStateVar):
         self.sinking_leak = sinking_leak
 
         self.resuspension_rate = resuspension_rate
-        self.settling_vel_min_fraction = settling_vel_min_fraction
-        self.settling_vel_max_fraction = settling_vel_max_fraction
-        self.counter_settling_by_turbulence = counter_settling_by_turbulence
         self.settling_velocity_factor = settling_velocity_factor
         self.apply_settling = apply_settling
         self.resusp_ewma_alpha = resusp_ewma_alpha
@@ -496,37 +506,11 @@ class Flocs(BaseStateVar):
                                      (self.d_p_microflocdiam ** (3 - self.nf_fractal_dim)) *
                                      (self.diam ** (self.nf_fractal_dim - 1)) * self.apply_settling)
 
-        self.settling_vel = self.settling_vel_base
-        # if self.settling_velocity_factor is not None:
-        #     # Simple approach: constant fraction of base settling velocity
-        #     self.settling_vel = self.settling_vel_base * self.settling_velocity_factor
-        # elif self.counter_settling_by_turbulence:
-        #     # Apply shear-dependent modulation
-        #     normalized_shear = (self.g_shear_rate_at_t - self.setup.g_shear_rate_min) / (
-        #         self.setup.delta_g_shear_rate)
-        #     shear_factor = self.settling_vel_min_fraction + (self.settling_vel_max_fraction - self.settling_vel_min_fraction) * 0.5 * (
-        #                 1 + np.cos(normalized_shear * np.pi))
-        #     self.settling_vel = self.settling_vel_base * shear_factor
-        #
-        #
-        #     # # TEST ROUSE
-        #     # u_star = np.sqrt(self.g_shear_rate_at_t / self.setup.rho_water)
-        #     # Rouse = self.settling_vel_base / (0.4 * u_star)
-        #     #
-        #     # # Fraction en suspension (approximation du profil de Rouse intégré)
-        #     # if Rouse < 0.8:
-        #     #     suspension_factor = 1.0  # Wash load, totalement en suspension
-        #     # elif Rouse > 2.5:
-        #     #     suspension_factor = 0.1  # Bed load dominant
-        #     # else:
-        #     #     suspension_factor = 1.0 - 0.53 * (Rouse - 0.8)  # Interpolation linéaire
-        #     #
-        #     # w_s_effective = self.settling_vel_base * (1 - suspension_factor)
-        #     # print('DEBUG ROUSE', Rouse, (1 - suspension_factor), shear_factor)
-        #
-        # else:
-        #     # shear_factor = 1
-        #     self.settling_vel = self.settling_vel_base
+        if self.settling_velocity_factor is not None:
+            # Simple approach: constant fraction of base settling velocity
+            self.settling_vel = self.settling_vel_base * self.settling_velocity_factor
+        else:
+            self.settling_vel = self.settling_vel_base
 
         if self.resuspension_rate > 0:
             # Physical settling and resuspension
