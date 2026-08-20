@@ -1048,9 +1048,12 @@ class Optimization:
             best_config = fns.update_config(self.config['dconf'], self.summary['best_parameters'])
             # Only add plotting diagnostics for components present in best_config
             filtered_plotting_diag = {k: v for k, v in config_diagnostics.plotting.items() if k in best_config}
+            filtered_smoothed_ratios = {k: v for k, v in config_diagnostics.smoothed_ratios.items()
+                                        if k in best_config}
             best_config = fns.deep_update(best_config, filtered_plotting_diag,
-                                          config_diagnostics.smoothed_ratios) # smoothed_ratios added to be
+                                          filtered_smoothed_ratios) # smoothed_ratios added to be
                                             # able to recompute the EWMA vertical-coupling state
+                                            # (filtered: absent in flocs_only configs)
             model_kwargs = {
                 **self.config['modkwargs'],
                 'verbose': True,
@@ -1090,8 +1093,10 @@ class Optimization:
                 best_config = fns.update_config(case.dconf, filtered_params)
                 # Only add plotting diagnostics for components present in best_config
                 filtered_plotting_diag = {k: v for k, v in config_diagnostics.plotting.items() if k in best_config}
+                filtered_smoothed_ratios = {k: v for k, v in config_diagnostics.smoothed_ratios.items()
+                                            if k in best_config}
                 best_config = fns.deep_update(best_config, filtered_plotting_diag,
-                                              config_diagnostics.smoothed_ratios) # as in the single-case
+                                              filtered_smoothed_ratios) # as in the single-case
                                                 # branch: without it the EWMA vertical-coupling state cannot be
                                                 # transferred and a restart from this model re-seeds (and drifts)
                 model_kwargs = {
