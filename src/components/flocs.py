@@ -496,36 +496,37 @@ class Flocs(BaseStateVar):
                                      (self.d_p_microflocdiam ** (3 - self.nf_fractal_dim)) *
                                      (self.diam ** (self.nf_fractal_dim - 1)) * self.apply_settling)
 
-        if self.settling_velocity_factor is not None:
-            # Simple approach: constant fraction of base settling velocity
-            self.settling_vel = self.settling_vel_base * self.settling_velocity_factor
-        elif self.counter_settling_by_turbulence:
-            # Apply shear-dependent modulation
-            normalized_shear = (self.g_shear_rate_at_t - self.setup.g_shear_rate_min) / (
-                self.setup.delta_g_shear_rate)
-            shear_factor = self.settling_vel_min_fraction + (self.settling_vel_max_fraction - self.settling_vel_min_fraction) * 0.5 * (
-                        1 + np.cos(normalized_shear * np.pi))
-            self.settling_vel = self.settling_vel_base * shear_factor
-
-
-            # # TEST ROUSE
-            # u_star = np.sqrt(self.g_shear_rate_at_t / self.setup.rho_water)
-            # Rouse = self.settling_vel_base / (0.4 * u_star)
-            #
-            # # Fraction en suspension (approximation du profil de Rouse intégré)
-            # if Rouse < 0.8:
-            #     suspension_factor = 1.0  # Wash load, totalement en suspension
-            # elif Rouse > 2.5:
-            #     suspension_factor = 0.1  # Bed load dominant
-            # else:
-            #     suspension_factor = 1.0 - 0.53 * (Rouse - 0.8)  # Interpolation linéaire
-            #
-            # w_s_effective = self.settling_vel_base * (1 - suspension_factor)
-            # print('DEBUG ROUSE', Rouse, (1 - suspension_factor), shear_factor)
-
-        else:
-            # shear_factor = 1
-            self.settling_vel = self.settling_vel_base
+        self.settling_vel = self.settling_vel_base
+        # if self.settling_velocity_factor is not None:
+        #     # Simple approach: constant fraction of base settling velocity
+        #     self.settling_vel = self.settling_vel_base * self.settling_velocity_factor
+        # elif self.counter_settling_by_turbulence:
+        #     # Apply shear-dependent modulation
+        #     normalized_shear = (self.g_shear_rate_at_t - self.setup.g_shear_rate_min) / (
+        #         self.setup.delta_g_shear_rate)
+        #     shear_factor = self.settling_vel_min_fraction + (self.settling_vel_max_fraction - self.settling_vel_min_fraction) * 0.5 * (
+        #                 1 + np.cos(normalized_shear * np.pi))
+        #     self.settling_vel = self.settling_vel_base * shear_factor
+        #
+        #
+        #     # # TEST ROUSE
+        #     # u_star = np.sqrt(self.g_shear_rate_at_t / self.setup.rho_water)
+        #     # Rouse = self.settling_vel_base / (0.4 * u_star)
+        #     #
+        #     # # Fraction en suspension (approximation du profil de Rouse intégré)
+        #     # if Rouse < 0.8:
+        #     #     suspension_factor = 1.0  # Wash load, totalement en suspension
+        #     # elif Rouse > 2.5:
+        #     #     suspension_factor = 0.1  # Bed load dominant
+        #     # else:
+        #     #     suspension_factor = 1.0 - 0.53 * (Rouse - 0.8)  # Interpolation linéaire
+        #     #
+        #     # w_s_effective = self.settling_vel_base * (1 - suspension_factor)
+        #     # print('DEBUG ROUSE', Rouse, (1 - suspension_factor), shear_factor)
+        #
+        # else:
+        #     # shear_factor = 1
+        #     self.settling_vel = self.settling_vel_base
 
         if self.resuspension_rate > 0:
             # Physical settling and resuspension
