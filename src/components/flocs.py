@@ -147,7 +147,6 @@ class Flocs(BaseStateVar):
                  d_crit_max_factor=100.,  # [-] Cap on the ramp, so an explicit Euler step cannot overshoot
                  f_frac_floc_break=0.1,
                  efficiency_break=2e-4,
-                 mu_viscosity=1e-6,
 
                  # d_p_microflocdiam=18e-6,
                  d_p_microflocdiam=5e-6,
@@ -220,6 +219,7 @@ class Flocs(BaseStateVar):
                 f"Elle attend une modulation de w_s par le cisaillement qui n'existe plus.")
         kwargs.pop('settling_vel_min_fraction', None)
         kwargs.pop('settling_vel_max_fraction', None)
+        kwargs.pop('mu_viscosity', None)
 
         resusp_ewma_alpha = kwargs.pop('vertical_coupling_alpha', resusp_ewma_alpha)
         organomin_coupling_fraction = kwargs.pop('organomin_decoupling_factor', organomin_coupling_fraction)
@@ -310,7 +310,6 @@ class Flocs(BaseStateVar):
         self.efficiency_break = efficiency_break
         # Initialize with base value (will be updated by TEP coupling if active)
         self.fyflocstrength = fyflocstrength_base
-        self.mu_viscosity = mu_viscosity
         self.sinking_leak = sinking_leak
 
         self.resuspension_rate = resuspension_rate
@@ -380,7 +379,6 @@ class Flocs(BaseStateVar):
             self.d_crit_growth = self.coupled_Np.d_crit_growth
             self.d_crit_exponent = self.coupled_Np.d_crit_exponent
             self.d_crit_max_factor = self.coupled_Np.d_crit_max_factor
-            self.mu_viscosity = self.coupled_Np.mu_viscosity
             self.d_p_microflocdiam = self.coupled_Np.d_p_microflocdiam
             self.sinking_leak = self.coupled_Np.sinking_leak
             self.diam = self.coupled_Np.diam
@@ -621,7 +619,6 @@ class Flocs(BaseStateVar):
             self._np_diam_squared = self.coupled_Np.diam ** 2.0
 
             # Physical combinations
-            # self._mu_times_g_shear = self.mu_viscosity * self.g_shear_rate_at_t
             self._mu_times_g_shear = self.mu_water_at_t * self.g_shear_rate_at_t
 
         # All instances: Load essential shared data
