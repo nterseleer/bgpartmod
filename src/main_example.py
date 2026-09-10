@@ -1,48 +1,33 @@
+"""Minimal example: run the reference biogeochemical configuration and plot the results.
+
+Run from the repository root:  python src/main_example.py
+"""
 import matplotlib.pyplot as plt
 
-from Config_model import config
-from utils import plotting as plotres
-from core import phys
-from utils import simulation_manager as sim_manager
-from utils import observations
+from src.config_model import base_config
+from src.core import model, phys
+from src.utils import plotting as plotres
 
 
-def sensitivity_analysis():
-    conf = config.MOW1 | config.Flocs
-    setup = phys.Setup(**phys.DEFAULT_SETUPS['onur22'], PARfromfile=True, tmax=15, dt=1e-2, dt2=1e-3)
-
-    sim0 = sim_manager.run_or_load_simulation(
-        conf, setup,
-        name="base_config_test",
-        user_notes="Testing base configuration with flocs"
-    )
-    sim1 = sim_manager.run_sensitivity(sim0,
-                                       {'Microflocs+K_glue': [5, 15], 'Microflocs+alpha_FF_ref': 0.1, },
-                                       name="alphas",
-                                       user_notes="Checking alphas for Micro",
-                                       save=False,
-                                       setup_changes={'tmax': 10}
-                                       )
-
-    obs = observations.Obs()
-    simus = [sim0, sim1, ]
-    plotres.plot_results(simus, plotres.phy_nuts, climatology=True, observations=obs)
-    plotres.plot_results(simus, plotres.flocsrelatedvars, climatology=True, observations=obs)
-    plotres.plot_results(simus, plotres.flocsvar, climatology=True, observations=obs)
-    plotres.plot_results(simus, plotres.flocsvar2, climatology=True, observations=obs)
-
-def process_optim():
-    import utils.optimization as optim
-    obs = observations.Obs(station='MOW1_202503')
-    opt = optim.Optimization.load_existing('OPT060')
-    sim0 = opt.get_best_model()
-
-    simus = [sim0, ]
-    plotres.plot_results(simus, plotres.phy_nuts, climatology=True, observations=obs)
+def run_reference():
+    """Kerimoglu et al. (2022) biogeochemistry, 30 days, synthetic light and temperature."""
+    setup = phys.Setup(tmax=30., dt=1e-2, dt2=1e-3)
+    return model.Model(base_config.Kerimoglu2022, setup=setup, name='reference_run')
 
 
-if __name__ == "__main__":
-    # sensitivity_analysis()
-    process_optim()
+def run_with_modified_parameter():
+    """Same configuration with one parameter changed, to compare against the reference."""
+    from src.utils import config_tools as cfg
 
+    config = cfg.deep_update(base_config.Kerimoglu2022,
+                             {'Phy': {'parameters': {'mu_max': 3.5}}})
+    setup = phys.Setup(tmax=30., dt=1e-2, dt2=1e-3)
+    return model.Model(config, setup=setup, name='lower_mu_max')
+
+
+if __name__ == '__main__':
+    simulations = [run_reference(), run_with_modified_parameter()]
+    # observations=None: no observation overlay (plot_results otherwise loads a default dataset).
+    plotres.plot_results(simulations, ['Phy_C', 'Phy_Chl', 'NO3_concentration', 'DIP_concentration'],
+                         observations=None)
     plt.show()

@@ -14,18 +14,21 @@ from typing import Dict, List, Optional, Tuple, Any
 import pandas as pd
 import numpy as np
 
-from src.utils import functions as fns
+from src.utils import config_tools as cfg
 from src.utils import desolver
 from src.core import model
 from src.core import phys  # Import nécessaire pour la désérialisation pickle des objets Setup
 from src.config_system import path_config as path_cfg
-from src.config_model import config
-from src.config_model import config_diagnostics
+# The diagnostics levels are the user's own choice of what to save; a minimal fallback
+# ships with the library.
+try:
+    from src.config_model import config_diagnostics
+except ImportError:
+    from src.config_model._defaults import config_diagnostics
 from src.utils import simulation_manager as sim_manager
 
 # Constants
 OPTIMIZATIONS_DIR = path_cfg.OPTIM_DIR
-LOG_FILE = path_cfg.OPT_LOG_FILE
 
 
 @dataclass
@@ -288,8 +291,6 @@ class Optimization:
             }
         }
 
-        instance.obs = obs  # Store observation data
-
         # Save initial state
         instance._save_configuration()
         instance._save_setup()
@@ -535,13 +536,12 @@ class Optimization:
             pickle.dump(self.config, f)
 
         # Save human-readable versions
-        fns.write_dict_to_file(self.config['dconf'],
+        cfg.write_dict_to_file(self.config['dconf'],
                                f"{self.name}_CONFIG",
                                fdir=self.optdir)
-        fns.write_dict_to_file(self.config['modkwargs'],
+        cfg.write_dict_to_file(self.config['modkwargs'],
                                f"{self.name}_modkwargs",
-                               fdir=self.optdir,
-                               serialize_objects=False)
+                               fdir=self.optdir)
 
         # Save overview file
         self._save_overview()
@@ -591,7 +591,7 @@ class Optimization:
         # Save human-readable version using Setup's to_dict method
         try:
             setup_dict = self.setup.to_dict()
-            fns.write_dict_to_file(setup_dict, f"{self.name}_setup_readable", fdir=self.optdir)
+            cfg.write_dict_to_file(setup_dict, f"{self.name}_setup_readable", fdir=self.optdir)
         except Exception as e:
             print(f"Could not save human-readable setup: {e}")
 
@@ -623,7 +623,7 @@ class Optimization:
 
             with open(os.path.join(case_subdir, "dconf.pkl"), 'wb') as f:
                 pickle.dump(case.dconf, f)
-            fns.write_dict_to_file(case.dconf, f"{case.case_id}_dconf", fdir=case_subdir)
+            cfg.write_dict_to_file(case.dconf, f"{case.case_id}_dconf", fdir=case_subdir)
 
             with open(os.path.join(case_subdir, "setup.pkl"), 'wb') as f:
                 pickle.dump(case.setup, f)
@@ -678,8 +678,8 @@ class Optimization:
         with open(os.path.join(self.optdir, f"{self.name}_config.pkl"), 'wb') as f:
             pickle.dump(self.config, f)
 
-        fns.write_dict_to_file(self.config['modkwargs'], f"{self.name}_modkwargs",
-                               fdir=self.optdir, serialize_objects=False)
+        cfg.write_dict_to_file(self.config['modkwargs'], f"{self.name}_modkwargs",
+                               fdir=self.optdir)
 
         self._save_overview_multi_case()
 
@@ -788,7 +788,7 @@ class Optimization:
             if not self.is_multi_case:
                 # Single-case mode
                 param_dict = dict(zip(self.config['optimized_parameters'], parameters))
-                newconfig = fns.update_config(self.config['dconf'], param_dict)
+                newconfig = cfg.update_config(self.config['dconf'], param_dict)
                 trial = model.Model(newconfig, setup=self.setup, **self.config['modkwargs'])
                 # A diverged run is not a bad fit, it is no fit at all. Model.error is set
                 # when the derivatives go NaN, but _pad_results only NaNs the POOLS: the
@@ -814,7 +814,7 @@ class Optimization:
                 for case in self.cases:
                     # Build case-specific parameter dict (handles @case_id suffixes)
                     case_param_dict = self._build_case_param_dict(parameters, case.case_id)
-                    case_dconf = fns.update_config(case.dconf, case_param_dict)
+                    case_dconf = cfg.update_config(case.dconf, case_param_dict)
                     trial = model.Model(case_dconf, setup=case.setup, **self.config['modkwargs'])
                     if getattr(trial, 'error', False):   # see the single-case branch above
                         return self.config['badlnl']
@@ -887,11 +887,11 @@ class Optimization:
         if not os.path.exists(winning_config_path) or rerun_best:
             if not self.is_multi_case:
                 # Single-case: save one winning config
-                winning_config = fns.update_config(
+                winning_config = cfg.update_config(
                     self.config['dconf'],
                     self.summary['best_parameters']
                 )
-                fns.write_dict_to_file(winning_config, f"{self.name}_WINNING_CONFIG", fdir=self.optdir)
+                cfg.write_dict_to_file(winning_config, f"{self.name}_WINNING_CONFIG", fdir=self.optdir)
             else:
                 # Multi-case: save winning config per case
                 for case in self.cases:
@@ -899,8 +899,8 @@ class Optimization:
                     filtered_params = self._filter_parameters_for_case(
                         self.summary['best_parameters'], case.case_id
                     )
-                    winning_config = fns.update_config(case.dconf, filtered_params)
-                    fns.write_dict_to_file(
+                    winning_config = cfg.update_config(case.dconf, filtered_params)
+                    cfg.write_dict_to_file(
                         winning_config,
                         f"{self.name}_WINNING_CONFIG_{case.case_id}",
                         fdir=self.optdir
@@ -909,7 +909,7 @@ class Optimization:
         # Save summary stats (only if it doesn't exist)
         summary_path = os.path.join(self.optdir, f"{self.name}_SUMMARY.json")
         if not os.path.exists(summary_path) or rerun_best:
-            fns.write_dict_to_file(
+            cfg.write_dict_to_file(
                 self.summary,
                 f"{self.name}_SUMMARY",
                 fdir=self.optdir
@@ -1021,8 +1021,33 @@ class Optimization:
             'params_at_upper_bound': ', '.join(upper_hits) if upper_hits else ''
         }
 
+    def _best_model_config_and_kwargs(self, base_dconf, best_parameters):
+        """Configuration and Model kwargs used to rebuild a best model.
+
+        Shared by the single-case and multi-case branches of get_best_model. The plotting
+        diagnostics make a saved best model plottable; smoothed_ratios carries the EWMA
+        vertical-coupling state, without which a restart from this model re-seeds the ratio
+        from the instantaneous C/Nf and drifts. Both levels are filtered on the components
+        actually present (the mineral pools are absent from a BGC-only configuration).
+        """
+        best_config = cfg.update_config(base_dconf, best_parameters)
+        filtered_plotting_diag = {k: v for k, v in config_diagnostics.plotting.items()
+                                  if k in best_config}
+        filtered_smoothed_ratios = {k: v for k, v in config_diagnostics.smoothed_ratios.items()
+                                    if k in best_config}
+        best_config = cfg.deep_update(best_config, filtered_plotting_diag,
+                                      filtered_smoothed_ratios)
+        model_kwargs = {
+            **self.config['modkwargs'],
+            'verbose': True,
+            'do_diagnostics': True,
+            'full_diagnostics': False
+        }
+        return best_config, model_kwargs
+
     def get_best_model(self, case_id: Optional[str] = None,
-                       force_rerun: bool = False, savemodel: bool = False) -> Any:
+                       force_rerun: bool = False, savemodel: bool = False,
+                       extend_days: float = 15.) -> Any:
         """
         Get best model from optimization.
 
@@ -1030,6 +1055,12 @@ class Optimization:
             case_id: For multi-case, which case to reconstruct (None = all)
             force_rerun: Whether to rerun model
             savemodel: Whether to save model
+            extend_days: Days appended after the optimization window before rebuilding the
+                model, so that the biweekly (14-d) trend of the LAST plotted day is a fully
+                centered mean -- matching the centered averaging used for scoring. The
+                optimization window itself stays bit-identical, so the score-reproducibility
+                check still passes (see Setup.extend_duration). 0 disables the extension.
+                In multi-case mode it is applied to each case's own setup.
 
         Returns:
             Best model instance (or dict of models if multi-case and case_id=None)
@@ -1045,30 +1076,16 @@ class Optimization:
                 with open(model_file, 'rb') as f:
                     return dill.load(f)
 
-            best_config = fns.update_config(self.config['dconf'], self.summary['best_parameters'])
-            # Only add plotting diagnostics for components present in best_config
-            filtered_plotting_diag = {k: v for k, v in config_diagnostics.plotting.items() if k in best_config}
-            filtered_smoothed_ratios = {k: v for k, v in config_diagnostics.smoothed_ratios.items()
-                                        if k in best_config}
-            best_config = fns.deep_update(best_config, filtered_plotting_diag,
-                                          filtered_smoothed_ratios) # smoothed_ratios added to be
-                                            # able to recompute the EWMA vertical-coupling state
-                                            # (filtered: absent in flocs_only configs)
-            model_kwargs = {
-                **self.config['modkwargs'],
-                'verbose': True,
-                'do_diagnostics': True,
-                'full_diagnostics': False
-            }
+            best_config, model_kwargs = self._best_model_config_and_kwargs(
+                self.config['dconf'], self.summary['best_parameters'])
 
-            # Extend the run a few days past the analysis window so the biweekly
-            # (14-d) trend of the LAST plotted day is a fully centered mean (data on
-            # both sides), matching the centered averaging used for scoring. The
-            # 2021-2023 portion stays bit-identical, so the score-reproducibility
-            # check below still passes. See Setup.extend_duration.
-            self.setup = self.setup.extend_duration(additional_days=15)
+            # Local, NOT self.setup: extending in place made the call non-idempotent
+            # (a second force_rerun added another extend_days), and self.setup is also
+            # what evaluate_model reads when an optimization is resumed.
+            run_setup = (self.setup.extend_duration(additional_days=extend_days)
+                         if extend_days else self.setup)
 
-            best_model = model.Model(best_config, setup=self.setup, name=self.name, **model_kwargs)
+            best_model = model.Model(best_config, setup=run_setup, name=self.name, **model_kwargs)
 
             if savemodel:
                 with open(model_file, 'wb') as f:
@@ -1090,22 +1107,13 @@ class Optimization:
                 filtered_params = self._filter_parameters_for_case(
                     self.summary['best_parameters'], case_id
                 )
-                best_config = fns.update_config(case.dconf, filtered_params)
-                # Only add plotting diagnostics for components present in best_config
-                filtered_plotting_diag = {k: v for k, v in config_diagnostics.plotting.items() if k in best_config}
-                filtered_smoothed_ratios = {k: v for k, v in config_diagnostics.smoothed_ratios.items()
-                                            if k in best_config}
-                best_config = fns.deep_update(best_config, filtered_plotting_diag,
-                                              filtered_smoothed_ratios) # as in the single-case
-                                                # branch: without it the EWMA vertical-coupling state cannot be
-                                                # transferred and a restart from this model re-seeds (and drifts)
-                model_kwargs = {
-                    **self.config['modkwargs'],
-                    'verbose': True,
-                    'do_diagnostics': True,
-                    'full_diagnostics': False
-                }
-                best_model = model.Model(best_config, setup=case.setup,
+                best_config, model_kwargs = self._best_model_config_and_kwargs(
+                    case.dconf, filtered_params)
+                # Same extension as the single-case branch, on this case's own setup and
+                # likewise local: case.setup must keep describing the optimization window.
+                run_setup = (case.setup.extend_duration(additional_days=extend_days)
+                             if extend_days else case.setup)
+                best_model = model.Model(best_config, setup=run_setup,
                                          name=f"{self.name}_{case_id}", **model_kwargs)
 
                 if savemodel:
@@ -1117,7 +1125,8 @@ class Optimization:
                 # Reconstruct for all cases
                 return {c.case_id: self.get_best_model(case_id=c.case_id,
                                                        force_rerun=force_rerun,
-                                                       savemodel=savemodel)
+                                                       savemodel=savemodel,
+                                                       extend_days=extend_days)
                         for c in self.cases}
 
     def compare_model_vs_optim(self, obs, rerun: bool = False):

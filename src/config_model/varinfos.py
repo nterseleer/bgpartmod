@@ -1,13 +1,28 @@
-# Conversion
-molmass_Chl = 893.489  # [g mol-1]
+"""Names, units and metadata of everything the model can output.
+
+Three parts:
+  - the physical constants used across the components;
+  - the maps driving `config_tools.remove_currency` / `remove_components`;
+  - `ref_values` (metadata of the calibrated parameters: symbol, units, reference value)
+    and `doutput`, keyed by OUTPUT COLUMN NAME. Both are looked up dynamically, never by
+    literal name in the code, so an entry that matches no producible column is dead
+    weight -- and a mistyped key silently loses the units of the column it describes.
+
+An entry of `doutput` may carry:
+    'units'     units of the output (not necessarily the model's)
+    'munits'    units inside the model
+    'trsfrm'    factor converting model units to output units
+    'cleanname' short label, rendered by functions.cleantext()
+    'longname'  long label
+    'oprt'      expression computing the variable, evaluated by functions.eval_expr()
+A variable needing no computation (no 'oprt') is read straight from the model DataFrame.
+"""
+
+# Physical constants
 molmass_C = 12.0107  # [g mol-1]
 molmass_N = 14.0067  # [g mol-1]
-molmass_NH4 = 18.03846  # [g mol-1]
-CNredfield = 106. / 16.  # [gC gN-1]
-NPredfield = 16.  # [gN gP-1]
-thetaNSchartau = 1.56 / molmass_N  # [gChla gN-1]
-degCtoK = 273.15
-boltz = 8.6210e-5
+degCtoK = 273.15     # [K] 0 degC in kelvin
+boltz = 8.6210e-5    # [eV K-1] Boltzmann constant
 
 # Currency mapping for remove_currency() function
 # Maps each currency (P, Si, N) to all related model fields
@@ -108,18 +123,6 @@ ref_values = {
         'symbol': '\\alpha^{Chl}',
         'units': 'gC gChl-1 / (µE m-2)',
         'complete_name': 'Chl-specific slope of P-I curve'
-    },
-    'Phy+divide_water_depth_ratio': {
-        'reference_value': 1.,
-        'symbol': 'depth^{water}_{ratio}',
-        'units': '[-]',
-        'complete_name': 'Water Depth Reduction Ratio for Phytoplankton'
-    },
-    'Phy+eta_photic': {
-        'reference_value': 1.,
-        'symbol': '\\eta_{photic}',
-        'units': '[-]',
-        'complete_name': 'Concentration ratio in photic layer'
     },
     'Phy+biomass_profile_slope_base': {
         'reference_value': 0.,
@@ -432,42 +435,6 @@ ref_values = {
         'complete_name': "Half saturation constant for TEP effect on flocculation"
     },
     # Microflocs+ parameters not in params_to_optimize
-    'Microflocs+applyalphafact_PP': {
-        'reference_value': 0.,
-        'symbol': '\\alpha_{factor}^{PP}',
-        'units': '-',
-        'complete_name': "Glue's exponent for PP factor"
-    },
-    'Microflocs+applyalphafact_PF': {
-        'reference_value': 0.,
-        'symbol': '\\alpha_{factor}^{PF}',
-        'units': '-',
-        'complete_name': "Glue's exponent for PF factor"
-    },
-    'Microflocs+applyalphafact_FF': {
-        'reference_value': 0.,
-        'symbol': '\\alpha_{factor}^{FF}',
-        'units': '-',
-        'complete_name': "Glue's exponent for FF factor"
-    },
-    'Microflocs+alpha_PP': {
-        'reference_value': 0.02,
-        'symbol': '\\alpha_{PP}',
-        'units': '-',
-        'complete_name': "PP collision efficiency [-]"
-    },
-    'Microflocs+alpha_PF': {
-        'reference_value': 0.02,
-        'symbol': '\\alpha_{PF}',
-        'units': '-',
-        'complete_name': "PF collision efficiency [-]"
-    },
-    'Microflocs+alpha_FF': {
-        'reference_value': 0.02,
-        'symbol': '\\alpha_{FF}',
-        'units': '-',
-        'complete_name': "FF collision efficiency [-]"
-    },
     'Microflocs+alpha_FF_base': {
         'reference_value': 0.002,
         'symbol': '\\alpha_{FF}^{base}',
@@ -504,12 +471,6 @@ ref_values = {
         'units': 's^{0.5}/m',
         'complete_name': "Efficiency factor for breakage [s^{0.5}/m]"
     },
-    'Microflocs+fyflocstrength': {
-        # 'reference_value': 1e-10,
-        'symbol': 'F_y',
-        'units': 'Pa',
-        'complete_name': "Yield strength of flocs [Pa]"
-    },
     'Microflocs+eps_kd': {
         'reference_value': 0.066 * 1e3,
         'symbol': 'eps_{kd}',
@@ -530,19 +491,7 @@ ref_values = {
         'units': '[]',
         'complete_name': "EWMA smoothing alpha for resuspension"
     },
-    'Macroflocs+vertical_coupling_alpha': {  # backward compat (to remove when obsolete)
-        'reference_value': 0.,
-        'symbol': r'\alpha_{EWMA}^{resusp}',
-        'units': '[]',
-        'complete_name': "EWMA smoothing alpha for resuspension"
-    },
     'Macroflocs+organomin_coupling_fraction': {
-        'reference_value': 1.,
-        'symbol': 'f_{OM}',
-        'units': '[]',
-        'complete_name': "Organo-mineral coupling fraction"
-    },
-    'Macroflocs+organomin_decoupling_factor': {  # backward compat (to remove when obsolete)
         'reference_value': 1.,
         'symbol': 'f_{OM}',
         'units': '[]',
@@ -579,22 +528,7 @@ def sort_params_by_ref_order(params):
     ref_order = {k: i for i, k in enumerate(ref_values.keys())}
     return sorted(params, key=lambda p: (ref_order.get(p, float('inf')), p))
 
-"""
-Definition of output variables: Each output variable refers to a dictionary potentially containing:
-    - 'units': units used for output (not necessarily the same as in the model)
-    - 'munits': units used in the model while running
-    - 'trsfrm': transformation factor to convert from model units to output units
-    - 'cleanname': Short name written in a format to be interpreted by bgpartfunctions.cleantext()
-    - 'longname': Long name 
-    - 'oprt': operation to compute the output variable. To be interpreted by bgpartfunctions.eval_expr()
-
-Notes:
-    - When no computation is needed to access the variable (i.e., no 'oprt'), it is not needed to explicitely define
-    the model equivalent of a variable. E.g. : "mPhy_C" is directly available from "Phy_C" infos (hence the need to 
-    define 'units' and 'munits', but "totmPhy_C" has to be defined entirely here and cannot be estimated automatically
-    from "totPhy_C".
-
-"""
+# A "m"-prefixed variable (mPhy_C) reuses the entry of its unprefixed twin.
 doutput = {"Phy_C": {'units': 'mmol C m-3',
                      'munits': 'mmol C m-3',
                      'cleanname': 'Phy^{C}',
@@ -613,12 +547,6 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
            "Phy_Si": {'units': 'mmol NSi m-3',
                       'munits': 'mmol Si m-3',
                       'longname': 'Phytoplankton Si'},
-           "Het_C": {'units': 'mmol C m-3',
-                     'munits': 'mmol C m-3',
-                     'longname': 'Heterotrophs C'},
-           "Het_N": {'units': 'mmol N m-3',
-                     'munits': 'mmol N m-3',
-                     'longname': 'Heterotrophs N'},
            "BacA_C": {'units': 'mmol C m-3',
                       'munits': 'mmol C m-3',
                       'cleanname': 'BAC_{attached}',
@@ -704,10 +632,6 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                       'longname': 'Large detritus phosphorus',
                       'cleanname': 'DetL P'},
 
-           "NH_4": {'units': 'mmol N m-3',
-                    'munits': 'mmol N m-3',
-                    'perPhyto': False,
-                    'longname': 'Ammonium'},
            "NO3_concentration": {'units': 'mmol N m-3',
                                  'munits': 'mmol N m-3',
                                  'perPhyto': False,
@@ -765,25 +689,6 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                                             # 'plt_ylim': [0.15, 0.75]
                                             },
 
-           "DIM_DINconc": {'units': 'mmol N m-3',
-                           'munits': 'mmol N m-3',
-                           'perPhyto': False,
-                           'cleanname': 'DIN_{concentration}',
-                           'longname': 'Dissolved Inorganic Nitrogen'},
-           "DIM_DICconc": {'units': 'mmol C m-3',
-                           'munits': 'mmol C m-3',
-                           'perPhyto': False,
-                           'cleanname': 'DIC_{concentration}',
-                           'longname': 'Dissolved Inorganic Carbon'},
-           "DOM_DONconc": {'units': 'mmol N m-3',
-                           'munits': 'mmol N m-3',
-                           'perPhyto': False,
-                           'longname': 'Dissolved Organic NItrogen'},
-           "DOM_PCHOconc": {'units': 'mmol C m-3',
-                            'munits': 'mmol C m-3',
-                            'cleanname': 'PCHO',
-                            'perPhyto': False,
-                            'longname': 'Dissolved Polysaccharides Carbon'},
            "TEPC_C": {'units': 'mmol C m-3',
                       'munits': 'mmol C m-3',
                       'cleanname': 'TEP',
@@ -803,14 +708,6 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                                 'oprt': 'Macroflocs_coupled_glue_C / (Micro_in_Macro_massconcentration + Microflocs_massconcentration)',
                       'longname': 'TEP to SPM ratio'},
 
-           "DIM_TAconc": {'units': '[]',
-                          'munits': '[]]',
-                          'perPhyto': False,
-                          'longname': 'Total Alkalinity'},
-           "DOM_resDOCconc": {'units': 'mmol C m-3',
-                              'munits': 'mmol C m-3',
-                              'perPhyto': False,
-                              'longname': 'Residual Dissolved Carbon'},
 
            # "I_t": {'units': 'µmol quanta m-2 d-1',
            #         'oprt': 'setup.PAR /3600./24 * np.exp(-setup.k_att * SUMALLmPhy_Chl * setup.water_depth)',
@@ -942,7 +839,7 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
                                             'trsfrm': 1e3,
                                             'longname': 'Free Microflocs mass concentration',
                                             'plt_ylim': [0, 90]},
-           "coupled_Micro_in_Macro_massconcentration": {'units': 'mg l-1',
+           "Phy_coupled_Micro_in_Macro_massconcentration": {'units': 'mg l-1',
                                             'cleanname': 'MassConcentration_{microflocs in flocs}',
                                             'trsfrm': 1e3,
                                             'longname': 'Microflocs in flocs mass concentration',
@@ -1343,126 +1240,3 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
            }
 
 # OLD 20231010 - Change model units for Sch07 - below is used for GMK98
-doutput_MASS = {"Phy_C": {'units': 'µM',
-                          'munits': 'gC m-3',
-                          'trsfrm': 1e3 / molmass_C,
-                          'longname': 'Phytoplankton C'},
-                "Phy_Chl": {'units': 'µg Chla l-1',
-                            'trsfrm': 1e3,
-                            'cleanname': 'Phy_{Chla}',
-                            'longname': 'Phytoplankton Chla'},
-                "Phy_Chla": {'units': 'µg Chla l-1',
-                             'trsfrm': 1e3,
-                             'cleanname': 'Phy_{Chla}',
-                             'longname': 'Phytoplankton Chla'},
-                "Phy_N": {'units': 'µM',
-                          'munits': 'gN m-3',
-                          'trsfrm': 1e3 / molmass_N,
-                          'longname': 'Phytoplankton N'},
-                "Het_C": {'units': 'µM',
-                          'munits': 'gC m-3',
-                          'trsfrm': 1e3 / molmass_C,
-                          'longname': 'Heterotrophs C'},
-                "Het_N": {'units': 'µM',
-                          'munits': 'gN m-3',
-                          'trsfrm': 1e3 / molmass_N,
-                          'longname': 'Heterotrophs N'},
-                "Det_C": {'units': 'µM',
-                          'munits': 'gC m-3',
-                          'trsfrm': 1e3 / molmass_C,
-                          'longname': 'Detritus C'},
-                "Det_N": {'units': 'µM',
-                          'munits': 'gN m-3',
-                          'trsfrm': 1e3 / molmass_N,
-                          'longname': 'Detritus N'},
-                "NH_4": {'units': 'µM',
-                         'munits': 'gN m-3',
-                         'trsfrm': 1e3 / molmass_N,
-                         'perPhyto': False,
-                         'longname': 'Ammonium'},
-                "DIM_DINconc": {'units': 'µM',
-                                'munits': 'gN m-3',
-                                'trsfrm': 1e3 / molmass_N,
-                                'perPhyto': False,
-                                'longname': 'Dissolved Inorganic Nitrogen'},
-                "DIM_DICconc": {'units': 'µM',
-                                'munits': 'gC m-3',
-                                'trsfrm': 1e3 / molmass_C,
-                                'perPhyto': False,
-                                'longname': 'Dissolved Inorganic Carbon'},
-                "DOM_DONconc": {'units': 'µM',
-                                'munits': 'gN m-3',
-                                'trsfrm': 1e3 / molmass_N,
-                                'perPhyto': False,
-                                'longname': 'Dissolved Organic NItrogen'},
-                "DOM_PCHOconc": {'units': 'µM',
-                                 'munits': 'gC m-3',
-                                 'trsfrm': 1e3 / molmass_C,
-                                 'perPhyto': False,
-                                 'longname': 'Dissolved Polysaccharides Carbon'},
-                "DOM_TEPCconc": {'units': 'µM',
-                                 'munits': 'gC m-3',
-                                 'trsfrm': 1e3 / molmass_C,
-                                 'perPhyto': False,
-                                 'longname': 'Transparent Exopolymer Particles Carbon'},
-                "DIM_TAconc": {'units': '[]',
-                               'munits': '[]]',
-                               'trsfrm': 1,
-                               'perPhyto': False,
-                               'longname': 'Total Alkalinity'},
-                "DOM_resDOCconc": {'units': 'µM',
-                                   'munits': 'gC m-3',
-                                   'trsfrm': 1e3 / molmass_C,
-                                   'perPhyto': False,
-                                   'longname': 'Residual Dissolved Carbon'},
-
-                "I_t": {'units': 'µmol quanta m-2 d-1',
-                        'oprt': 'setup.I /3600./24 * np.exp(-setup.k_att * SUMALLmPhy_Chl * setup.water_depth)',
-                        'longname': 'Ambiant light level (during Light phases)\n'},
-                "QN": {'units': 'gN gC-1',
-                       'oprt': 'mPhy_N/mPhy_C',
-                       'cleanname': 'Q^N',
-                       'longname': 'Phytoplankton N:C ratio'},
-                "thetaN": {'units': 'gChla gN-1',
-                           'oprt': 'mPhy_Chl/mPhy_N',
-                           'cleanname': '\\theta^N',
-                           'longname': 'Phytoplankton Chla:N ratio'},
-                "thetaC": {'units': 'gChla gC-1',
-                           'oprt': 'mPhy_Chl/mPhy_C',
-                           'cleanname': '\\theta^C',
-                           'longname': 'Phytoplankton Chla:C ratio'},
-                "totPhy_Chl": {'units': 'µg Chla l-1',
-                               'oprt': 'SUMALL(Phy_Chl)',
-                               'cleanname': 'Total Phy_{Chla}',
-                               'longname': 'Total Chla'},
-                "totPhy_C": {'units': 'µM',
-                             'oprt': 'SUMALL(Phy_C)',
-                             'cleanname': 'Total Phy_C',
-                             'longname': 'Total Phytoplankton Carbon'},
-                "totmPhy_C": {'units': 'gC m-3',
-                              'oprt': 'SUMALL(mPhy_C)',
-                              'cleanname': 'Total Phy_C',
-                              'longname': 'Total Phytoplankton Carbon'},
-                "totPhy_N": {'units': 'µM',
-                             'oprt': 'SUMALL(Phy_N)',
-                             'cleanname': 'Total Phy_N',
-                             'longname': 'Total Phytoplankton Nitrogen'},
-                "totmPhy_N": {'units': 'gN m-3',
-                              'oprt': 'SUMALL(mPhy_N)',
-                              'cleanname': 'Total mPhy_N',
-                              'longname': 'Total Phytoplankton Nitrogen'},
-                # "Ntot": {'units': 'gN m-3',
-                #          'oprt': 'mNH_4 + SUMALLmPhy_N',
-                #          'cleanname': 'N_{tot}^{Sys}',
-                #          'longname': 'Total N in the system'},
-                "Ctot": {'units': 'gC m-3',
-                         'oprt': 'DIM_DICconc + SUMALLmPhy_C',
-                         'cleanname': 'C_{tot}^{Sys}',
-                         'longname': 'Total C in the system'},
-                "C_tot": {'units': 'gC m-3',
-                          'cleanname': 'C_{tot}^{Sys}',
-                          'longname': 'Total C in the system'},
-                "N_tot": {'units': 'gN m-3',
-                          'cleanname': 'N_{tot}^{Sys}',
-                          'longname': 'Total N in the system'}
-                }

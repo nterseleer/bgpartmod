@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Set, Union
+from typing import Any, Dict, Optional
 from src.config_system import path_config as path_cfg
 
 @dataclass
@@ -45,9 +45,6 @@ class Setup:
         'physical_params': [
             'base_T',  # Temperature in Kelvin
             'varyingTEMP', # Whether T should be time-varying or not
-            'k_att',  # Light attenuation coefficient
-            'kb',  # Background turbidity
-            'pCO2',  # Partial pressure CO2 in µatm
             'water_depth',  # Water depth in m (base/mean value)
             'vary_water_depth',  # Whether water depth should vary with tides
             'base_mu_water',  # Base dynamic viscosity of water in Pa·s
@@ -62,12 +59,8 @@ class Setup:
         'shear_settings': [
             'g_shear_rate',  # Base shear rate
             'vary_g_shear',  # Whether shear rate varies
-            'gshearfact',  # Factor for shear variation
-            'gshearper',  # Period of shear variation
             'bed_shear_stress',  # Base bed shear stress in Pa
             'vary_bed_shear',  # Whether bed shear stress varies
-            'bed_shear_fact',  # Factor for bed shear stress variation
-            'bed_shear_per',  # Period of bed shear stress variation
         ]
     }
 
@@ -83,7 +76,6 @@ class Setup:
                  tmax: float = 20,
                  dt: float = 0.001,
                  dt2: Optional[float] = None,
-                 dt2_s_to_d_ratio: float = 3600 * 24,
                  dtype: type = np.float64,
                  start_date: str = '2023-02-01 10:00:00',
                  PARfromfile: bool = False,
@@ -92,17 +84,10 @@ class Setup:
                  lightfirst: bool = True,
                  T: float = 18.,
                  varyingTEMP: bool = False,
-                 k_att: float = 16.,
-                 pCO2: float = 370,
                  g_shear_rate: float = 95,
                  vary_g_shear: bool = True,
-                 gshearfact: float = 0.5,
-                 gshearper: float = 0.5,  # Will be deprecated in favor of tidal_period_M2
                  bed_shear_stress: float = 0.5,
                  vary_bed_shear: bool = True,
-                 bed_shear_fact: float = 1.,
-                 bed_shear_per: float = 0.5,
-                 kb: float = 0.13,
                  water_depth: float = 10.,
                  vary_water_depth: bool = False,
                  water_depth_amplitude_spring: float = 2.5,
@@ -150,7 +135,6 @@ class Setup:
         self.tmax = tmax
         self.dt = dt
         self.dt2 = dt2
-        self.dt2_s_to_d_ratio = dt2_s_to_d_ratio
         self.start_date = pd.to_datetime(start_date)
         self.end_date = self.start_date + pd.Timedelta(days=tmax)
         self.t_span = [tmin, tmax]
@@ -181,10 +165,6 @@ class Setup:
 
         # Store physical parameters
         self.base_T = T  # Store base temperature value
-        # self.T = T + self.constants.degCtoK  # Convert to Kelvin
-        self.k_att = k_att
-        self.pCO2 = pCO2
-        self.kb = kb
         self.base_mu_water = mu_water  # Base dynamic viscosity of water
         self.vary_mu_water = vary_mu_water
         self.seawater_salinity = seawater_salinity
@@ -259,10 +239,6 @@ class Setup:
         # Dynamic viscosity (depends on T, must be after T initialization)
         self.mu_water = self._initialize_mu_water()
 
-        # Calculate temperature bounds once for efficient access
-        # self.T_max = self.T['T'].max()  # Maximum temperature in setup [K]
-        # self.T_min = self.T['T'].min()  # Minimum temperature in setup [K]
-
         # Initialize all tidal parameters using unified approach
         self.water_depth = self._create_tidal_parameter_dataframe(
             'WaterDepth', water_depth, vary_water_depth,
@@ -272,20 +248,14 @@ class Setup:
 
         # Shear settings
         self.vary_g_shear = vary_g_shear
-        self.gshearfact = gshearfact # Will soon be deprecated
-        self.gshearper = gshearper  # Will soon be deprecated
         self.g_shear_rate = self._create_tidal_parameter_dataframe(
             'ShearRate', g_shear_rate, vary_g_shear,
             shear_rate_amplitude_spring, shear_rate_amplitude_neap,
             shear_rate_phase_shift, shear_rate_additive_mode, 2.0
         )
-        self.g_shear_rate_min = self.g_shear_rate.min().iloc[0]
-        self.delta_g_shear_rate = (self.g_shear_rate.max() - self.g_shear_rate.min()).iloc[0]
 
         # Bed shear stress settings
         self.vary_bed_shear = vary_bed_shear
-        self.bed_shear_fact = bed_shear_fact # Will soon be deprecated
-        self.bed_shear_per = bed_shear_per # Will soon be deprecated
         self.bed_shear_stress = self._create_tidal_parameter_dataframe(
             'BedShearStress', bed_shear_stress, vary_bed_shear,
             bed_shear_stress_amplitude_spring, bed_shear_stress_amplitude_neap,
@@ -310,11 +280,6 @@ class Setup:
         # Initialize diagnostic variables
         for var in self.DIAGNOSTIC_VARIABLES:
             setattr(self, var, 0)
-
-        # For two timestep handling
-        self.dates1_set: Optional[Set] = None
-        self.dates1: Optional[pd.DatetimeIndex] = None
-        self.two_dt: bool = dt2 is not None
 
         # Spin-up phase tracking
         self.in_spinup_phase: bool = False
@@ -388,8 +353,6 @@ class Setup:
 
     def _plot_prescribed_TEP(self):
         """Plot prescribed TEP data for verification."""
-        import matplotlib.pyplot as plt
-
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
 
         # Plot 1: Full time series
@@ -466,8 +429,6 @@ class Setup:
 
     def _plot_prescribed_Flocs(self):
         """Plot prescribed Flocs data for verification."""
-        import matplotlib.pyplot as plt
-
         fig, axes = plt.subplots(5, 1, figsize=(12, 12))
 
         # Plot 1: Microflocs mass concentration
@@ -502,8 +463,6 @@ class Setup:
 
     def _load_riverine_loads(self):
         """Load riverine nutrient loads data and cycle for multi-year simulations."""
-        import pandas as pd
-
         loads_file = os.path.join(path_cfg.DATA_DIR, self.riverine_loads_file)
 
         if not os.path.exists(loads_file):
@@ -563,12 +522,14 @@ class Setup:
     def _initialize_PAR(self, plotPAR: bool) -> pd.DataFrame:
         """Initialize Photosynthetically Active Radiation data."""
         if not self.PARfromfile:
+            # One light/dark switch per simulated day; np.linspace needs an integer count.
+            ndays = int(self.tmax - self.tmin)
             if self.lightfirst:
-                light_starts = np.linspace(self.tmin, self.tmax - 1, self.tmax - self.tmin, dtype=self.dtype)
+                light_starts = np.linspace(self.tmin, self.tmax - 1, ndays, dtype=self.dtype)
                 dark_starts = np.linspace(
                     self.tmin + self.light_prop,
                     self.tmax - 1 + self.light_prop,
-                    self.tmax - self.tmin,
+                    ndays,
                     dtype=self.dtype
                 )
             else:
@@ -576,10 +537,10 @@ class Setup:
                 light_starts = np.linspace(
                     self.tmin + firstL,
                     self.tmax + firstL - 1,
-                    self.tmax - self.tmin,
+                    ndays,
                     dtype=self.dtype
                 )
-                dark_starts = np.linspace(self.tmin + 1, self.tmax, self.tmax - self.tmin, dtype=self.dtype)
+                dark_starts = np.linspace(self.tmin + 1, self.tmax, ndays, dtype=self.dtype)
 
             light = np.array([
                 np.any((light_starts <= t) & (t <= dark_starts))
@@ -591,7 +552,7 @@ class Setup:
 
     def _load_PAR_from_file(self, plotPAR: bool) -> pd.DataFrame:
         """Load PAR data from file and cycle for multi-year simulations."""
-        solrad_clim = pd.read_csv(os.path.join(path_cfg.DATA_DIR ,'solrad_clim.dat'), sep='\s+',
+        solrad_clim = pd.read_csv(os.path.join(path_cfg.DATA_DIR ,'solrad_clim.dat'), sep=r'\s+',
                                   header=None,
                                   names=['DOY', 'Hour', 'PAR1', 'PAR2', 'PAR3'])
 
@@ -626,7 +587,6 @@ class Setup:
 
     def _plot_PAR(self, original_df: pd.DataFrame, interpolated_df: pd.DataFrame):
         """Plot PAR data for verification."""
-        import matplotlib.pyplot as plt
         plt.figure(figsize=(10, 6))
         plt.plot(interpolated_df.index, interpolated_df['PAR'],
                  label='PAR in model')
@@ -701,9 +661,8 @@ class Setup:
 
         return temp_df
 
-    def _plot_temperature(self, temp_df: pd.DataFrame, temp_celsius: np.ndarray, julian_days: np.ndarray):
+    def _plot_temperature(self, temp_celsius: np.ndarray, julian_days: np.ndarray):
         """Plot temperature data for verification against observations."""
-        import matplotlib.pyplot as plt
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -724,7 +683,7 @@ class Setup:
             import src.config_model.obsinfos as obsinfos
 
             mow1 = Obs(read_df=False)
-            mow1readdict = {'sep': '\s+', 'skiprows': [0, 1, 2, 4], 'engine': 'python'}
+            mow1readdict = {'sep': r'\s+', 'skiprows': [0, 1, 2, 4], 'engine': 'python'}
             mow1.df = mow1.read_obs(obsinfos.MAIN_DATA_FILE, readdic=mow1readdict)
             temp_obs = mow1.df[mow1.df['T@pH'] > 1]['T@pH']
 
@@ -776,33 +735,15 @@ class Setup:
             values = np.full(len(self.t_eval), base_value, dtype=self.dtype)
             return pd.DataFrame(values, index=self.dates, columns=[column_name])
         
-        # Use unified tidal approach if water depth varies, otherwise backward compatibility
-        if hasattr(self, 'tidal_period_M2') and self.vary_water_depth:
-            period = self.tidal_period_M2 / period_divisor
-            values = np.array([
-                self._calculate_tidal_parameter(
-                    t, base_value, amplitude_spring, amplitude_neap,
-                    period, phase_shift, additive_mode
-                )
-                for t in self.t_eval
-            ], dtype=self.dtype)
-            return pd.DataFrame(values, index=self.dates, columns=[column_name])
-        else:
-            # Backward compatibility - use legacy parameters
-            if column_name == 'ShearRate':
-                values = np.array([
-                    base_value + self.gshearfact * np.cos(t / self.gshearper * 2. * np.pi) * base_value
-                    for t in self.t_eval
-                ], dtype=self.dtype)
-            elif column_name == 'BedShearStress':
-                values = np.array([
-                    base_value + self.bed_shear_fact * np.cos(t / self.bed_shear_per * 2. * np.pi) * base_value
-                    for t in self.t_eval
-                ], dtype=self.dtype)
-            else:  # WaterDepth
-                values = np.full(len(self.t_eval), base_value, dtype=self.dtype)
-
-            return pd.DataFrame(values, index=self.dates, columns=[column_name])
+        period = self.tidal_period_M2 / period_divisor
+        values = np.array([
+            self._calculate_tidal_parameter(
+                t, base_value, amplitude_spring, amplitude_neap,
+                period, phase_shift, additive_mode
+            )
+            for t in self.t_eval
+        ], dtype=self.dtype)
+        return pd.DataFrame(values, index=self.dates, columns=[column_name])
 
     def _calculate_tidal_parameter(self, t: float, base_value: float, 
                                  amplitude_spring: float, amplitude_neap: float,
@@ -851,7 +792,6 @@ class Setup:
         - days_to_plot: Number of days to plot (default: min(tmax, 5))
         - save_path: Path to save plot (optional)
         """
-        import matplotlib.pyplot as plt
         
         # Determine plotting range
         if days_to_plot is None:
@@ -976,7 +916,6 @@ class Setup:
         if self.vary_water_depth:
             title_parts.append("(with tidal variation)")
         
-        # fig.suptitle(" ".join(title_parts), fontsize=14, fontweight='bold')
         
         plt.tight_layout()
         
@@ -985,7 +924,6 @@ class Setup:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
             print(f"Plot saved to: {save_path}")
             
-        # plt.show()
         
         # Print summary statistics
         print(f"\nSetup Summary ({days_to_plot:.1f} days plotted):")
@@ -1023,22 +961,10 @@ class Setup:
             }
         return state
 
-    def get_diagnostic_state(self) -> Dict[str, float]:
-        """
-        Get current values of diagnostic variables.
-
-        Returns:
-            Dictionary of diagnostic variables and their values.
-        """
-        return {
-            var: getattr(self, var)
-            for var in self.DIAGNOSTIC_VARIABLES
-        }
-
     def to_dict(self) -> Dict[str, Any]:
         """Convert setup to dictionary using existing serialization."""
-        from src.utils import functions as fns
-        return fns.serialize_for_json(self)
+        from src.utils import config_tools as cfg
+        return cfg.serialize_for_json(self)
 
     def summarize(self) -> str:
         """
@@ -1099,12 +1025,10 @@ class Setup:
 
         **Attributes that are INHERITED** (normalization constants):
         - T_max, T_min: Annual temperature range for limT normalization in getlimT()
-        - g_shear_rate_min, delta_g_shear_rate: Full tidal cycle range for
-          normalized_shear calculation in flocs.py
 
-        These normalization constants MUST represent the full annual/tidal cycle
-        range, not just the cropped period. Otherwise, limitation functions would
-        give incorrect values (e.g., limT=1.0 in winter instead of ~0.5).
+        These normalization constants MUST represent the full annual cycle range, not
+        just the cropped period. Otherwise, limitation functions would give incorrect
+        values (e.g., limT=1.0 in winter instead of ~0.5).
 
         Example
         -------
@@ -1176,11 +1100,6 @@ class Setup:
         if hasattr(self, 'g_shear_rate') and isinstance(self.g_shear_rate, pd.DataFrame):
             cropped.g_shear_rate = self.g_shear_rate.iloc[start_idx:end_idx].copy()
             cropped.g_shear_rate.index = cropped.dates
-            # IMPORTANT: Keep original normalization constants (full tidal cycle range)
-            # These are used for normalized_shear in flocs.py and must represent
-            # the full spring-neap tidal range, not just the cropped period
-            cropped.g_shear_rate_min = self.g_shear_rate_min
-            cropped.delta_g_shear_rate = self.delta_g_shear_rate
         if hasattr(self, 'bed_shear_stress') and isinstance(self.bed_shear_stress, pd.DataFrame):
             cropped.bed_shear_stress = self.bed_shear_stress.iloc[start_idx:end_idx].copy()
             cropped.bed_shear_stress.index = cropped.dates
@@ -1250,7 +1169,6 @@ class Setup:
             print(f"  Array lengths: {len(self.t_eval)} -> {len(cropped.t_eval)}")
             print(f"  Inherited normalization constants (from full cycle):")
             print(f"    T_max={cropped.T_max:.2f} K, T_min={cropped.T_min:.2f} K")
-            print(f"    g_shear_rate_min={cropped.g_shear_rate_min:.2f}, delta={cropped.delta_g_shear_rate:.2f}")
 
         return cropped
 
@@ -1272,10 +1190,9 @@ class Setup:
         timestamps are preserved to the nanosecond -- essential for the optimization
         score-reproducibility check.
 
-        Normalization constants (T_max/T_min for limT; g_shear_rate_min/
-        delta_g_shear_rate for normalized_shear in flocs.py) are INHERITED from the
-        original full cycle, exactly as in crop_from_date, so the extra days cannot
-        alter limitation normalizations.
+        The limT normalization constants (T_max/T_min) are INHERITED from the original
+        full cycle, exactly as in crop_from_date, so the extra days cannot alter the
+        temperature limitation.
 
         Parameters
         ----------
@@ -1299,7 +1216,6 @@ class Setup:
 
         # Preserve full-cycle normalization constants (inherited, like crop_from_date)
         T_max, T_min = self.T_max, self.T_min
-        g_shear_rate_min, delta_g_shear_rate = self.g_shear_rate_min, self.delta_g_shear_rate
 
         # --- 1. Extend the time grid (append-only) --------------------------------
         extended.tmax = self.tmax + additional_days
@@ -1360,7 +1276,6 @@ class Setup:
 
         # --- 3. Restore inherited full-cycle normalization constants --------------
         extended.T_max, extended.T_min = T_max, T_min
-        extended.g_shear_rate_min, extended.delta_g_shear_rate = g_shear_rate_min, delta_g_shear_rate
 
         # Rebuild date-to-index mapping
         extended.dates_to_index = {date: idx for idx, date in enumerate(extended.dates)}
@@ -1372,117 +1287,5 @@ class Setup:
             print(f"  Array lengths: {len(self.t_eval)} -> {len(extended.t_eval)} (+{n_append})")
             print(f"  Inherited normalization constants (from full cycle):")
             print(f"    T_max={extended.T_max:.2f} K, T_min={extended.T_min:.2f} K")
-            print(f"    g_shear_rate_min={extended.g_shear_rate_min:.2f}, delta={extended.delta_g_shear_rate:.2f}")
 
         return extended
-
-
-if __name__ == "__main__":
-
-    from config_model import phys_setup
-    setup = Setup(**phys_setup.MOW1_3yrs_gshear2_vary_mu_water)
-    print(setup.mu_water_array)
-    print(setup.mu_water_array.min())
-    print(setup.mu_water_array.max())
-
-    input('DONE check mu_water')
-
-
-
-
-    """Test the tidal implementation with MOW1_STATION configuration."""
-    print("Testing Tidal Implementation in BGC Physical Setup")
-    print("=" * 60)
-
-
-    
-    # Test 1: Create tidal setup
-    print("\n1. Testing MOW1_STATION with Tidal Parameters")
-    print("-" * 40)
-    
-    try:
-        setup = Setup(**phys_setup.MOW1)
-
-        print(f"✓ Setup created: {setup.name}")
-        print(f"✓ Tidal variation: {setup.vary_water_depth}")
-        print(f"✓ M2 period: {setup.tidal_period_M2:.4f} days ({setup.tidal_period_M2*24:.2f} hours)")
-        print(f"✓ Spring-neap period: {setup.spring_neap_period:.1f} days")
-
-        if setup.vary_water_depth:
-            depths = setup.water_depth['WaterDepth'].values
-            print(f"✓ Water depth range: {np.min(depths):.1f} - {np.max(depths):.1f} m")
-            print(f"✓ Mean depth: {np.mean(depths):.1f} m")
-
-            # Check tidal physics
-            expected_spring_range = 2 * setup.water_depth_amplitude_spring  # 5m
-            expected_neap_range = 2 * setup.water_depth_amplitude_neap      # 3m
-            actual_range = np.max(depths) - np.min(depths)
-
-            print(f"✓ Tidal range: {actual_range:.1f} m (expected: {expected_neap_range}-{expected_spring_range} m)")
-            
-    except Exception as e:
-        print(f"✗ Failed to create tidal setup: {e}")
-        exit(1)
-    
-    # Test 2: Backward compatibility
-    print("\n2. Testing Backward Compatibility (Constant Depth)")
-    print("-" * 40)
-    
-    try:
-        const_config = phys_setup.MOW1_STATION.copy()
-        const_config['vary_water_depth'] = False
-        const_config['tmax'] = 1
-        
-        const_setup = Setup(**const_config)
-        
-        print(f"✓ Constant setup created")
-        print(f"✓ vary_water_depth: {const_setup.vary_water_depth}")
-        print(f"✓ Water depth: {const_setup.water_depth} m (type: {type(const_setup.water_depth).__name__})")
-        
-        if isinstance(const_setup.water_depth, (int, float)):
-            print("✓ Backward compatibility maintained")
-        else:
-            print("⚠ Water depth should be scalar for constant case")
-            
-    except Exception as e:
-        print(f"✗ Backward compatibility test failed: {e}")
-    
-    # Test 3: Visualization
-    print("\n3. Generating Setup Visualization")
-    print("-" * 40)
-    
-    try:
-        print("Creating comprehensive setup plot...")
-        setup.plot_setup(days_to_plot=None)
-        print("✓ Visualization complete!")
-        
-    except Exception as e:
-        print(f"⚠ Visualization failed: {e}")
-        print("  (This might be due to missing data files or display issues)")
-
-    from src.utils import functions as fns
-
-
-
-    setup2 = fns.deep_update(phys_setup.MOW1, phys_setup.additive_mode)
-    setup2 = Setup(**setup2)
-    setup2.plot_setup(days_to_plot=None)
-    plt.show()
-
-
-
-    # Summary
-    print("\n" + "=" * 60)
-    print("TIDAL IMPLEMENTATION TEST SUMMARY")
-    print("=" * 60)
-    print("✓ Tidal water depth calculation implemented")
-    print("✓ M2 tidal period (12.42h) and spring-neap cycle (14.7d) configured")
-    print("✓ Shear rate and bed shear stress synchronized with tides")  
-    print("✓ Backward compatibility maintained")
-    print("✓ Visualization method added")
-    print("\nImplementation ready! 🌊")
-    print("\nUsage:")
-    print("  from src.core.phys import Setup")
-    print("  from bgpartmod_private.src.config_model.phys_setup import MOW1_STATION")
-    print("  setup = Setup(**MOW1_STATION)")
-    print("  setup.plot_setup()  # Visualize all parameters")

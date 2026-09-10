@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 import pandas as pd
-from pathlib import Path
 import os
 from typing import Dict
 
 from src.utils import functions as fns
+from src.utils import config_tools as cfg
 from src.config_system import path_config as path_cfg
 
 
@@ -63,10 +63,10 @@ class Obs:
             summary["variables"][column] = {
                 "count": int(len(col_data)),  # Convert numpy types to native Python
                 "valid": int(col_data.count()),
-                "mean": fns.serialize_for_json(col_data.mean()),
-                "std": fns.serialize_for_json(col_data.std()),
-                "min": fns.serialize_for_json(col_data.min()),
-                "max": fns.serialize_for_json(col_data.max())
+                "mean": cfg.serialize_for_json(col_data.mean()),
+                "std": cfg.serialize_for_json(col_data.std()),
+                "min": cfg.serialize_for_json(col_data.min()),
+                "max": cfg.serialize_for_json(col_data.max())
             }
 
         return summary
@@ -127,8 +127,7 @@ class Obs:
             plt.title(col + '_' + self.station)
             plt.xlabel(self.df.index.name)
             plt.tight_layout()
-        # plt.show()
-
+    
 
 if __name__ == "__main__":
     myobs = Obs()

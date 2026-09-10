@@ -17,6 +17,7 @@ src/config_model/obsinfos.py
 src/config_model/vars_to_plot.py
 src/config_model/phys_setup.py
 src/utils/observations.py
+src/utils/plotting_paper.py
 src/_*main*
 _requirements.txt
 _*requirements.txt

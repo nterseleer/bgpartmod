@@ -1,10 +1,9 @@
 import concurrent.futures
 import numpy as np
 import pandas as pd
-import time
 import os
 from datetime import datetime
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 
 class DESolver:
@@ -22,7 +21,8 @@ class DESolver:
                  initial_costs: Optional[np.ndarray] = None,
                  start_generation: int = 0,
                  num_cpus: Optional[int] = 30,
-                 n_unused_cpu: int = 2):
+                 n_unused_cpu: int = 2,
+                 strictbounds: bool = True):
         """
         Initialize the Differential Evolution solver.
 
@@ -37,6 +37,9 @@ class DESolver:
             initialpopulation: Optional initial population
             num_cpus: Number of CPUs to use (default: max - n_unused_cpu)
             n_unused_cpu: Number of CPUs to leave unused
+            strictbounds: Reflect a trial vector back inside [min, max] until it complies.
+                Set False to let the mutation leave the bounds (the parameter space is then
+                unbounded, which the model does not necessarily tolerate).
         """
         # Store job object
         self.job = job
@@ -53,7 +56,7 @@ class DESolver:
         # DE algorithm parameters
         self.scale = diffScale
         self.crossOverProbability = crossoverProb
-        self.strictbounds = True
+        self.strictbounds = strictbounds
 
         # Parallel processing settings
         if num_cpus is None:
@@ -116,6 +119,7 @@ class DESolver:
             cost = np.full(self.population.shape[0], np.inf)
             ibest = None
         file_exists = os.path.exists(self.job.files['results'])
+        olddf = None   # renseigne en fin de generation, lu a partir de la suivante
 
         try:
             with concurrent.futures.ProcessPoolExecutor(max_workers=self.num_cpus) as executor:
@@ -186,7 +190,6 @@ class DESolver:
                     file_exists = True
                     olddf = resdf
 
-                    # if generation % 10 == 0:
                     best_likelihood = -cost[ibest] if ibest is not None else -np.inf
                     print(f'Generation {generation}: Best likelihood = {best_likelihood}')
 

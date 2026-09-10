@@ -5,17 +5,19 @@ Handles saving, loading, and tracking of Simulations.
 import json
 import os
 import pickle
-import re
 from datetime import datetime
 from enum import Enum
 
 import dill
 import numpy as np
 import pandas as pd
-from deepdiff import DeepDiff
-from typing import Optional, List, Dict, Any, Union, Tuple
+from typing import Optional, List, Dict, Any, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:                      # annotations 'Model' seulement (import circulaire)
+    from src.core.model import Model
 
 from src.utils import functions as fns
+from src.utils import config_tools as cfg
 from src.config_system import path_config as path_cfg
 
 # Constants
@@ -54,8 +56,10 @@ class SimulationTypes(Enum):
 for directory in [path_cfg.SIMULATION_DIR, path_cfg.MODEL_RUNS_DIR, path_cfg.REFERENCES_SIMULATION_DIR]:
     if not os.path.exists(directory):
         os.makedirs(directory)
-# Setup parameters to track in logs
-SETUP_TRACKED_FIELDS = [
+# Setup-derived columns of the simulation log, in order. FROZEN: the log is append-only
+# and _load_log() reindexes on it, so removing a name here would silently drop that column
+# -- and its history -- from Simulations_log.csv the next time the file is rewritten.
+SETUP_LOG_FIELDS = [
     # Core time settings
     'tmin', 'tmax', 'dt', 'dt2',
     # Physical parameters
@@ -65,6 +69,15 @@ SETUP_TRACKED_FIELDS = [
     # Shear settings
     'g_shear_rate', 'vary_g_shear', 'gshearfact', 'gshearper'
 ]
+
+# Names of SETUP_LOG_FIELDS that no longer exist on Setup: 'z' became 'water_depth',
+# 'gshearfact'/'gshearper' the shear_rate_amplitude_* pair, and k_att / kb / pCO2 were
+# removed (never read by any component). Their columns stay in the log for the historical
+# rows and are simply left empty from now on.
+RETIRED_SETUP_FIELDS = {'z', 'k_att', 'kb', 'pCO2', 'gshearfact', 'gshearper'}
+
+# What _extract_setup_info can actually fill today.
+SETUP_TRACKED_FIELDS = [f for f in SETUP_LOG_FIELDS if f not in RETIRED_SETUP_FIELDS]
 
 # Log columns in desired order
 LOG_COLUMNS = [
@@ -78,8 +91,8 @@ LOG_COLUMNS = [
                   'setup_start_date',  # Simulation start date
                   'setup_end_date',  # Simulation end date
               ] + [
-                  # Setup fields - add all tracked fields
-                  f'setup_{field}' for field in SETUP_TRACKED_FIELDS
+                  # Setup fields - the frozen column list (see SETUP_LOG_FIELDS)
+                  f'setup_{field}' for field in SETUP_LOG_FIELDS
               ] + [
                   # Configuration and runtime fields
                   'config_formulation',
@@ -160,13 +173,13 @@ def _get_interactive_yes_no_answer(question : str)-> bool:
 
 def get_optimization_log() -> pd.DataFrame:
     """Load or create optimization log."""
-    if not os.path.exists(path_cfg.PRIVATE_OPT_LOG_FILE):
+    if not os.path.exists(path_cfg.OPT_LOG_FILE):
         # Create with header only
         df = pd.DataFrame(columns=OPTIMIZATION_LOG_COLUMNS)
-        df.to_csv(path_cfg.PRIVATE_OPT_LOG_FILE, index=False)
+        df.to_csv(path_cfg.OPT_LOG_FILE, index=False)
         return df
 
-    df = pd.read_csv(path_cfg.PRIVATE_OPT_LOG_FILE)
+    df = pd.read_csv(path_cfg.OPT_LOG_FILE)
 
     # Ensure 'Case' column exists (backward compatibility)
     if 'Case' not in df.columns:
@@ -179,7 +192,7 @@ def get_optimization_log() -> pd.DataFrame:
 
 def save_optimization_log(df: pd.DataFrame):
     """Save optimization log."""
-    df.to_csv(path_cfg.PRIVATE_OPT_LOG_FILE, index=False)
+    df.to_csv(path_cfg.OPT_LOG_FILE, index=False)
 
 
 def get_next_optimization_id() -> str:
@@ -313,18 +326,6 @@ def _add_optimization_post_note(opt_id: str, post_note: str = None):
         print(f"✗ Optimization {opt_id} not found in log")
 
 
-# Legacy function for backward compatibility
-add_optimization_post_note = _add_optimization_post_note
-
-
-def _generate_name(base_name: str = None) -> str:
-    """Generate unique simulation name with timestamp"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if base_name:
-        return f"{timestamp}_{base_name}"
-    return timestamp
-
-
 def _extract_setup_info(setup) -> Dict[str, Any]:
     """
     Extract setup information for logging.
@@ -428,7 +429,7 @@ def _get_config_diff(config1: Dict, config2: Dict) -> str:
     Returns:
         String with formatted parameter changes
     """
-    return fns.compare_dicts(config1, config2,
+    return cfg.compare_dicts(config1, config2,
                             format_output=True,
                             config_mode=True,
                             print_result=False)
@@ -495,7 +496,7 @@ def save_simulation(
         dill.dump(model.setup, f)
 
     # Save remaining files
-    fns.save_human_readable_config(
+    cfg.save_human_readable_config(
         model.config,
         os.path.join(sim_dir, 'config.json')
     )
@@ -515,7 +516,6 @@ def save_simulation(
     create_log_file_if_not_exist()
     new_row = pd.DataFrame([{col: log_entry.get(col, '') for col in LOG_COLUMNS}])
 
-    # log_df = pd.concat([log_df, new_row], ignore_index=True)
 
     new_row.to_csv(path_cfg.LOG_FILE, na_rep='NA', mode='a', index=False, header=False)
 
@@ -552,8 +552,12 @@ def run_or_load_simulation(config_dict: Dict,
         case SimulationTypes.UNDEFINED:
             simulation = model.Model(config_dict, setup, name=name, **model_kwargs)
         case SimulationTypes.MODEL_RUN:
+            # A MODEL_RUN was saved without its results: only its config and setup are on
+            # disk, so it has to be re-run. model_kwargs is forwarded, otherwise the re-run
+            # silently falls back to the Model defaults (verbose, dtype, do_diagnostics...)
+            # instead of what the caller asked for.
             simulation = model.Model(loaded_simulation.config, loaded_simulation.setup,
-                                     name=name)  # TODO: introduce model_kwarg
+                                     name=name, **model_kwargs)
         case SimulationTypes.REFERENCES_SIMULATION:
             simulation = loaded_simulation
         case _:
@@ -634,49 +638,6 @@ def get_saved_simulation_type(name: str) -> SimulationTypes:
     return SimulationTypes.UNDEFINED
 
 
-def list_simulations(sim_type: Optional[str] = None) -> pd.DataFrame:
-    """List all saved Simulations with their metadata"""
-    log_df = _load_log()
-    if sim_type:
-        return log_df[log_df['runtime_info'].str.contains(sim_type)]
-    return log_df
-
-
-def get_simulation_lineage(name: str) -> List[str]:
-    """Get the full lineage of a simulation (parent chain)"""
-    log_df = _load_log()
-    lineage = [name]
-    current = name
-
-    while True:
-        parent = log_df[log_df['full_name'] == current]['parent_simulation'].iloc[0]
-        if not parent:
-            break
-        lineage.append(parent)
-        current = parent
-
-    return lineage
-
-
-def cleanup_old_simulations(days_threshold: int = 30):
-    """Clean up old regular Simulations (not references) beyond threshold"""
-    current_time = datetime.now()
-
-    for sim in os.listdir(path_cfg.MODEL_RUNS_DIR):
-        sim_path = os.path.join(path_cfg.MODEL_RUNS_DIR, sim)
-        if not os.path.isdir(sim_path):
-            continue
-
-        try:
-            timestamp = datetime.strptime(sim.split('_')[0], "%Y%m%d")
-            if (current_time - timestamp).days > days_threshold:
-                for file in os.listdir(sim_path):
-                    if file.endswith('.pkl'):
-                        os.remove(os.path.join(sim_path, file))
-        except ValueError:
-            continue
-
-
 def parse_parameter_changes(changes: Dict[str, Union[float, List[float], np.ndarray, Any]]) -> Dict[str, Dict]:
     """
     Parse parameter changes from 'Component+parameter' format into nested dict format.
@@ -745,7 +706,7 @@ def run_sensitivity(base_simulation: 'Model',
     if not has_multiple:
         # Single sensitivity run
         updates = parse_parameter_changes(parameter_changes)
-        new_config = fns.deep_update(base_simulation.config.copy(), updates)
+        new_config = cfg.deep_update(base_simulation.config.copy(), updates)
 
         # Generate a descriptive name if none provided
         run_name = name
@@ -809,284 +770,3 @@ def run_sensitivity(base_simulation: 'Model',
     return results
 
 
-def compare_simulations(models: Union[List, Dict[str, Any]],
-                        variables: Optional[List[str]] = None,
-                        plot: bool = True) -> Dict[str, Dict[str, float]]:
-    """Compare multiple Simulations"""
-
-    if not isinstance(models, dict):
-        # Flatten list and create dictionary
-        flattened = fns.flatten_simulation_list(models)
-        models = {f"Model_{i + 1}": model for i, model in enumerate(flattened)}
-
-    if variables is None:
-        variables = sorted(set.intersection(*[set(m.df.columns) for m in models.values()]))
-
-    differences = {}
-    if plot:
-        import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(len(variables), 1,
-                                 figsize=(10, 4 * len(variables)))
-        if len(variables) == 1:
-            axes = [axes]
-
-    for i, var in enumerate(variables):
-        series = {name: model.df[var] for name, model in models.items()}
-
-        var_diffs = {}
-        for name1 in models:
-            for name2 in models:
-                if name1 < name2:
-                    diff = np.abs(series[name1] - series[name2])
-                    var_diffs[f"{name1}_vs_{name2}"] = {
-                        'max_diff': diff.max(),
-                        'mean_diff': diff.mean(),
-                        'std_diff': diff.std()
-                    }
-
-        differences[var] = var_diffs
-
-        if plot:
-            ax = axes[i]
-            for name, s in series.items():
-                ax.plot(s.index, s.values, label=name)
-            ax.set_title(f'{var}')
-            ax.legend()
-
-    if plot:
-        plt.tight_layout()
-
-    return differences
-
-
-def integrate_annual_flux(simulation, var, period: int = 2023) -> float:
-    """Depth-integrated annual sum of a rate flux -> [<flux unit> m-2 yr-1].
-
-    Generalises _integrate_PP to any rate diagnostic (or a sum of several). Fluxes in the
-    model are volumetric rates [X m-3 d-1]; multiplying the annual time-integral by the
-    water-column depth gives an areal annual budget directly comparable across pathways
-    and across simulations (the currency of a carbon-flux Sankey / bar comparison).
-
-    Args:
-        simulation: Model with .df (DatetimeIndex) and .setup.base_water_depth.
-        var: Single df column name, or a list of column names whose values are summed
-             (e.g. the four aggregate-coupled sink_vertical_loss.C for total C export).
-        period: Year to integrate over. If None, integrate the whole run.
-
-    Returns:
-        Depth-integrated annual flux [<flux unit> m-2 yr-1]. Missing columns contribute
-        NaN (so a partially-diagnosed run surfaces the gap rather than silently dropping
-        a term).
-    """
-    df = simulation.df[simulation.df.index.year == period] if period else simulation.df
-    dt = (df.index[1] - df.index[0]).total_seconds() / 86400  # timestep in days
-    depth = simulation.setup.base_water_depth                  # water column depth in m
-    cols = [var] if isinstance(var, str) else list(var)
-    total = 0.0
-    for c in cols:
-        if c not in df.columns:
-            return float('nan')
-        total += pd.to_numeric(df[c], errors='coerce').sum()
-    return total * dt * depth
-
-
-def compare_annual_fluxes(sims, fluxes, period: int = 2023, names=None,
-                          ref_index: int = 0) -> pd.DataFrame:
-    """Tabulate depth-integrated annual C fluxes for several simulations and their change.
-
-    The Step-1 signal check behind the REF vs NO-TEP carbon-cycle analysis: does switching
-    the TEP->flocculation coupling off reorganise the fluxes (PP -> DOC/Det -> bacteria ->
-    export), not just the standing stocks? Feed it the pathway fluxes and read the relative
-    change column before deciding whether a Sankey is worth building.
-
-    Args:
-        sims: list of Model simulations (e.g. [sim_ref, sim_notep]).
-        fluxes: either a list of df column names, or a dict {label: column-or-list} where a
-                list value is summed (integrate_annual_flux). Labels keep the table readable.
-        period: year to integrate over (default 2023), passed to integrate_annual_flux.
-        names: display names per simulation (default: each sim.name).
-        ref_index: which simulation is the reference for the relative-change column.
-
-    Returns:
-        DataFrame indexed by flux label, one column of [mmol C m-2 yr-1] per simulation
-        plus 'rel_change_%' ((other - ref)/ref * 100 for the two-simulation case, else the
-        last simulation vs the reference).
-    """
-    if names is None:
-        names = [getattr(s, 'name', f'sim{i}') for i, s in enumerate(sims)]
-    if not isinstance(fluxes, dict):
-        fluxes = {v if isinstance(v, str) else '+'.join(v): v for v in fluxes}
-
-    data = {name: [integrate_annual_flux(s, var, period) for var in fluxes.values()]
-            for name, s in zip(names, sims)}
-    table = pd.DataFrame(data, index=list(fluxes.keys()))
-
-    ref_col = names[ref_index]
-    other_col = names[-1] if names[-1] != ref_col else names[min(1, len(names) - 1)]
-    with np.errstate(divide='ignore', invalid='ignore'):
-        table['rel_change_%'] = (table[other_col] / table[ref_col] - 1.0) * 100.0
-    return table
-
-
-def _integrate_PP(simulation, var: str = 'Phy_source_PP.C', period: int = 2023) -> float:
-    """Integrate primary production over a given year.
-
-    Args:
-        simulation: Model simulation object with .df (DatetimeIndex) and .setup attributes.
-        var: Name of the PP rate variable in simulation.df [mmol C m-3 d-1].
-        period: Year to integrate over. If None, uses the full simulation.
-
-    Returns:
-        Depth-integrated annual PP [mmol C m-2].
-    """
-    return integrate_annual_flux(simulation, var, period)
-
-
-def compare_annual_PP(sim1, sim2, period: int = 2023, var: str = 'Phy_source_PP.C') -> None:
-    """Print depth-integrated annual PP for two simulations and their relative difference.
-
-    Args:
-        sim1: Reference simulation.
-        sim2: Simulation to compare against sim1.
-        period: Year to integrate over (default: 2023).
-        var: PP rate variable name in simulation.df [mmol C m-3 d-1].
-    """
-    from src.config_model import varinfos
-    pp1 = _integrate_PP(sim1, var, period)
-    pp2 = _integrate_PP(sim2, var, period)
-    rel_change = (pp2 / pp1 - 1) * 100
-    direction = 'increase' if rel_change > 0 else 'decrease'
-    var_label = varinfos.doutput.get(var, {}).get('longname', var)
-    print(f"{var_label} ({period}):  {sim1.name} = {pp1:.1f}  |  {sim2.name} = {pp2:.1f}  [mmol C m-2 yr-1]"
-          f"  ->  {rel_change:+.1f}% {direction}")
-
-
-# Canonical left->right, top->bottom reading order of the flux network (matches the Sankey
-# layout), incl. the aggregate node names (DOC/Det/Bac) so aggregated tables order too.
-_SANKEY_POOL_ORDER = ['Phy', 'DOCS', 'DOCL', 'DOC', 'TEPC', 'DetS', 'DetL', 'Det',
-                      'BacF', 'BacA', 'Bac', 'HF', 'Cil']
-
-
-def carbon_flux_links(sim, period: int = 2023) -> Dict[Tuple[str, str], float]:
-    """Depth-integrated annual carbon-flux network of one simulation, as {(src, tgt): flux}.
-
-    Thin currency='C' wrapper around `flux_network.flux_links` (kept for backward
-    compatibility and as the regression anchor: the generic engine reproduces this network
-    edge-for-edge). Every link is a depth-integrated annual C flux [mmol C m-2 yr-1] between
-    two organic-C pools (Phy, DOCS, DOCL, TEPC, DetS, DetL, BacF, BacA, HF, Cil) or an
-    external node: 'DIC' (respiration + remineralization + sloppy-feeding-to-DIM), 'Export'
-    (settling sink_vertical_loss) and 'Leak' (the calibrated kleak loss). Primary production
-    is not drawn as an inflow, so Phy is the network source and its bar height reads as PP.
-
-    Topology, the grazing preference split (the only approximation) and the heterotroph
-    mass-balance closure are documented in `flux_network`. Node totals reconcile with the
-    diagnosed C_sources/C_sinks; the system closes to ~2-3% of PP (grazing-split residual).
-    """
-    from src.utils import flux_network  # local import avoids a module-load cycle
-    return flux_network.flux_links(sim, currency='C', period=period)
-
-
-def aggregate_flux_links(links, groups) -> Dict[Tuple[str, str], float]:
-    """Merge nodes of a flux network {(src, tgt): flux} into aggregate nodes.
-
-    Companion to `flux_balance_table`/`carbon_flux_links` for a coarser view (e.g. DOC =
-    DOCS+DOCL, Det = DetS+DetL, Bac = BacF+BacA). Parallel links that collapse onto the same
-    (src, tgt) after relabelling are summed; links internal to a single aggregate become
-    self-loops and are dropped (they no longer cross a node boundary, so they are not a flux
-    between the reported pools -- e.g. DOCS->DOCL vanishes inside 'DOC').
-
-    Args:
-        links: the flux network to coarsen.
-        groups: {member_node: aggregate_name}; nodes absent from it keep their own name.
-
-    Returns:
-        A new links dict on the aggregated node set.
-    """
-    m = lambda n: groups.get(n, n)
-    out: Dict[Tuple[str, str], float] = {}
-    for (a, b), v in links.items():
-        A, B = m(a), m(b)
-        if A == B:
-            continue
-        out[(A, B)] = out.get((A, B), 0.0) + v
-    return out
-
-
-def flux_balance_table(links_a, links_b, names=('REF', 'NO-TEP'), pools=None,
-                       min_flux=0.0) -> pd.DataFrame:
-    """Per-pool incoming/outgoing flux balance of two flux-link networks + their change.
-
-    The tabular companion to the REF-vs-NO-TEP Sankey: given two link dicts
-    {(src, tgt): flux} as returned by `carbon_flux_links` (currency-agnostic -- works for a
-    future N/P/DSi network too), it lists, for each pool, every flux entering and leaving it,
-    with the absolute value, its share of that pool's total in- (or out-) throughput, in both
-    simulations, and the absolute + relative change between them. Reads straight off the
-    Sankey links so the table and the diagram tell exactly the same story.
-
-    Args:
-        links_a, links_b: the two networks; `names[0]` is the reference for the change columns.
-        names: (name_a, name_b) column labels.
-        pools: pool order to report. If None, every non-external node that has any flux, in
-               the canonical Sankey reading order (`_SANKEY_POOL_ORDER`; unknown nodes appended
-               by descending throughput). External nodes (DIC, Export, Leak, DIC_in, CO2) only
-               ever appear as counterparts, never as a pool.
-        min_flux: drop counterpart links whose value is < min_flux in BOTH sims (the per-pool
-                  '(total)' rows always use the full, unfiltered throughput).
-
-    Returns:
-        Tidy DataFrame, columns:
-          pool, direction ('in'|'out'), counterpart,
-          <name_a>, <name_a>_pct, <name_b>, <name_b>_pct, abs_change, rel_change_%
-        A '(total)' counterpart row precedes each (pool, direction) block (pct = 100),
-        giving the pool's absolute in/out throughput and how much it moved.
-    """
-    na, nb = names
-    _EXTERNAL = {'DIC', 'CO2', 'Export', 'Leak', 'DIC_in'}
-    nodes = set(a for a, _ in links_a) | set(b for _, b in links_a) \
-        | set(a for a, _ in links_b) | set(b for _, b in links_b)
-
-    def out_tot(L, p):
-        return sum(v for (a, b), v in L.items() if a == p)
-
-    def in_tot(L, p):
-        return sum(v for (a, b), v in L.items() if b == p)
-
-    if pools is None:
-        cand = [p for p in nodes if p not in _EXTERNAL]
-        rank = {p: i for i, p in enumerate(_SANKEY_POOL_ORDER)}
-        pools = sorted(cand, key=lambda p: (rank.get(p, len(rank)),
-                                            -(out_tot(links_a, p) + in_tot(links_a, p))))
-
-    rows = []
-    for pool in pools:
-        for direction in ('in', 'out'):
-            if direction == 'out':
-                tot_a, tot_b = out_tot(links_a, pool), out_tot(links_b, pool)
-                counterparts = {b for (a, b) in links_a if a == pool} \
-                    | {b for (a, b) in links_b if a == pool}
-                val = lambda L, cp: L.get((pool, cp), 0.0)
-            else:
-                tot_a, tot_b = in_tot(links_a, pool), in_tot(links_b, pool)
-                counterparts = {a for (a, b) in links_a if b == pool} \
-                    | {a for (a, b) in links_b if b == pool}
-                val = lambda L, cp: L.get((cp, pool), 0.0)
-            if tot_a == 0.0 and tot_b == 0.0:
-                continue
-
-            def mkrow(cp, va, vb, ta, tb):
-                return {
-                    'pool': pool, 'direction': direction, 'counterpart': cp,
-                    na: va, f'{na}_pct': 100.0 * va / ta if ta else np.nan,
-                    nb: vb, f'{nb}_pct': 100.0 * vb / tb if tb else np.nan,
-                    'abs_change': vb - va,
-                    'rel_change_%': (vb / va - 1.0) * 100.0 if va else np.nan,
-                }
-
-            rows.append(mkrow('(total)', tot_a, tot_b, tot_a, tot_b))
-            cps = sorted(counterparts, key=lambda cp: -val(links_a, cp))
-            for cp in cps:
-                va, vb = val(links_a, cp), val(links_b, cp)
-                if max(va, vb) < min_flux:
-                    continue
-                rows.append(mkrow(cp, va, vb, tot_a, tot_b))
-    return pd.DataFrame(rows)

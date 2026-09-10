@@ -83,7 +83,7 @@ The framework is built around the concept of **components** - self-contained mod
 
 3. Create necessary directories:
    ```bash
-   mkdir -p Figs Observations simulations/{Simulations,References,Optimizations}
+   mkdir -p Figs Observations Simulations/{Model_runs,Reference_simulations,Optimizations}
    ```
 
 4. Verify installation:
@@ -96,64 +96,73 @@ The framework is built around the concept of **components** - self-contained mod
 ### Basic Simulation
 
 ```python
-from src.Config_model import base_config
-from src.utils import simulation_manager, plotting
-from core import phys
+from src.config_model import base_config
+from src.core import model, phys
+from src.utils import plotting
 
-# Use base configuration (available in repository)
-model_config = base_config.Onur
+# Reference biogeochemical configuration (Kerimoglu et al., 2022)
+setup = phys.Setup(tmax=30., dt=1e-2, dt2=1e-3)
+simulation = model.Model(base_config.Kerimoglu2022, setup=setup, name="basic_simulation")
 
-# Set up physical environment
-setup = phys.Setup(
-    **phys.DEFAULT_SETUPS['onur22'],
-    tmax=20,  # Simulation duration (days)
-    PARfromfile=True  # Use light data if available
-)
-
-# Run simulation
-simulation = simulation_manager.run_or_load_simulation(
-    model_config, setup,
-    name="basic_simulation"
-)
-
-# Plot key results
-plotting.plot_results(simulation, plotting.phy_nuts)
+plotting.plot_results(simulation, ['Phy_C', 'Phy_Chl', 'NO3_concentration'], observations=None)
 ```
+
+See `src/main_example.py` for a runnable version, and `src/utils/simulation_manager.py`
+(`run_or_load_simulation`) to save and reload runs instead of recomputing them.
 
 ## Model Configuration
 
 Models are configured using nested dictionaries that define components, parameters, coupling relationships, and initial conditions:
 
 ```python
-coupled_config = {
-    'formulation': 'Coupled_BGC_Floc',
+from src.components import flocs
+from src.config_model import base_config
+from src.utils import functions as fns
+
+# Add the flocculation module to the reference biogeochemistry, and couple the two ways:
+# TEP feeds floc aggregation, mineral flocs attenuate light for the phytoplankton.
+coupled_config = fns.deep_update(base_config.Kerimoglu2022, {
     'Phy': {
-        'class': phyto.Phyto,
-        'parameters': {
-            'mu_max': 4.5,        # Maximum growth rate (d⁻¹)
-            'QN_max': 0.15,       # Max N:C ratio (mol:mol)
-            'exud_rate': 0.1      # DOM exudation rate
-        },
-        'coupling': {
-            'coupled_NH4': 'NH4',
-            'coupled_TEP_source': 'TEP'
-        },
-        # ... initialization and aggregation rules
+        'coupling': {'coupled_SPM': ['Microflocs', 'Micro_in_Macro']},
     },
     'Microflocs': {
         'class': flocs.Flocs,
         'parameters': {
-            'K_glue': 10.0,       # TEP stickiness factor
-            'alpha_FF_ref': 0.05  # Base collision efficiency
+            'alpha_PP_base': 0.10,   # [-] mineral collision efficiency
+            'K_glue': 15.0,          # [mmolC m-3] half-saturation of the TEP effect
+            'delta_alpha_PP': 0.03,  # [-] increment of the collision efficiency at saturating TEP
         },
-        'coupling': {
-            'coupled_TEP': 'TEP',
-            'coupled_detritus': 'Detritus'
-        }
-    }
-    # ... other components
-}
+        'coupling': {'coupled_Nf': 'Macroflocs', 'coupled_Nt': 'Micro_in_Macro',
+                     'coupled_glue': 'TEPC'},
+        'initialization': {'numconc': 1.0e12},   # [# m-3]
+    },
+    # ... Macroflocs and Micro_in_Macro, same class, mirrored couplings
+})
 ```
+
+Parameters not listed keep the class defaults, which reproduce the reference publications
+(Kerimoglu et al. 2022 for the biogeochemistry, Lee et al. 2011 for the flocculation).
+
+## Configuration Modules You Provide
+
+Some things are your own choices rather than part of the framework. Write them as modules
+and drop them into `src/config_model/`; if a module is absent, the library falls back to
+the minimal version in `src/config_model/_defaults/`, so nothing here is required to get
+started.
+
+| Module | Holds | Fallback |
+|---|---|---|
+| `vars_to_plot.py` | which variable sets you plot | `_defaults/` |
+| `config_diagnostics.py` | which diagnostics you store (the main lever on memory use) | `_defaults/` |
+| `plot_config.py` | figure geometry, styles, default observation dataset | `_defaults/` |
+| `src/utils/observations.py` | your observation loader | none — plots simply omit observations |
+
+Your own model configurations go in `src/config_model/config.py`, built on top of
+`base_config.Kerimoglu2022` with `config_tools.deep_update` (see Model Configuration above).
+
+Site-specific configurations, observation data and analysis notebooks are kept in a
+separate private repository, mounted as `_private/` alongside `src/`. It is not part of
+this distribution, and nothing here depends on it.
 
 ## Model Output and Analysis
 
@@ -181,26 +190,33 @@ bgpartmod/
 │   │   └── flocs.py           # Flocculation processes
 │   ├── core/                # Core model functionality
 │   │   ├── base.py             # Base classes
-│   │   └── model.py           # Main model orchestration
-│   ├── Config_model/        # Model configurations
-│   │   └── base_config.py      # Standard model setups
-│   ├── Config_system/       # System configurations
+│   │   ├── phys.py             # Physical setup and forcings
+│   │   ├── legacy.py           # Backward compatibility of configuration dictionaries
+│   │   └── model.py            # Main model orchestration
+│   ├── config_model/        # Model configurations
+│   │   ├── base_config.py      # Reference configuration (Kerimoglu et al., 2022)
+│   │   ├── varinfos.py         # Output variables: units, labels, derived expressions
+│   │   └── _defaults/          # Fallbacks for the modules you are meant to provide
+│   ├── config_system/       # System configurations
 │   │   └── path_config.py      # Directory paths
 │   ├── utils/               # Utilities and analysis tools
 │   │   ├── simulation_manager.py # Simulation workflow management
 │   │   ├── optimization.py     # Parameter optimization
 │   │   ├── plotting.py         # Visualization utilities
+│   │   ├── plotted_variables_sets.py # Variable sets with their display preferences
 │   │   ├── evaluation.py       # Model-data comparison
 │   │   ├── desolver.py         # Differential evolution solver
-│   │   ├── phys.py            # Physical setup
+│   │   ├── flux_network.py     # Annual flux network (Sankey analysis)
+│   │   ├── config_tools.py     # Configuration dictionaries: merge, compare, transform
+│   │   ├── observations_example.py # Minimal observation loader
 │   │   └── functions.py        # General utilities
 │   ├── main_example.py      # Basic usage examples
 │   └── optim_main_example.py  # Optimization examples
 ├── Figs/                    # Generated figures
 ├── Observations/            # Observational data
 ├── Simulations/            # Model output storage
-│   ├── Model_runs/           # Regular simulations  
-│   ├── References_simulations/ # Reference runs
+│   ├── Model_runs/           # Regular simulations
+│   ├── Reference_simulations/ # Reference runs
 │   └── Optimizations/        # Parameter optimization results
 └── data/                   # Input data files
 ```

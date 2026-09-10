@@ -8,26 +8,20 @@ from src.config_model import varinfos
 class Detritus(BaseOrg):
     def __init__(self,
                  name,
-                 eps_kd=2e-4 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
-                 kleak=0., #0.25,  # [d-1] Specific leakage rate (out of the system) (Onur22)
-                 beta_max=0.033,  # [m3 mmolC-1 d-1] Max collision kernel for A2 (Onur22)
-                 KA2=57.48,  # [mmolC m-3] Half saturation cst for TEP dependence of A2 (Onur22)
+                 eps_kd=0.012,  # [m2 mmolC-1] Diffuse attenuation cross section (Kerimoglu22)
+                 kleak=0.,  # [d-1] Specific leakage rate out of the system (0.25 for DetL in Kerimoglu22)
+                 beta_max=0.033,  # [m3 mmolC-1 d-1] Max collision kernel for A2 (Kerimoglu22)
+                 KA2=57.48,  # [mmolC m-3] Half saturation cst for TEP dependence of A2 (Kerimoglu22)
                  prescribe_aggregate_from_setup=False,  # Whether to use prescribed aggregate from Setup
                  prescribed_resusp_ewma_alpha=0.0,  # EWMA smoothing for prescribed aggregate coupling
                  prescribed_organomin_coupling_fraction=1.0,  # Organo-mineral coupling fraction for prescribed aggregate
                  dt2=False,
                  dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
-                 **kwargs,
                  ):
 
         super().__init__(dtype=dtype)
 
-        # Backward compatibility (to remove when obsolete)
-        prescribed_resusp_ewma_alpha = kwargs.pop('prescribed_vertical_coupling_alpha', prescribed_resusp_ewma_alpha)
-        prescribed_organomin_coupling_fraction = kwargs.pop('prescribed_organomin_decoupling_factor', prescribed_organomin_coupling_fraction)
-
-        self.formulation = None
         self.aggTEP_C = None
         self.aggDetS_Si = None
         self.aggDetS_P = None
@@ -96,26 +90,8 @@ class Detritus(BaseOrg):
         self.coupled_smaller_Det = coupled_smaller_Det
         self.coupled_consumers = coupled_consumers
 
-        # Handle prescribed aggregate from Setup (for BGC-only runs with prescribed Flocs)
-        if self.prescribe_aggregate_from_setup:
-            from ..components.flocs import PrescribedFlocs
-            self.coupled_aggregate = PrescribedFlocs(
-                name="Macroflocs",
-                resusp_ewma_alpha=self.prescribed_resusp_ewma_alpha,
-                organomin_coupling_fraction=self.prescribed_organomin_coupling_fraction
-            )
-        else:
-            self.coupled_aggregate = coupled_aggregate
-
+        self._attach_aggregate(coupled_aggregate)
         self.coupled_remin_products = coupled_remin_products
-
-        # Store coupling parameters locally for performance (once instead of every timestep)
-        if self.coupled_aggregate is not None:
-            self.resusp_ewma_alpha = self.coupled_aggregate.resusp_ewma_alpha
-            self.organomin_coupling_fraction = self.coupled_aggregate.organomin_coupling_fraction
-        else:
-            self.resusp_ewma_alpha = 0.0
-            self.organomin_coupling_fraction = 1.0
 
     def get_coupled_processes_indepent_sinks_sources(self, t=None, t_idx=None):
         """
@@ -162,14 +138,9 @@ class Detritus(BaseOrg):
         self.get_sink_leakage_out()
         self.get_sink_ingestion()
 
-        # Update prescribed aggregate if applicable
-        if self.prescribe_aggregate_from_setup and self.coupled_aggregate:
-            self.coupled_aggregate.sink_sedimentation = self.setup.Macroflocs_sink_sed_array[t_idx]
-            self.coupled_aggregate.source_resuspension = self.setup.Macroflocs_source_resusp_array[t_idx]
-            self.coupled_aggregate.numconc = self.setup.Macroflocs_numconc_array[t_idx]
+        self._update_prescribed_aggregate(t_idx)
 
         self.get_sink_vertical_loss()
-        # self.get_sink_remineralization()
 
         # SINK terms of the state equation
         self.C_sinks = (self.sink_breakdown.C +
@@ -206,7 +177,7 @@ class Detritus(BaseOrg):
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.P_sinks, self.Si_sinks) if sinks is not None], dtype=self.dtype)
 
     def get_source_aggregation(self):
-        """Calculate aggregation sources for Onur22 formulation."""
+        """Calculate aggregation sources for Kerimoglu22 formulation."""
         if self.name == 'DetL':
             betaA2 = self.beta_max * self.coupled_TEPC.C / (self.coupled_TEPC.C + self.KA2)
             self.aggPD_tot = betaA2 * (
@@ -274,7 +245,7 @@ class Detritus(BaseOrg):
                 self.source_sloppy_feeding.Si = 0.
 
     def get_sink_breakdown(self):
-        """Calculate breakdown sinks for Onur22 formulation."""
+        """Calculate breakdown sinks for Kerimoglu22 formulation."""
         self.sink_breakdown.C = 0.
         self.sink_breakdown.N = 0.
         self.sink_breakdown.P = 0.
@@ -303,7 +274,7 @@ class Detritus(BaseOrg):
         self.sink_leakage_out.Si = self.kleak * self.Si if self.Si else 0.
 
     def get_sink_ingestion(self):
-        """Calculate ingestion sinks for Onur22 formulation."""
+        """Calculate ingestion sinks for Kerimoglu22 formulation."""
         self.sink_ingestion.C = np.sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
         if self.N is not None:
             self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
@@ -321,74 +292,11 @@ class Detritus(BaseOrg):
         if self.coupled_remin_products is not None:
             for product in self.coupled_remin_products:
                 if hasattr(product, 'remineralization_rate') and product.remineralization_rate > 0:
-                    if product.name == 'NH4' and hasattr(self, 'N'):
+                    if product.name == 'NH4' and self.N is not None:
                         self.sink_remineralization.N = product.remineralization_rate * self.N
-                    elif product.name == 'DIP' and hasattr(self, 'P'):
+                    elif product.name == 'DIP' and self.P is not None:
                         self.sink_remineralization.P = product.remineralization_rate * self.P
-                    elif product.name == 'DSi' and hasattr(self, 'Si'):
+                    elif product.name == 'DSi' and self.Si is not None:
                         self.sink_remineralization.Si = product.remineralization_rate * self.Si
 
 
-    def get_sink_vertical_loss(self):
-        """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)
-
-        Separated formulation:
-        - Sedimentation: proportional to current concentration in water column
-        - Resuspension: absolute flux based on smoothed BGC/floc ratio (EWMA filter)
-        """
-        if self.coupled_aggregate is not None:
-            conv = self.coupled_aggregate.time_conversion_factor
-            Nf = self.coupled_aggregate.numconc
-
-            # Update smoothed ratios (EWMA filter: α=0 → fixed, α>0 → adaptive)
-            # Ratios based on fraction forming organo-mineral aggregates
-            if Nf > 0 and self.resusp_ewma_alpha > 0:
-                if self.smoothed_C_to_Nf_ratio is not None:
-                    self.smoothed_C_to_Nf_ratio = self.resusp_ewma_alpha * (self.C * self.organomin_coupling_fraction / Nf) + (1 - self.resusp_ewma_alpha) * self.smoothed_C_to_Nf_ratio
-                if self.smoothed_N_to_Nf_ratio is not None:
-                    self.smoothed_N_to_Nf_ratio = self.resusp_ewma_alpha * (self.N * self.organomin_coupling_fraction / Nf) + (1 - self.resusp_ewma_alpha) * self.smoothed_N_to_Nf_ratio
-                if self.P is not None and self.smoothed_P_to_Nf_ratio is not None:
-                    self.smoothed_P_to_Nf_ratio = self.resusp_ewma_alpha * (self.P * self.organomin_coupling_fraction / Nf) + (1 - self.resusp_ewma_alpha) * self.smoothed_P_to_Nf_ratio
-                if self.Si is not None and self.smoothed_Si_to_Nf_ratio is not None:
-                    self.smoothed_Si_to_Nf_ratio = self.resusp_ewma_alpha * (self.Si * self.organomin_coupling_fraction / Nf) + (1 - self.resusp_ewma_alpha) * self.smoothed_Si_to_Nf_ratio
-
-            # Sedimentation rate [d-1]
-            settling_rate = (self.coupled_aggregate.sink_sedimentation / Nf * conv) if Nf > 0 else 0.0
-
-            # Resuspension fluxes [mmol m-3 d-1] (absolute, from smoothed ratios)
-            resusp_C = (self.coupled_aggregate.source_resuspension * conv *
-                       self.smoothed_C_to_Nf_ratio) if self.smoothed_C_to_Nf_ratio is not None else 0.0
-            resusp_N = (self.coupled_aggregate.source_resuspension * conv *
-                       self.smoothed_N_to_Nf_ratio) if self.smoothed_N_to_Nf_ratio is not None else 0.0
-            resusp_P = (self.coupled_aggregate.source_resuspension * conv *
-                       self.smoothed_P_to_Nf_ratio) if (self.P is not None and
-                       self.smoothed_P_to_Nf_ratio is not None) else 0.0
-            resusp_Si = (self.coupled_aggregate.source_resuspension * conv *
-                        self.smoothed_Si_to_Nf_ratio) if (self.Si is not None and
-                        self.smoothed_Si_to_Nf_ratio is not None) else 0.0
-
-            # Net vertical loss (positive = loss from water column)
-            # Sedimentation applied only to fraction forming organo-mineral aggregates
-            self.sink_vertical_loss.C = settling_rate * self.C * self.organomin_coupling_fraction - resusp_C
-            self.sink_vertical_loss.N = settling_rate * self.N * self.organomin_coupling_fraction - resusp_N
-            self.sink_vertical_loss.P = settling_rate * self.P * self.organomin_coupling_fraction - resusp_P if self.P is not None else 0.0
-            self.sink_vertical_loss.Si = settling_rate * self.Si * self.organomin_coupling_fraction - resusp_Si if self.Si is not None else 0.0
-
-            # # Old formulation (coupled net rate):
-            # rate = (self.coupled_aggregate.net_vertical_loss_rate *
-            #         self.coupled_aggregate.time_conversion_factor)
-            # self.sink_vertical_loss.C = rate * self.C
-            # self.sink_vertical_loss.N = rate * self.N
-            # if self.P is not None:
-            #     self.sink_vertical_loss.P = rate * self.P
-            # else:
-            #     self.sink_vertical_loss.P = 0.
-            # if self.Si is not None:
-            #     self.sink_vertical_loss.Si = rate * self.Si
-            # else:
-            #     self.sink_vertical_loss.Si = 0.
-        else:
-            self.sink_vertical_loss.C = 0.
-            self.sink_vertical_loss.N = 0.
-            self.sink_vertical_loss.P = 0.
-            self.sink_vertical_loss.Si = 0.
