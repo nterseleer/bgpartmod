@@ -1,15 +1,13 @@
-import numpy as np
-
 from src.components import phytoplankton as phyto
 from src.components import dim
 from src.components import heterotrophs as het
 from src.components import detritus
 from src.components import dom
 from src.config_model import varinfos
-from src.utils import functions as fns
+from src.utils import config_tools as cfg
 
-# Onur22 = Kerimoglu et al 2022
-# =============================
+# Kerimoglu et al. (2022), noted Kerimoglu22 in the parameter comments below.
+# =============================================================================
 # Model units: [d-1], [mmol m-3] for all tracers except Chl [mg m-3]
 
 # 20240319 - All targets and consumers are given for coupling, but the actual preference p_i,j determines whether
@@ -22,8 +20,7 @@ potential_targets = ['DOCS', 'DOCL', 'TEPC', 'DetS', 'DetL'] + heterotrophs_list
 # BASE CONFIGURATION (based on KERIMOGLU ET AL 2022)
 # ===============================================================================
 
-Onur = {
-    # 'formulation': 'Onur22',
+Kerimoglu2022 = {
     'BacF': {'class': het.Heterotrophs,
              'parameters':
                  {'g_max': 4.,  # [-] ?!
@@ -34,7 +31,7 @@ Onur = {
                   'mortrate_lin': 0.,  # [d-1]
                   'mortrate_quad': 0.,  # [d-1]
                   'lysrate_lin': 0.1,  # [d-1]
-                  'lysrate_quad': 0.1,  # [d-1]  ! Difference: 0 in the paper, 0.1 in Onur's code
+                  'lysrate_quad': 0.1,  # [d-1]  ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
                   'f_unass_excr': 0.8,  # [-]
                   'f_unass_Si': 0.9,  # [-]
                   'zeta_resp': 0.05,  # [d-1]
@@ -78,7 +75,7 @@ Onur = {
                   'mortrate_lin': 0.,  # [d-1]
                   'mortrate_quad': 0.,  # [d-1]
                   'lysrate_lin': 0.1,  # [d-1]
-                  'lysrate_quad': 0.1,  # [d-1]  ! Difference: 0 in the paper, 0.1 in Onur's code
+                  'lysrate_quad': 0.1,  # [d-1]  ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
                   'f_unass_excr': 0.8,  # [-]
                   'f_unass_Si': 0.9,  # [-]
                   'zeta_resp': 0.05,  # [d-1]
@@ -120,7 +117,7 @@ Onur = {
                 'eff_N': 1.,  # [-]
                 'eff_P': 1.,  # [-]
                 'mortrate_lin': 0.05,  # [d-1]
-                'mortrate_quad': 0.0,  # [d-1] ! Difference: 0 in the paper, 0.1 in Onur's code
+                'mortrate_quad': 0.0,  # [d-1] ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
                 'lysrate_lin': 0.,  # [d-1]
                 'lysrate_quad': 0.06,  # [d-1]
                 'f_unass_excr': 1.,  # [-]
@@ -164,7 +161,7 @@ Onur = {
                  'eff_N': 1.,  # [-]
                  'eff_P': 1.,  # [-]
                  'mortrate_lin': 0.05,  # [d-1]
-                 'mortrate_quad': 0.0,  # [d-1] ! Difference: 0 in the paper, 0.1 in Onur's code
+                 'mortrate_quad': 0.0,  # [d-1] ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
                  'lysrate_lin': 0.,  # [d-1]
                  'lysrate_quad': 0.02,  # [d-1]
                  'f_unass_excr': 1.,  # [-]
@@ -205,7 +202,6 @@ Onur = {
             'parameters':
                 {'mu_max': 5.2,  # [d-1] !OK
                  'alpha': 7.e-6,  # converted to [mgC mgChl-1 µE-1 m2] from [mgC mgChl-1 E-1 m2]
-                 # 'thetaN_max': 0.07 / 0.15 * varinfos.molmass_C,  # [mgChl mmolN-1] from theta_max/QNmax
                  'theta_max': 0.07 * varinfos.molmass_C,  # Converted to [gChl molC-1] from [gChl gC-1]
                  # Conversion is needed as theta_max/QN_max must give [gChl molN-1]
                  # to have appropriate units for rho_chl [gChl/mol]
@@ -231,7 +227,6 @@ Onur = {
                  'A_E': 0.32,  # [-] !OK
                  'T_ref': 283.15,  # [K] !OK
                  'eps_kd': 0.024,  # [m2 mmolC-1]
-                 'kdvar': True,
                  },
             'coupling':
                 {
@@ -382,16 +377,17 @@ Onur = {
                   'POP': 'P'
                   }
              },
-    'DIC': {'class': dim.DIM,
-            'coupling': {
-                'coupled_resp_sources': ['Phy'] + heterotrophs_list,
-                'coupled_uptake_sinks': 'Phy',
-                'coupled_sloppy_feeding_sources': heterotrophs_list
-            },
-            'initialization': {'concentration': 1000},
-            'aggregate':
-                {'C_tot': 'concentration'}
-            },
+    # Requires a full description of the DIC source and sink dynamics.
+    # 'DIC': {'class': dim.DIM,
+    #         'coupling': {
+    #             'coupled_resp_sources': ['Phy'] + heterotrophs_list,
+    #             'coupled_uptake_sinks': 'Phy',
+    #             'coupled_sloppy_feeding_sources': heterotrophs_list
+    #         },
+    #         'initialization': {'concentration': 1000},
+    #         'aggregate':
+    #             {'C_tot': 'concentration'}
+    #         },
     'NH4': {'class': dim.DIM,
             'coupling': {
                 'coupled_uptake_sinks': 'Phy',
@@ -434,5 +430,6 @@ Onur = {
 
 }
 
-# `Onur` above carries the model composition only. To get diagnostics out of it, merge a
-# level from config_diagnostics, e.g. fns.deep_update(Onur, config_diagnostics.reference).
+# `Kerimoglu2022` above carries the model composition only. To get diagnostics out of it,
+# merge a level from config_diagnostics, e.g.
+#     cfg.deep_update(Kerimoglu2022, config_diagnostics.reference)

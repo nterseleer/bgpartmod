@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 
 from ..core.base import BaseOrg, Elms
@@ -7,11 +9,11 @@ from ..utils import functions as fns
 class Heterotrophs(BaseOrg):
     def __init__(self,
                  name,
-                 g_max=0.230,  # [-]?? or [d-1] Maximum ingestion rate
-                 K_i=10.,  # [-]?? or [mmolC m-3] Half-saturation cst for ingestion
+                 g_max=2.4,  # [d-1] Maximum ingestion rate (Kerimoglu22: 2.4 Cil to 4.0 BacF/HF)
+                 K_i=10.,  # [mmolC m-3] Half-saturation cst for ingestion (Kerimoglu22: 10 bacteria, 20 grazers)
                  eff_C=0.6,  # [-] C assimilation efficiency
                  eff_N=1.,  # [-] N assimilation efficiency
-                 eff_P=1.,  # [-] N assimilation efficiency
+                 eff_P=1.,  # [-] P assimilation efficiency
                  zeta_resp=0.05,  # [d-1] Basal respiration rate
                  lysrate_lin=0.1,  # [d-1] Linear lysis rate
                  lysrate_quad=0.,  # [d-1] Quadratic lysis rate
@@ -19,9 +21,9 @@ class Heterotrophs(BaseOrg):
                  mortrate_quad=0.,  # [d-1] Quadratic mortality rate
                  f_unass_excr=0.8,  # [-] Organic fraction of unassimilated excretes
                  f_unass_Si=0.9,  # [-] Detrital fraction of unassimilated silicate
-                 A_E=0.65,  # [-] Activation Energy for T° scaling
-                 T_ref=283,  # [K] Reference T°
-                 eps_kd=0.012,  # [m2 mmolC-1] Specific attenuation coefficient
+                 A_E=0.65,  # [-] Activation energy for T scaling (Kerimoglu22)
+                 T_ref=283.15,  # [K] Reference temperature (Kerimoglu22)
+                 eps_kd=0.012,  # [m2 mmolC-1] Specific attenuation coefficient (Kerimoglu22)
                  prescribe_aggregate_from_setup=False,  # Whether to use prescribed aggregate from Setup
                  prescribed_resusp_ewma_alpha=0.0,  # EWMA smoothing for prescribed aggregate coupling
                  prescribed_organomin_coupling_fraction=1.0,  # Organo-mineral coupling fraction for prescribed aggregate
@@ -32,10 +34,6 @@ class Heterotrophs(BaseOrg):
                  ):
 
         super().__init__(dtype=dtype)
-
-        # Backward compatibility (to remove when obsolete)
-        prescribed_resusp_ewma_alpha = kwargs.pop('prescribed_vertical_coupling_alpha', prescribed_resusp_ewma_alpha)
-        prescribed_organomin_coupling_fraction = kwargs.pop('prescribed_organomin_decoupling_factor', prescribed_organomin_coupling_fraction)
 
         self.source_ing_P_unassimilated_to_dim = None
         self.source_ing_N_unassimilated_to_dim = None
@@ -80,8 +78,6 @@ class Heterotrophs(BaseOrg):
         for k, v in kwargs.items():
             if k.startswith('pref'):
                 self.pref[k.split("_", maxsplit=1)[1]] = v
-            # else:
-            #     setattr(self, k, v)
 
         # Per-prey ingestion mirror (see set_coupling): [(target_index, prey_name)] to export,
         # empty unless the matching 'ing_<prey>_C' diagnostics are requested. Empty -> the
@@ -102,11 +98,6 @@ class Heterotrophs(BaseOrg):
         # Coupling links
         self.coupled_aggregate = None  # Link to Macroflocs for vertical dynamics
 
-        # Initialize SMS terms
-        self.C_SMS = 0.
-        self.N_SMS = 0.
-        self.P_SMS = 0.
-
     def set_coupling(self, coupled_targets,
                      coupled_consumers=None,
                      coupled_aggregate=None):
@@ -114,31 +105,18 @@ class Heterotrophs(BaseOrg):
         self.coupled_targets = coupled_targets  # preys (for zooplankton), but can also be OM
         self.coupled_consumers = coupled_consumers
 
-        # Handle prescribed aggregate from Setup (for BGC-only runs with prescribed Flocs)
-        if self.prescribe_aggregate_from_setup:
-            from ..components.flocs import PrescribedFlocs
-            self.coupled_aggregate = PrescribedFlocs(
-                name="Macroflocs",
-                resusp_ewma_alpha=self.prescribed_resusp_ewma_alpha,
-                organomin_coupling_fraction=self.prescribed_organomin_coupling_fraction
-            )
-        else:
-            self.coupled_aggregate = coupled_aggregate
-
-        # Store coupling parameters locally for performance (once instead of every timestep)
-        if self.coupled_aggregate is not None:
-            self.resusp_ewma_alpha = self.coupled_aggregate.resusp_ewma_alpha
-            self.organomin_coupling_fraction = self.coupled_aggregate.organomin_coupling_fraction
-        else:
-            self.resusp_ewma_alpha = 0.0
-            self.organomin_coupling_fraction = 1.0
+        self._attach_aggregate(coupled_aggregate)
 
         for t in self.coupled_targets:
             if t.name not in self.pref.keys():
                 self.pref[t.name] = 0.
-        if sum(self.pref.values()) != 1:
-            print('WARNING PREF TROUBLE for {} with sum preferences = {}'.format(self.name, sum(self.pref.values())))
-            input()
+        # Tolerance rather than an exact float comparison: preferences given as thirds
+        # never sum to exactly 1. Warn only -- this used to block on input(), which hangs
+        # a parallel optimisation or a batch job in the middle of Model.__init__.
+        pref_sum = sum(self.pref.values())
+        if abs(pref_sum - 1.0) > 1e-9:
+            warnings.warn(f"{self.name}: prey preferences sum to {pref_sum} instead of 1.",
+                          RuntimeWarning, stacklevel=2)
 
         # Optimization: Pre-compute temperature limitation array for entire simulation
         if self.setup is not None:
@@ -233,20 +211,14 @@ class Heterotrophs(BaseOrg):
         # SINKS
         self.get_sink_ingestion()
 
-        # Update prescribed aggregate if applicable
-        if self.prescribe_aggregate_from_setup and self.coupled_aggregate:
-            self.coupled_aggregate.sink_sedimentation = self.setup.Macroflocs_sink_sed_array[t_idx]
-            self.coupled_aggregate.source_resuspension = self.setup.Macroflocs_source_resusp_array[t_idx]
-            self.coupled_aggregate.numconc = self.setup.Macroflocs_numconc_array[t_idx]
+        self._update_prescribed_aggregate(t_idx)
 
         self.get_sink_vertical_loss()
-        # self.get_sink_respiration()
-        # self.get_sink_lysis()
-        # self.get_sink_mortality()
 
         # SINK terms of the state equation
+        # sink_respiration.C is NOT summed here: it is already subtracted from the
+        # ingestion in get_sources, so that QN and QP stay constant.
         self.C_sinks = (self.sink_ingestion.C +
-                        # self.sink_respiration.C + # commented out because it is already removed from ingestion (conserved QN and QP)
                         self.sink_lysis.C +
                         self.sink_mortality.C +
                         self.sink_vertical_loss.C)
@@ -269,7 +241,7 @@ class Heterotrophs(BaseOrg):
                         if sinks is not None], dtype=self.dtype)
 
     def get_source_ingestion(self):
-        """Calculate ingestion with vectorized operations for Onur22 formulation."""
+        """Calculate ingestion with vectorized operations for Kerimoglu22 formulation."""
         # Vectorize: extract arrays from coupled targets
         n_targets = len(self.coupled_targets)
         prefs = np.array([self.pref[t.name] for t in self.coupled_targets])
@@ -324,53 +296,3 @@ class Heterotrophs(BaseOrg):
         if self.P is not None:
             self.sink_mortality.P = self.sink_mortality.C * self.QP
 
-    def get_sink_vertical_loss(self):
-        """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension)
-
-        Separated formulation:
-        - Sedimentation: proportional to current concentration in water column
-        - Resuspension: absolute flux based on smoothed BGC/floc ratio (EWMA filter)
-        """
-        if self.coupled_aggregate is not None:
-            conv = self.coupled_aggregate.time_conversion_factor
-            Nf = self.coupled_aggregate.numconc
-
-            # Update smoothed ratios (EWMA filter: α=0 → fixed, α>0 → adaptive)
-            # Ratios based on fraction forming organo-mineral aggregates
-            if Nf > 0 and self.resusp_ewma_alpha > 0:
-                if self.smoothed_C_to_Nf_ratio is not None:
-                    self.smoothed_C_to_Nf_ratio = self.resusp_ewma_alpha * (self.C * self.organomin_coupling_fraction / Nf) + (1 - self.resusp_ewma_alpha) * self.smoothed_C_to_Nf_ratio
-                if self.N is not None and self.smoothed_N_to_Nf_ratio is not None:
-                    self.smoothed_N_to_Nf_ratio = self.resusp_ewma_alpha * (self.N * self.organomin_coupling_fraction / Nf) + (1 - self.resusp_ewma_alpha) * self.smoothed_N_to_Nf_ratio
-                if self.P is not None and self.smoothed_P_to_Nf_ratio is not None:
-                    self.smoothed_P_to_Nf_ratio = self.resusp_ewma_alpha * (self.P * self.organomin_coupling_fraction / Nf) + (1 - self.resusp_ewma_alpha) * self.smoothed_P_to_Nf_ratio
-
-            # Sedimentation rate [d-1]
-            settling_rate = (self.coupled_aggregate.sink_sedimentation / Nf * conv) if Nf > 0 else 0.0
-
-            # Resuspension flux [mmolC m-3 d-1] (absolute, from smoothed ratio)
-            resusp_C = (self.coupled_aggregate.source_resuspension * conv *
-                       self.smoothed_C_to_Nf_ratio) if self.smoothed_C_to_Nf_ratio is not None else 0.0
-            resusp_N = (self.coupled_aggregate.source_resuspension * conv *
-                       self.smoothed_N_to_Nf_ratio) if self.N is not None and self.smoothed_N_to_Nf_ratio is not None else 0.0
-            resusp_P = (self.coupled_aggregate.source_resuspension * conv *
-                       self.smoothed_P_to_Nf_ratio) if self.P is not None and self.smoothed_P_to_Nf_ratio is not None else 0.0
-
-            # Net vertical loss (positive = loss from water column)
-            # Sedimentation applied only to fraction forming organo-mineral aggregates
-            self.sink_vertical_loss.C = settling_rate * self.C * self.organomin_coupling_fraction - resusp_C
-            if self.N is not None:
-                self.sink_vertical_loss.N = settling_rate * self.N * self.organomin_coupling_fraction - resusp_N
-            if self.P is not None:
-                self.sink_vertical_loss.P = settling_rate * self.P * self.organomin_coupling_fraction - resusp_P
-
-            # # Old formulation (coupled net rate):
-            # rate = (self.coupled_aggregate.net_vertical_loss_rate *
-            #         self.coupled_aggregate.time_conversion_factor)
-            # self.sink_vertical_loss.C = rate * self.C
-            # self.sink_vertical_loss.N = rate * self.N
-            # self.sink_vertical_loss.P = rate * self.P
-        else:
-            self.sink_vertical_loss.C = 0.
-            self.sink_vertical_loss.N = 0.
-            self.sink_vertical_loss.P = 0.

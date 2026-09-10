@@ -1,7 +1,6 @@
 import numpy as np
 
 from ..core.base import BaseStateVar
-from src.config_model import varinfos
 from ..utils import functions as fns
 
 
@@ -26,10 +25,7 @@ class PrescribedFlocs:
     - sink_sedimentation, source_resuspension, numconc for vertical coupling
     """
     def __init__(self, name, eps_kd=0.066e3, time_conversion_factor=86400,
-                 resusp_ewma_alpha=0.0, organomin_coupling_fraction=1.0, **kwargs):
-        # Backward compatibility (to remove when obsolete)
-        resusp_ewma_alpha = kwargs.pop('vertical_coupling_alpha', resusp_ewma_alpha)
-        organomin_coupling_fraction = kwargs.pop('organomin_decoupling_factor', organomin_coupling_fraction)
+                 resusp_ewma_alpha=0.0, organomin_coupling_fraction=1.0):
         self.name = name
         self.eps_kd = eps_kd
         self.time_conversion_factor = time_conversion_factor
@@ -139,29 +135,32 @@ class Flocs(BaseStateVar):
 
     def __init__(self,
                  name,
-                 p_exp=0.4,
-                 q_exp=0.1,
-                 dynamic_q_exp=False,  # [-] If True, q = 3 - nf(t) (Lee et al. 2011, 2014) instead of the fixed q_exp
-                 d_crit_growth=None,   # [m] Critical diameter above which breakage ramps up (Lee et al. 2011: 450e-6). None disables it
+                 p_exp=1.0,  # [-] Exponent of the breakage kinetics (Lee11)
+                 q_exp=1.0,  # [-] Exponent of the breakage kinetics; = 3 - nf at nf = 2.0 (Lee11)
+                 dynamic_q_exp=True,  # [-] If True, q = 3 - nf(t) as in Lee11/Lee14, instead of the fixed q_exp
+                 d_crit_growth=None,   # [m] Critical diameter above which breakage ramps up (Lee11: 450e-6). None disables it
                  d_crit_exponent=10.,  # [-] Steepness of that ramp
                  d_crit_max_factor=100.,  # [-] Cap on the ramp, so an explicit Euler step cannot overshoot
-                 f_frac_floc_break=0.1,
-                 efficiency_break=2e-4,
+                 f_frac_floc_break=0.1,  # [-] Fraction of microflocs released by breakage (Lee11)
+                 efficiency_break=1.0e-4,  # [s^0.5 m-1] Efficiency factor for breakage (Lee11)
 
-                 # d_p_microflocdiam=18e-6,
-                 d_p_microflocdiam=5e-6,
-                 nf_fractal_dim=2,
+                 d_p_microflocdiam=18e-6,  # [m] Diameter of the flocculi (Lee11)
+                 nf_fractal_dim=2.0,  # [-] Fractal dimension of the macroflocs (Lee11)
 
-                 density=2500,  # [kg/m3]
+                 density=1600,  # [kg m-3] Density of the flocculi (Lee11)
 
                  # Base values for additive TEP formulation - values in the absence of organic TEP (= purely mineral)
-                 alpha_FF_base = 0.02,     # [-] Base FF collision efficiency (mineral only)
-                 alpha_PP_base = 0.02,     # [-] Base PP collision efficiency (mineral only)
-                 alpha_PF_base = 0.02,     # [-] Base PF collision efficiency (mineral only)
-                 fyflocstrength_base = 1e-10,  # [N] Base floc strength (mineral only)
-                 tau_cr_base = 0.5,        # [Pa] Base critical shear stress (mineral only)
+                 alpha_FF_base = 0.10,     # [-] Base FF collision efficiency, mineral only (Lee11, TCPBE)
+                 alpha_PP_base = 0.10,     # [-] Base PP collision efficiency, mineral only (Lee11, TCPBE)
+                 alpha_PF_base = 0.10,     # [-] Base PF collision efficiency, mineral only (Lee11, TCPBE)
+                 fyflocstrength_base = 1e-10,  # [N] Base floc yield strength, mineral only (Lee11; their
+                                               # Table 3 reads [Pa], but the breakage kernel needs a force
+                                               # for mu*G*D_F^2/F_y to be dimensionless)
+                 tau_cr_base = 0.5,        # [Pa] Base critical shear stress for erosion, mineral only.
+                                           # Not in Lee11: resuspension is specific to this model.
 
-                 # Delta values for TEP effect (additive increments)
+                 # Delta values for TEP effect (additive increments). None of these are in Lee11:
+                 # the TEP coupling is specific to this model.
                  delta_alpha_FF = 0.03,    # [-] TEP increment for FF collision efficiency
                  delta_alpha_PP = 0.03,    # [-] TEP increment for PP collision efficiency
                  delta_alpha_PF = 0.03,    # [-] TEP increment for PF collision efficiency
@@ -177,7 +176,7 @@ class Flocs(BaseStateVar):
                  K_glue = None,            # [mmol m-3] Half-saturation for TEP effect
                  prescribe_tep_from_setup = False,  # [-] Use prescribed TEP from Setup instead of coupled_glue
                  #
-                 resuspension_rate = 0.,       # [kg/m²/s/Pa]
+                 resuspension_rate = 0.,   # [# m-2 s-1 Pa-1] Erosion rate constant (0 = no resuspension)
                  apply_settling = True, # Boolean. Whether to apply sediment settling
                  settling_velocity_factor = None,  # [-] Constant fraction of base settling velocity (None = w_s natif)
 
@@ -185,12 +184,9 @@ class Flocs(BaseStateVar):
                  resusp_ewma_alpha = 0.0,  # [-] α=0: fixed ratio (Option A), α>0: adaptive smoothing (Option B1)
                  organomin_coupling_fraction = 1.0,  # [-] Fraction forming organo-mineral aggregates
 
-                 # eps_kd=2e-5 * varinfos.molmass_C,  # [m2 mgC-1] Diffuse attenuation cross section
-                 # # value from
-                 # eps_kd=2e-5,  # [m2 mg-1] Diffuse attenuation cross section of SPM with kd = ... + eps_kd * sqrt(SPM)
-                 # # value from Tian et al., 2009
-                 eps_kd = 0.066* 1e3, # from 0.066 [m-1 (mg l-1)-1] to [m-1 (g l-1)-1] = [m-1 (kg m-3)-1] (model units) Light attenuation due to SPM
-                 # model is in kg m-3
+                 # Light attenuation by SPM: 0.066 [m-1 (mg l-1)-1] converted to model units
+                 # [m-1 (kg m-3)-1]. Tian et al. (2009) give an alternative in sqrt(SPM).
+                 eps_kd = 0.066 * 1e3,  # [m2 kg-1]
 
                  sinking_leak=0,
 
@@ -198,31 +194,9 @@ class Flocs(BaseStateVar):
                  dtype=np.float64,
                  time_conversion_factor = 86400,   # Flocs run in s-1 while the rest of the model is in d-1
                  spinup_days = 0,   # Days of spin-up before interactions with biological components
-                 **kwargs,
                  ):
 
         super().__init__(dtype=dtype)
-
-        # Backward compatibility (to remove when obsolete)
-        # counter_settling_by_turbulence retire (2026-08) : modulation de w_s par le
-        # cisaillement, heritee de flocs_Settling_vs_Resuspension, jamais active dans une
-        # configuration retenue -- et un piege, puisqu'elle se reveillait des que
-        # settling_velocity_factor passait a None. Ignore, SAUF si la config l'activait :
-        # elle attendrait alors un comportement que le code ne sait plus produire.
-        # Ne crier que si la branche etait REELLEMENT atteinte : settling_velocity_factor la
-        # court-circuitait, donc les configs qui definissent le facteur (OPT542 et ses derives,
-        # figes dans leurs pkl) sont inchangees et doivent continuer a tourner telles quelles.
-        if kwargs.pop('counter_settling_by_turbulence', False) and settling_velocity_factor is None:
-            raise ValueError(
-                f"{name}: counter_settling_by_turbulence a ete retire de Flocs, et cette "
-                f"configuration l'atteignait vraiment (settling_velocity_factor = None). "
-                f"Elle attend une modulation de w_s par le cisaillement qui n'existe plus.")
-        kwargs.pop('settling_vel_min_fraction', None)
-        kwargs.pop('settling_vel_max_fraction', None)
-        kwargs.pop('mu_viscosity', None)
-
-        resusp_ewma_alpha = kwargs.pop('vertical_coupling_alpha', resusp_ewma_alpha)
-        organomin_coupling_fraction = kwargs.pop('organomin_decoupling_factor', organomin_coupling_fraction)
 
         # Additive formulation parameters
         self.alpha_FF_base = alpha_FF_base
@@ -239,12 +213,12 @@ class Flocs(BaseStateVar):
         self.delta_nf_fractal_dim = delta_nf_fractal_dim
 
         self.K_glue = K_glue
-        self.unified_alphas = unified_alphas
         self.include_PP_collision = include_PP_collision
         self.prescribe_tep_from_setup = prescribe_tep_from_setup
 
-        # SharedFlocAlphas instance (will be injected later)
+        # SharedFlocTEPParameters instance (injected in set_coupling)
         self.shared_alphas = None
+        self.unified_alphas = unified_alphas
 
         self.SMS = None
         self.settling_vel = None
@@ -285,19 +259,7 @@ class Flocs(BaseStateVar):
         self.diagnostics = None
         self.classname = 'Floc'
         self.name = name
-        # Initialize alphas with base values (will be updated by TEP coupling if active).
-        # These seed only the row-0 diagnostic: get_tep_parameters() overwrites them at every
-        # derivative evaluation, so the trajectory is unaffected. Mirror the unified_alphas
-        # logic of FlocParameters here, otherwise row 0 reports the class default alpha_FF_base
-        # (0.02) instead of the configured alpha_PP_base (which unified_alphas ties FF/PF to).
-        # NOTE residual: Macroflocs.tau_cr / nf still show their class default at row 0 (their
-        # base lives on the Microflocs "master", not yet wired at __init__); harmless, same reason.
-        if unified_alphas:
-            self.alpha_PP = self.alpha_PF = self.alpha_FF = alpha_PP_base
-        else:
-            self.alpha_PP = alpha_PP_base
-            self.alpha_PF = alpha_PF_base
-            self.alpha_FF = alpha_FF_base
+        self._seed_tep_diagnostics()
         self.p_exp = p_exp
         self.q_exp = q_exp
         self.dynamic_q_exp = dynamic_q_exp
@@ -308,8 +270,6 @@ class Flocs(BaseStateVar):
         self.growth_limiter = 1.0  # [-] Breakage enhancement applied at this step (diagnostic)
         self.f_frac_floc_break = f_frac_floc_break
         self.efficiency_break = efficiency_break
-        # Initialize with base value (will be updated by TEP coupling if active)
-        self.fyflocstrength = fyflocstrength_base
         self.sinking_leak = sinking_leak
 
         self.resuspension_rate = resuspension_rate
@@ -317,9 +277,6 @@ class Flocs(BaseStateVar):
         self.apply_settling = apply_settling
         self.resusp_ewma_alpha = resusp_ewma_alpha
         self.organomin_coupling_fraction = organomin_coupling_fraction
-
-        # Initialize tau_cr with base value (will be updated by TEP coupling if active)
-        self.tau_cr = tau_cr_base
 
         self.d_p_microflocdiam = d_p_microflocdiam
         self.diam = d_p_microflocdiam
@@ -332,6 +289,23 @@ class Flocs(BaseStateVar):
 
         self.setup = None
 
+
+    def _seed_tep_diagnostics(self):
+        """Seed the TEP-dependent parameters with their base (mineral-only) values.
+
+        Only the row-0 diagnostics depend on this: get_tep_parameters() overwrites them at
+        every derivative evaluation, so the trajectory is unaffected. Called again from
+        set_coupling() on Macroflocs and Micro_in_Macro, once they have inherited the bases
+        from the Microflocs "master" -- otherwise row 0 would report the class defaults.
+        """
+        if self.unified_alphas:
+            self.alpha_PP = self.alpha_PF = self.alpha_FF = self.alpha_PP_base
+        else:
+            self.alpha_PP = self.alpha_PP_base
+            self.alpha_PF = self.alpha_PF_base
+            self.alpha_FF = self.alpha_FF_base
+        self.fyflocstrength = self.fyflocstrength_base
+        self.tau_cr = self.tau_cr_base
 
     def _calculate_macrofloc_diameter(self):
         """
@@ -389,13 +363,19 @@ class Flocs(BaseStateVar):
             # Micro_in_Macro computes its mass concentration and Macroflocs its settling
             # constant with the class default (2500) whatever the master carries.
             self.density = self.coupled_Np.density
-            # Initialize with base value (will be updated by TEP coupling if active)
-            self.fyflocstrength = self.coupled_Np.fyflocstrength_base
 
             self.eps_kd = self.coupled_Np.eps_kd
 
             self.fyflocstrength_base = self.coupled_Np.fyflocstrength_base
             self.deltaFymax = self.coupled_Np.deltaFymax
+
+            # Bases of the TEP-dependent parameters: configured on the master only.
+            self.unified_alphas = self.coupled_Np.unified_alphas
+            self.alpha_FF_base = self.coupled_Np.alpha_FF_base
+            self.alpha_PP_base = self.coupled_Np.alpha_PP_base
+            self.alpha_PF_base = self.coupled_Np.alpha_PF_base
+            self.tau_cr_base = self.coupled_Np.tau_cr_base
+            self._seed_tep_diagnostics()
 
             self.spinup_days = self.coupled_Np.spinup_days
 
@@ -417,9 +397,6 @@ class Flocs(BaseStateVar):
         if self.prescribe_tep_from_setup:
             # Create a PrescribedTEP instance that will be updated at each timestep
             self.coupled_glue = PrescribedTEP()
-
-            # if self.name == 'Microflocs':
-            #     print(f"  {self.name}: Using prescribed TEP from simulation '{self.setup.TEP_sim_name}'")
         else:
             # Standard dynamic coupling
             self.coupled_glue = coupled_glue
@@ -428,7 +405,7 @@ class Flocs(BaseStateVar):
         self._setup_shared_alphas()
 
         # Optimization: Pre-compute settling velocity constants (Macroflocs only)
-        if self.name == 'Macroflocs' and hasattr(self, 'setup') and self.setup is not None:
+        if self.name == 'Macroflocs' and self.setup is not None:
             self._precompute_settling_constants()
 
     def _setup_shared_alphas(self):
@@ -445,8 +422,7 @@ class Flocs(BaseStateVar):
         # Only Microflocs creates the shared instance
         # Always recreate to ensure each new simulation has fresh parameters
         if self.name == 'Microflocs':
-            unified_alphas = getattr(self, 'unified_alphas', True)
-            Flocs._shared_alphas_instance = SharedFlocTEPParameters(self, unified_alphas)
+            Flocs._shared_alphas_instance = SharedFlocTEPParameters(self, self.unified_alphas)
 
         # All Flocs instances (including Microflocs) get a reference to the shared instance
         if Flocs._shared_alphas_instance is not None:
@@ -458,7 +434,7 @@ class Flocs(BaseStateVar):
         Called once during setup to avoid recalculating constants at each timestep.
         Note: mu_water excluded as it may vary with temperature (Sharqawy et al. 2010).
         """
-        if self.name != 'Macroflocs' or not hasattr(self, 'setup') or self.setup is None:
+        if self.name != 'Macroflocs' or self.setup is None:
             return
 
         # Pre-compute mu_water-independent part of Winterwerp formula
@@ -492,17 +468,12 @@ class Flocs(BaseStateVar):
         Called once per timestep, results stored in self.settling_loss.
         Reused by Micro_in_Macro via coupled_Nf.settling_loss.
         """
-        # Settling velocity calculation (Winterwerp formula)
-        # mu_water_at_t allows T-dependent viscosity (Sharqawy et al. 2010)
-        if hasattr(self, '_settling_constant_base'):
-            self.settling_vel_base = (self._settling_constant_base / self.mu_water_at_t *
-                                      self.d_p_microflocdiam ** (3.0 - self.nf_fractal_dim) *
-                                      (self.diam ** (self.nf_fractal_dim - 1.0)) * self.apply_settling)
-        else:
-            # Fallback if constants not pre-computed
-            self.settling_vel_base = ((1/18) * (self.density - self.setup.rho_water) / self.mu_water_at_t * 9.81 *
-                                     (self.d_p_microflocdiam ** (3 - self.nf_fractal_dim)) *
-                                     (self.diam ** (self.nf_fractal_dim - 1)) * self.apply_settling)
+        # Settling velocity (Winterwerp formula). _settling_constant_base is the
+        # mu-independent part, computed once in _precompute_settling_constants; only
+        # mu_water_at_t varies with T (Sharqawy et al. 2010).
+        self.settling_vel_base = (self._settling_constant_base / self.mu_water_at_t *
+                                  self.d_p_microflocdiam ** (3.0 - self.nf_fractal_dim) *
+                                  (self.diam ** (self.nf_fractal_dim - 1.0)) * self.apply_settling)
 
         if self.settling_velocity_factor is not None:
             # Simple approach: constant fraction of base settling velocity
@@ -516,11 +487,6 @@ class Flocs(BaseStateVar):
             self.erosion_factor = max(0, (self.bed_shear_stress_at_t / self.tau_cr - 1))
             self.source_resuspension = self.resuspension_rate * self.erosion_factor / self.water_depth_at_t
             self.settling_loss = self.sink_sedimentation - self.source_resuspension
-
-            # print('DEBUG')
-            # print('sedimentation: ', self.settling_vel_base, shear_factor, self.settling_vel, self.numconc, self.water_depth_at_t, self.sink_sedimentation)
-            # print('resuspension: ', self.erosion_factor, self.resuspension_rate, self.water_depth_at_t, self.source_resuspension)
-            # print('settling_loss: ', self.settling_loss)
 
         else:
             # Fallback to original formulation
@@ -542,14 +508,12 @@ class Flocs(BaseStateVar):
         """
 
         # Update prescribed TEP value at this timestep (if using prescribed mode)
-        # print('DEBUG', self.prescribe_tep_from_setup, isinstance(self.coupled_glue, PrescribedTEP))
         if self.prescribe_tep_from_setup and isinstance(self.coupled_glue, PrescribedTEP):
             self.coupled_glue.C = self.setup.TEP_array[t_idx]
         self.coupled_glue_C = self.coupled_glue.C if self.coupled_glue else None
-        # print(self.coupled_glue_C)
 
         # Check if we're in spin-up phase
-        is_spinup = hasattr(self.setup, 'in_spinup_phase') and self.setup.in_spinup_phase
+        is_spinup = self.setup.in_spinup_phase
 
         if is_spinup:
             # Spin-up mode: disable TEP coupling and settling/resuspension (only mineral flocculation dynamics)
@@ -568,14 +532,11 @@ class Flocs(BaseStateVar):
 
 
         if self.name != 'Micro_in_Macro':
-            # Optimization: Use pre-computed arrays for faster access
+            # Micro_in_Macro reads none of these: it mirrors them from Macroflocs below.
             self.g_shear_rate_at_t = self.setup.g_shear_rate_array[t_idx]
             self.bed_shear_stress_at_t = self.setup.bed_shear_stress_array[t_idx]
             self.water_depth_at_t = self.setup.water_depth_array[t_idx]
-            if hasattr(self.setup, 'mu_water_array'):
-                self.mu_water_at_t = self.setup.mu_water_array[t_idx]
-            else:
-                self.mu_water_at_t = self.setup.mu_water
+            self.mu_water_at_t = self.setup.mu_water_array[t_idx]
 
                 # Optimization: Calculate once (Microflocs calculates, others reuse)
         # NOTE: Microflocs instance MUST be defined first in model configuration
@@ -594,15 +555,6 @@ class Flocs(BaseStateVar):
             self.fyflocstrength = fyflocstrength
             self.nf_fractal_dim = nf_fractal_dim
 
-            # print(self.name, t_idx)
-            # if self.name == 'Microflocs' and t_idx == 1:
-            #     print(f"DEBUG t=0: coupled_glue.C={self.coupled_glue.C}, K_glue={self.shared_alphas.K_glue}")
-            #     print(f"  alpha_PP_base={self.shared_alphas.alpha_PP_base}, delta={self.shared_alphas.delta_alpha_PP}")
-            #     input()
-            #
-            # # print('DEBUG', self.name)
-            # # print(self.alpha_FF, self.alpha_PP, self.alpha_PF)
-            # # input()
 
             # Compute expensive fractal terms once per timestep (optimized: reuse via multiplication)
             frac_inv_nf = 1.0 / self.nf_fractal_dim
@@ -674,7 +626,6 @@ class Flocs(BaseStateVar):
         # =====================================================
         if self.name == 'Microflocs':
 
-            # print(self.alpha_FF, self.fyflocstrength)
 
 
             # Flux assembly for Microflocs
@@ -690,11 +641,13 @@ class Flocs(BaseStateVar):
             # Get TEP-dependent parameters needed for settling
             self.tau_cr = self.shared_alphas.current_tau_cr
             self.nf_fractal_dim = self.shared_alphas.current_nf_fractal_dim
+            # Mirror the shared alphas so the per-instance diagnostics report the value
+            # actually in use (they are computed once, by Microflocs).
+            self.alpha_FF, self.alpha_PP, self.alpha_PF = self.shared_alphas.current_alphas
 
             # Compute net vertical flux (stored in self.settling_loss)
             self._compute_net_vertical_flux()
 
-            # print(self.nf_fractal_dim, self.tau_cr)
 
             # Flux assembly for Macroflocs
             self.source_PP_collision = self.coupled_Np._PP_collision_base * self.coupled_Np._factor_inverse
@@ -707,7 +660,23 @@ class Flocs(BaseStateVar):
                         self.settling_loss)
 
         else:  # Micro_in_Macro
-            # Flux assembly for Micro_in_Macro
+            # This pool owns no dynamics of its own: the flocculi it counts are the ones
+            # bound inside the macroflocs, so every property below is Macroflocs' (or the
+            # shared TEP set computed by Microflocs), mirrored here for the diagnostics.
+            self.alpha_FF, self.alpha_PP, self.alpha_PF = self.shared_alphas.current_alphas
+            self.fyflocstrength = self.shared_alphas.current_fyflocstrength
+            self.tau_cr = self.shared_alphas.current_tau_cr
+            self.nf_fractal_dim = self.shared_alphas.current_nf_fractal_dim
+            self.settling_vel = self.coupled_Nf.settling_vel
+            self.settling_vel_base = self.coupled_Nf.settling_vel_base
+            self.erosion_factor = self.coupled_Nf.erosion_factor
+            self.g_shear_rate_at_t = self.coupled_Nf.g_shear_rate_at_t
+            self.bed_shear_stress_at_t = self.coupled_Nf.bed_shear_stress_at_t
+            self.water_depth_at_t = self.coupled_Nf.water_depth_at_t
+            self.mu_water_at_t = self.coupled_Nf.mu_water_at_t
+
+            # Flux assembly for Micro_in_Macro. The number fluxes DO scale: this pool
+            # counts flocculi, Macroflocs counts flocs, hence the Ncnum factor.
             self.source_PP_collision = self.coupled_Np._PP_collision_base * self.coupled_Np._factor_Ncnum_ratio
             self.source_PF_collision = self.coupled_Np._PF_collision_base
             self.sink_breakage = self.f_frac_floc_break * self.Ncnum * self.coupled_Np._breakage_base
@@ -721,7 +690,7 @@ class Flocs(BaseStateVar):
                         self.settling_loss)
 
         # Restore original values if we were in spin-up mode
-        if hasattr(self.setup, 'in_spinup_phase') and self.setup.in_spinup_phase:
+        if self.setup.in_spinup_phase:
             self.apply_settling = original_apply_settling
             self.resuspension_rate = original_resuspension_rate
 

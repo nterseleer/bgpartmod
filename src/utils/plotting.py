@@ -14,12 +14,46 @@ from typing import Union, List, Dict, Optional, Tuple, Any
 
 from . import functions as fns
 from src.config_model import varinfos
-from src.config_model import vars_to_plot
 from src.config_system import path_config as path_cfg
-from src.utils import observations
+
+# The variable sets are the user's own choice of what to plot; a minimal fallback ships
+# with the library. Same pattern for plot_config, imported where it is used.
+try:
+    from src.config_model import vars_to_plot
+except ImportError:
+    from src.config_model._defaults import vars_to_plot
 from src.utils.plotted_variables_sets import PlottedVariablesSet
 
 FIGURE_PATH = path_cfg.FIGURE_PATH
+
+# Observation dataset used when a plotting call does not name one. WHICH dataset is a
+# user choice, so it is read from plot_config (like the styles), not hard-coded here.
+# Built on FIRST USE, not at import: reading the file at import time makes the module
+# unimportable wherever the dataset is absent, and pins it into every function signature.
+_DEFAULT_OBS = object()   # sentinel meaning "caller did not choose"
+_default_obs_cache = None
+
+
+def default_observations():
+    """The default observation dataset, loaded once, or None if it is unavailable."""
+    global _default_obs_cache
+    if _default_obs_cache is None:
+        try:
+            from src.config_model import plot_config
+        except ImportError:
+            from src.config_model._defaults import plot_config
+        station = getattr(plot_config, 'DEFAULT_OBS_STATION', None)
+        if station is None:
+            _default_obs_cache = False
+            return None
+        try:
+            from src.utils import observations
+            _default_obs_cache = observations.Obs(station=station)
+        except Exception as exc:                                   # noqa: BLE001
+            print(f'No default observation dataset ({type(exc).__name__}); '
+                  f'plotting without observations unless one is passed explicitly.')
+            _default_obs_cache = False
+    return _default_obs_cache or None
 
 # Plotting constants
 # Extended color palette with 14 distinct, colorblind-friendly colors
@@ -41,22 +75,13 @@ DEFAULT_COLORS = [
     '#9edae5',  # Light cyan
 ]
 
-# DEFAULT_COLORS = [
-#     'darkolivegreen',
-#     'purple',
-#     'darkgoldenrod',
-#
-# ]
-
 # Line styles: 3 distinct styles to combine with 14 colors
 # Avoiding dot-only ':' style as it becomes too discrete
 # Using solid, dashed, and dash-dot for good visibility
 DEFAULT_LINESTYLES = ['-', '--', '-.', ':', '-', ]
-# DEFAULT_LINESTYLES = ['-', '-', '--',]
 
 # Budget plot color palettes (cool colors for sources, warm colors for sinks)
 BUDGET_SOURCE_COLORS = ['#2E86AB', '#06A77D', '#81B214', '#A7C957', '#4ECDC4', '#45B7D1']
-# BUDGET_SINK_COLORS = ['#D62828', '#F77F00', '#FCBF49', '#EE6C4D', '#E63946', '#F4A261']
 BUDGET_SINK_COLORS = ['#FFD300', '#E1A95F', '#E08D3C', '#E25822', '#E34234', '#8B0000']
 
 DEFAULT_LEGEND_FONTSIZE = 8
@@ -193,7 +218,6 @@ def prepare_model_obs_data(
         models: Union[Any, List[Any], pd.DataFrame, List[pd.DataFrame]],
         observations: Optional[Any] = None,
         mean_window_days: Optional[int] = 1,
-        daily_mean: Optional[bool] = None,
         variables_to_plot: Optional[List[str]] = None,
         time_filter = None,
         center_trend: bool = True
@@ -209,7 +233,6 @@ def prepare_model_obs_data(
         observations: Observation data object (with DatetimeIndex)
         mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, 14 = bi-weekly, etc.)
                          None or 0 disables averaging. Default: 1 (daily mean)
-        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         variables_to_plot: List of variables that will be plotted (for column standardization)
         time_filter: Time filtering criterion (None, year string, date range tuple, or slice)
         center_trend: Averaging mode when mean_window_days > 0. This is the preferred,
@@ -231,16 +254,13 @@ def prepare_model_obs_data(
     Returns:
         Tuple of (model_data_list, merged_data, full_obs_data, model_names)
     """
-    # Legacy support: daily_mean overrides mean_window_days if explicitly provided
-    if daily_mean is not None:
-        mean_window_days = 1 if daily_mean else None
     # Flatten nested lists of models
     models = fns.flatten_simulation_list(models)
 
-    # Determine which columns we actually need to avoid copying massive DataFrames
-    required_columns = set()
-    if variables_to_plot:
-        required_columns.update(variables_to_plot)
+    # Determine which columns we actually need to avoid copying massive DataFrames.
+    # A list, not a set: the extracted DataFrames keep the caller's column order, which a
+    # set would randomise from one process to the next.
+    required_columns = list(dict.fromkeys(variables_to_plot)) if variables_to_plot else []
 
     # Extract DataFrames and names
     model_data_list = []
@@ -598,7 +618,7 @@ def _layer_styles(base_styles, window_styles, layer_idx, n_layers):
 
 
 def plot_variable_panel(ax, models, var, observations=None,
-                        mean_window_days=1, daily_mean=None, center_trend=True,
+                        mean_window_days=1, center_trend=True,
                         time_filter=None, model_styles=None, multi_window_styles=None,
                         plot_obs=True, calibrated_vars=None, add_labels=True,
                         show_subplot_titles=True, apply_plt_ylim=True,
@@ -627,12 +647,12 @@ def plot_variable_panel(ax, models, var, observations=None,
         is_last = (layer_idx == len(mean_window_values) - 1)
 
         data_list, merged, _, names = prepare_model_obs_data(
-            models, observations, mwd, daily_mean, [var], time_filter, center_trend=center_trend)
+            models, observations, mwd, [var], time_filter, center_trend=center_trend)
 
         layer_fill = None
         if is_first and fill_between_models is not None:
             fill_list, _, _, _ = prepare_model_obs_data(
-                list(fill_between_models), None, mwd, daily_mean, [var], time_filter,
+                list(fill_between_models), None, mwd, [var], time_filter,
                 center_trend=center_trend)
             if len(fill_list) == 2:
                 layer_fill = (fill_list[0], fill_list[1])
@@ -675,7 +695,10 @@ def paper_grid(nrows: int, ncols: int = 1, panel: Optional[Tuple[float, float]] 
 
     Returns (fig, axes) with axes flattened, as plot_results expects.
     """
-    from src.config_model import plot_config
+    try:
+        from src.config_model import plot_config
+    except ImportError:
+        from src.config_model._defaults import plot_config
     pw, ph = panel or plot_config.PANEL_SIZE
     m = {**plot_config.FIG_MARGINS, **margins}
     fig_w, fig_h = plot_config.paper_figsize(nrows, ncols, panel=(pw, ph), **margins)
@@ -690,10 +713,9 @@ def paper_grid(nrows: int, ncols: int = 1, panel: Optional[Tuple[float, float]] 
 def plot_results(
         models: Union[Any, List[Any]],
         variables: Union[List[str], PlottedVariablesSet],
-        observations: Optional[Any] = observations.Obs(station='MOW1_biweekly_202509_noPhaeo'),
+        observations: Optional[Any] = _DEFAULT_OBS,
         calibrated_vars: Optional[List[str]] = None,
         mean_window_days: Optional[int] = 1,
-        daily_mean: Optional[bool] = None,
         center_trend: bool = True,
         time_filter = None,
         ncols: Optional[int] = None,
@@ -739,7 +761,6 @@ def plot_results(
         observations: Optional observation data
         calibrated_vars: Calibrated variables (have different style than non-calibrated vars)
         mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, 14 = bi-weekly, etc.)
-        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         center_trend: Forwarded to prepare_model_obs_data (applied to every mean_window
             layer). If True (default), each averaging window is a centre-labelled bin mean
             linearly interpolated to daily: the trend is placed at the CENTRE of its window
@@ -790,6 +811,9 @@ def plot_results(
     Raises:
         ValueError: If input parameters are invalid
     """
+    if observations is _DEFAULT_OBS:
+        observations = default_observations()
+
     # Extract PlottedVariablesSet attributes if provided
     if isinstance(variables, PlottedVariablesSet):
         variable_set = variables
@@ -865,7 +889,7 @@ def plot_results(
 
         # Prepare data for this mean_window_days value
         layer_data_list, layer_merged, _, model_names = prepare_model_obs_data(
-            models, observations, mwd, daily_mean, variables_list, time_filter,
+            models, observations, mwd, variables_list, time_filter,
             center_trend=center_trend
         )
 
@@ -873,7 +897,7 @@ def plot_results(
         layer_fill_between = None
         if is_first_layer and fill_between_models is not None:
             fill_data_list, _, _, _ = prepare_model_obs_data(
-                list(fill_between_models), None, mwd, daily_mean, variables_list, time_filter,
+                list(fill_between_models), None, mwd, variables_list, time_filter,
                 center_trend=center_trend
             )
             if len(fill_data_list) == 2:
@@ -1043,7 +1067,6 @@ def plot_sinks_sources(
         time_filter = None,
         observations: Optional[Any] = None,
         mean_window_days: Optional[int] = 1,
-        daily_mean: Optional[bool] = None,
         increase_resolution_factor: int = 2,
         figsize: Optional[Tuple[float, float]] = None,
         default_subplot_size: Tuple[float, float] = (4.6, 5.7),
@@ -1067,7 +1090,6 @@ def plot_sinks_sources(
         sinks: List of column names to be plotted as sinks (negative values)
         observations: Optional observation data
         mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, 14 = bi-weekly, etc.)
-        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         increase_resolution_factor: Factor to increase resolution of the datetime index
         figsize: Custom figure size (if None, calculated based on default_subplot_size)
         default_subplot_size: Default size for a single subplot when auto-calculating figsize
@@ -1086,7 +1108,7 @@ def plot_sinks_sources(
     """
     # Prepare model data
     model_data_list, _, _, model_names = prepare_model_obs_data(
-        models, observations, mean_window_days, daily_mean, time_filter=time_filter,
+        models, observations, mean_window_days, time_filter=time_filter,
     )
 
     # Create subplots
@@ -1281,7 +1303,6 @@ def plot_signed_series(
         models: Union[Any, List[Any]],
         variables: List[str],
         mean_window_days: Optional[int] = 1,
-        daily_mean: Optional[bool] = None,
         time_filter=None,
         ncols: int = 2,
         figsize: Optional[Tuple[float, float]] = None,
@@ -1329,7 +1350,7 @@ def plot_signed_series(
 
     model_data_list, _, _, model_names = prepare_model_obs_data(
         models, observations=None, mean_window_days=mean_window_days,
-        daily_mean=daily_mean, variables_to_plot=variables, time_filter=time_filter,
+        variables_to_plot=variables, time_filter=time_filter,
     )
 
     nvars = len(variables)
@@ -1400,7 +1421,7 @@ def plot_signed_series(
 
 
 def plot_element_distribution_stacked(model_output, element_vars, element_name=None,
-                                      time_var='time', group_by_compartment=True, relative=False,
+                                      group_by_compartment=True, relative=False,
                                       stacked=True, time_filter=None, mean_window_days=None,
                                       center_trend=True, save=False,
                                       filename='element_distribution_stacked',
@@ -1418,8 +1439,6 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
         List of element variables to plot (e.g., vars_to_plot.all_nitrogen_vars)
     element_name : str, optional
         Name of the element for labeling (auto-detected if None)
-    time_var : str, default 'time'
-        Name of time variable
     group_by_compartment : bool, default True
         If True, group variables by compartment (Phytoplankton, Heterotrophs, etc.)
         If False, plot each variable individually
@@ -1468,7 +1487,6 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
     --------
     fig, ax : matplotlib figure and axis objects
     """
-    import matplotlib.pyplot as plt
 
     # Auto-detect element name if not provided
     if element_name is None:
@@ -1590,7 +1608,6 @@ def plot_element_distribution_stacked(model_output, element_vars, element_name=N
     else:
         ax.set_ylabel(f'{element_name} concentration [{unit}]')
         ax.set_title(f'{element_name} Distribution Across Model Compartments')
-        # ax.set_ylim(0, 800)
 
     if title is not None:
         ax.set_title(title)
@@ -1690,9 +1707,6 @@ def plot_kd_contributions_stacked(model_output, kd_contrib_vars=None, relative=F
     >>> # Filter to year 2023, relative %
     >>> fig, ax = plot_kd_contributions_stacked(model.df, relative=True, time_filter="2023")
     """
-    import matplotlib.pyplot as plt
-    from src.config_model import vars_to_plot
-
     # Use default list if not provided (each family grouped/expanded independently)
     if kd_contrib_vars is None:
         kd_contrib_vars = vars_to_plot.build_kd_contributions_list(
@@ -2067,10 +2081,8 @@ def plot_par_vs_depth(
 
     if par_units == 'percent':
         ax.set_xlabel('PAR [% of surface]', fontsize=12)
-        # ax.set_xlim(0, 100)
     else:
         ax.set_xlabel('PAR [µmol photons m$^{-2}$ s$^{-1}$]', fontsize=12)
-        # ax.set_xlim(left=0)
 
     ax.set_xscale(xscale)
     ax.set_ylim(depth_range[1], depth_range[0])
@@ -2158,7 +2170,6 @@ def plot_optimization_evolution(df: pd.DataFrame,
     Args:
         df: Optimization results DataFrame
         costname: Name of cost column
-        generationname: Name of generation column
         alpha: Scatter plot transparency
         savefig: Whether to save figure
         rawcost: Whether to plot raw cost (including bad scores)
@@ -2281,7 +2292,6 @@ def plot_parameter_vs_cost(
 def plot_optimization_summary(df: pd.DataFrame,
                               parameters: List[str],
                               costname: str = 'cost',
-                              generationname: str = 'generation',
                               ncols: int = 3,
                               figsize: tuple = (10, 10),
                               alpha: float = 0.2,
@@ -2416,8 +2426,6 @@ def compare_optimizations(
 
     for col_idx, param in enumerate(parameters):
         ax_violin = axes[0, col_idx]
-        # ax_scatter = axes[1, col_idx]
-        # ax_violin = axes[col_idx]
 
         # === ROW 1: HORIZONTAL Violin plot ===
         violin_data = []
@@ -2502,44 +2510,6 @@ def compare_optimizations(
         # Hide y tick labels except for first column
         if col_idx > 0:
             ax_violin.tick_params(labelleft=False)
-
-        # === ROW 2: Scatter plot (param vs cost) ===
-        # for i, opt in enumerate(opts):
-        #     if param in opt.df.columns:
-        #         badlnl = opt.config.get('badlnl', -100000.)
-        #         plot_parameter_vs_cost(
-        #             opt.df, param,
-        #             ax=ax_scatter,
-        #             costname='cost',
-        #             alpha=alpha,
-        #             color=colors[i],
-        #             label=opt.name,
-        #             highlight_best=True,
-        #             show_reference=(i == 0),  # Only first opt shows reference
-        #             show_labels=False,  # We set labels manually below
-        #             filter_badlnl=badlnl
-        #         )
-        #
-        # # Set labels manually (shared across all optimizations)
-        # param_info = varinfos.ref_values.get(param, {})
-        # symbol = param_info.get('symbol', param)
-        # ax_scatter.set_xlabel(fns.cleantext(symbol) if symbol else param, fontsize=8)
-        # ax_scatter.set_ylabel('Cost (log-likelihood)', fontsize=8)
-        # ax_scatter.tick_params(labelsize=7)
-        # ax_scatter.grid(alpha=0.3)
-        #
-        # # Hide y tick labels except for first column
-        # if col_idx > 0:
-        #     ax_scatter.set_ylabel('')
-        #     ax_scatter.tick_params(labelleft=False)
-        #
-        # # Track if this column has all optimizations (for legend)
-        # if legend_col is None and len(positions) == n_opts:
-        #     legend_col = col_idx
-        #
-        # # Add legend only to first column that has ALL optimizations
-        # if col_idx == legend_col:
-        #     ax_scatter.legend(fontsize=6, loc='best')
 
     plt.tight_layout()
 
@@ -2746,144 +2716,6 @@ def create_parameter_table(df: pd.DataFrame,
     return fig
 
 
-def plot_monthly_budget_comparison(
-        models: List[Any],
-        var_name: str = 'Phy_source_PP.C',
-        time_filter = None,
-        figsize: Tuple[float, float] = (12, 6),
-        colors: Optional[List[str]] = None,
-        ratio_color: str = 'black',
-        save: bool = False,
-        filename: str = 'monthly_budget_comparison',
-        figdir: Optional[str] = None,
-        fnametimestamp: bool = True,
-        **kwargs
-) -> Tuple[plt.Figure, plt.Axes, plt.Axes]:
-    """
-    Plot monthly integrated budget comparison between models with dual y-axes.
-
-    Creates a visualization with:
-    - Left axis: Grouped bars showing monthly integrated values for each model
-    - Right axis: Line plot showing ratio between models (model[1]/model[0])
-
-    Args:
-        models: List of model objects (with .df and .name attributes)
-        var_name: Variable name to integrate monthly (default: 'Phy_source_PP.C')
-        time_filter: Time filtering criterion (None, year string, date range tuple, or slice)
-        figsize: Figure size (width, height)
-        colors: List of colors for models (None = use DEFAULT_COLORS)
-        ratio_color: Color for ratio line (default: 'black')
-        save: Whether to save the figure
-        filename: Base filename for saving
-        figdir: Directory to save figure (uses FIGURE_PATH if None)
-        fnametimestamp: Whether to add timestamp to filename
-        **kwargs: Additional plotting parameters
-
-    Returns:
-        Tuple of (figure, left_axis, right_axis)
-
-    Example:
-        >>> fig, ax1, ax2 = plot_monthly_budget_comparison(
-        ...     [sim_ref, sim_test],
-        ...     var_name='Phy_source_PP.C',
-        ...     time_filter='2023'
-        ... )
-    """
-    # Prepare data
-    model_data_list, _, _, model_names = prepare_model_obs_data(
-        models, observations=None, mean_window_days=None,
-        variables_to_plot=[var_name], time_filter=time_filter
-    )
-
-    n_models = len(model_data_list)
-    if n_models < 1:
-        raise ValueError("At least one model is required")
-
-    # Get colors
-    if colors is None:
-        colors = DEFAULT_COLORS[:n_models]
-
-    # Calculate monthly budgets for each model
-    monthly_data = {name: [] for name in model_names}
-    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-    for df, name in zip(model_data_list, model_names):
-        # Calculate timestep
-        time_diff = df.index.to_series().diff()
-        dt_days = time_diff.dt.total_seconds().median() / 86400.0
-
-        # Integrate by month
-        for month in range(1, 13):
-            df_month = df[df.index.month == month]
-            if len(df_month) > 0 and var_name in df_month.columns:
-                monthly_budget = np.sum(df_month[var_name]) * dt_days
-            else:
-                monthly_budget = 0.0
-            monthly_data[name].append(monthly_budget)
-
-    # Calculate ratio if multiple models
-    ratio = None
-    if n_models >= 2:
-        ref_vals = np.array(monthly_data[model_names[0]])
-        comp_vals = np.array(monthly_data[model_names[1]])
-        ratio = np.divide(comp_vals, ref_vals, where=ref_vals!=0, out=np.full_like(comp_vals, np.nan))
-
-    # Get variable info from varinfos
-    var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
-    clean_name = var_info.get('cleanname', None)
-    if clean_name is None:
-        clean_name = var_name.replace('_', r'\_')
-    units = var_info.get('munits' if var_name.startswith('m') else 'units', '')
-
-    # Create figure with dual axes
-    fig, ax1 = plt.subplots(figsize=figsize)
-    ax2 = ax1.twinx()
-
-    # Plot grouped bars on left axis
-    x = np.arange(len(month_names))
-    width = 0.8 / n_models
-
-    for i, name in enumerate(model_names):
-        offset = (i - n_models/2 + 0.5) * width
-        ax1.bar(x + offset, monthly_data[name], width,
-               label=name, color=colors[i], alpha=0.8)
-
-    # Plot ratio on right axis
-    if ratio is not None:
-        ax2.plot(x, ratio, color=ratio_color, marker='o', linewidth=2,
-                markersize=6, label='Ratio', zorder=10)
-        ax2.axhline(1.0, color='gray', linestyle='--', alpha=0.5, linewidth=1)
-
-    # Format axes
-    ax1.set_xlabel('Month', fontsize=11)
-    ax1.set_ylabel(f'Monthly {fns.cleantext(clean_name)}\n[{fns.cleantext(units)}]', fontsize=11, color='black')
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(month_names)
-    ax1.tick_params(axis='y', labelcolor='black')
-    ax1.grid(axis='y', alpha=0.3, zorder=0)
-
-    if ratio is not None:
-        ax2.set_ylabel(f'Ratio ({model_names[1]} / {model_names[0]})', fontsize=11, color=ratio_color)
-        ax2.tick_params(axis='y', labelcolor=ratio_color)
-        ax2.set_ylim(0, 1.2)
-
-    # Legends
-    ax1.legend(loc='upper left', fontsize=9)
-    if ratio is not None:
-        ax2.legend(loc='upper right', fontsize=9)
-
-    plt.tight_layout()
-
-    # Save if requested
-    if save:
-        if figdir is None:
-            figdir = FIGURE_PATH
-        save_figure(fig, filename=filename, figdir=figdir, add_timestamp=fnametimestamp)
-
-    return fig, ax1, ax2
-
-
 def save_figure(fig: plt.Figure,
                 filename: Optional[str] = None,
                 variable_set: Optional[PlottedVariablesSet] = None,
@@ -2914,12 +2746,17 @@ def save_figure(fig: plt.Figure,
     else:
         base_name = "figure"
 
-    # Add timestamp if requested
+    # Add timestamp if requested. The extension is appended in ONE place, and only when
+    # the name does not already carry it: several callers build a filename that already
+    # ends in '.png', which used to yield '..._opt_evol.png.png' whenever a timestamp was
+    # added (the guard existed only on the other branch).
     if add_timestamp:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_')
-        full_name = f"{timestamp}{base_name}.png"
+        full_name = f"{timestamp}{base_name}"
     else:
-        full_name = f"{base_name}.png" if not base_name.endswith('.png') else base_name
+        full_name = base_name
+    if not full_name.endswith('.png'):
+        full_name += '.png'
 
     # Create full path
     full_path = os.path.join(figdir, full_name)
@@ -2939,530 +2776,3 @@ def save_figure(fig: plt.Figure,
     fig.savefig(full_path, **save_kwargs)
 
     return full_path
-
-
-# ============================================================================
-# ================= CARBON-FLUX NETWORK (SANKEY) =============================
-# ============================================================================
-
-# Default layout for the organic-C network produced by
-# simulation_manager.carbon_flux_links. Positions are on a 0-1 canvas (x flows
-# left->right along the trophic chain; external sinks are on the right column).
-# Node positions on an EQUAL-ASPECT canvas (x is stretched wide, y in [0, 1]); the drawing
-# routine sets ax.set_aspect('equal') so ribbon widths stay constant regardless of slope.
-# Left->right columns follow the trophic chain Phy -> DOC -> TEP -> Det -> Bac -> Protozoa,
-# with the paired pools (DOCS/DOCL, DetS/DetL, BacF/BacA, HF/Cil) vertically aligned, and the
-# external sinks (DIC, Leak, Export) in the rightmost column. No DIC source node: Phy is the
-# network source, so its bar height reads as the annual primary production.
-# Shared node layout for the flux-network Sankeys (utils.flux_network.flux_links). Currency-
-# agnostic: only the nodes that carry a flux in a given currency are drawn, so the C-only TEP
-# node vanishes for N/P/Si, and the inorganic return node (DIC for C; NH4/DIP/DSi for N/P/Si)
-# occupies the same top-right external slot -- exactly one shows per currency.
-CARBON_SANKEY_POS = {
-    'Phy':  (0.12, 0.50),
-    'DOCS': (0.58, 0.82), 'DOCL': (0.58, 0.58),
-    'TEPC': (1.04, 0.66),
-    'DetS': (1.50, 0.30), 'DetL': (1.50, 0.11),
-    'BacF': (1.96, 0.83), 'BacA': (1.96, 0.46),
-    'HF':   (2.42, 0.70), 'Cil':  (2.42, 0.52),
-    'DIC':  (2.86, 0.88), 'Leak': (2.86, 0.42), 'Export': (2.86, 0.12),
-    # Inorganic-return nodes (N/P/Si), same external column; NO3 slightly lower in case it shows.
-    'NH4':  (2.86, 0.88), 'DIP': (2.86, 0.88), 'DSi': (2.86, 0.88), 'NO3': (2.86, 0.66),
-}
-CARBON_SANKEY_CAT = {
-    'Phy': 'phy', 'DOCS': 'dom', 'DOCL': 'dom', 'TEPC': 'tep', 'DetS': 'det',
-    'DetL': 'det', 'BacF': 'bac', 'BacA': 'bac', 'HF': 'zoo', 'Cil': 'zoo',
-    'DIC': 'ext', 'Export': 'ext', 'Leak': 'ext',
-    'NH4': 'ext', 'DIP': 'ext', 'DSi': 'ext', 'NO3': 'ext',
-}
-CARBON_SANKEY_COL = {
-    'phy': '#2e8b57', 'dom': '#4aa3df', 'tep': '#e08a1e', 'det': '#8c6d3f',
-    'bac': '#d1495b', 'zoo': '#8e44ad', 'ext': '#8a8f98',
-}
-_CARBON_SANKEY_LAB = {'DIC': 'DIC', 'Export': 'Export', 'Leak': 'Leak',
-                      'NH4': 'NH4', 'DIP': 'DIP', 'DSi': 'DSi', 'NO3': 'NO3'}
-_CARBON_SANKEY_LEGEND = {'phy': 'Phytoplankton', 'dom': 'DOC', 'tep': 'TEP',
-                         'det': 'Detritus', 'bac': 'Bacteria', 'zoo': 'Protozoa',
-                         'ext': 'External'}
-
-# x of the rightmost (external-sink) column; labels there sit outside the box.
-_SANKEY_RIGHT_X = 2.7
-_SANKEY_NODE_W = 0.07
-
-
-def _sankey_ribbon(p0, p1, w, ctrl, n=120):
-    """Constant-width-`w` ribbon polygon along a cubic Bezier p0->p1 whose control points
-    sit a horizontal distance `ctrl` inside each endpoint, so the ribbon leaves and enters
-    horizontally (perpendicular to the vertical node bars) regardless of the vertical drop."""
-    x0, y0 = p0
-    x1, y1 = p1
-    c0 = (x0 + ctrl, y0)
-    c1 = (x1 - ctrl, y1)
-    t = np.linspace(0, 1, n)[:, None]
-    B = ((1 - t) ** 3 * np.array(p0) + 3 * (1 - t) ** 2 * t * np.array(c0)
-         + 3 * (1 - t) * t ** 2 * np.array(c1) + t ** 3 * np.array(p1))
-    d = np.gradient(B, axis=0)
-    nrm = np.stack([-d[:, 1], d[:, 0]], 1)
-    nrm /= (np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-12)
-    return np.vstack([B + nrm * w / 2, (B - nrm * w / 2)[::-1]])
-
-
-def _draw_carbon_sankey(ax, links, scale, pos, cat, col, lab, min_flux, title, subtitle,
-                        ref_flux, mode='stacked', min_node_h=0.03, ctrl_min=0.35,
-                        alpha=0.48):
-    from matplotlib.path import Path as _MPath
-    from matplotlib.patches import PathPatch, FancyBboxPatch, Rectangle
-    # Equal aspect is essential: ribbon width is applied perpendicular to the curve in data
-    # units, so without it the x/y stretch would make a ribbon look thicker where it runs
-    # oblique/vertical than where it runs horizontal. With equal aspect the width is constant
-    # in display units all along each flux, and the horizontal entry/exit (via the Bezier
-    # control points) makes the width at each node bar equal to the stacked share.
-    ax.set_aspect('equal')
-    ax.set_xlim(-0.14, 3.02)
-    ax.set_ylim(-0.04, 1.04)
-    ax.axis('off')
-    if title:
-        ax.text(0.5, 1.05, title, ha='center', va='bottom', fontsize=12,
-                fontweight='bold', transform=ax.transAxes)
-    if subtitle:
-        ax.text(0.5, 1.005, subtitle, ha='center', va='bottom', fontsize=7.5,
-                color='0.25', transform=ax.transAxes)
-
-    links = {k: v for k, v in links.items()
-             if v >= min_flux and k[0] in pos and k[1] in pos}
-    nodes = set(a for a, b in links) | set(b for a, b in links)
-    out_tot = {n: sum(v for (a, b), v in links.items() if a == n) for n in nodes}
-    in_tot = {n: sum(v for (a, b), v in links.items() if b == n) for n in nodes}
-    hgt = {n: max(out_tot[n] * scale, in_tot[n] * scale, min_node_h) for n in nodes}
-
-    # Anchor y of each link on the source (right edge) and target (left edge). In 'stacked'
-    # mode the links are juxtaposed along each node bar (ordered by the other end's height,
-    # to limit crossings) so each flux occupies a share of the bar proportional to its
-    # value -- proportions read at a glance. In 'centered' mode every link attaches at the
-    # node centre (ribbons overlap with transparency).
-    src_anchor, tgt_anchor = {}, {}
-    if mode == 'stacked':
-        for n in nodes:
-            cur = pos[n][1] + out_tot[n] * scale / 2
-            for b, v in sorted([(b, v) for (a, b), v in links.items() if a == n],
-                               key=lambda tv: -pos[tv[0]][1]):
-                src_anchor[(n, b)] = cur - v * scale / 2
-                cur -= v * scale
-            cur = pos[n][1] + in_tot[n] * scale / 2
-            for a, v in sorted([(a, v) for (a, b), v in links.items() if b == n],
-                               key=lambda tv: -pos[tv[0]][1]):
-                tgt_anchor[(a, n)] = cur - v * scale / 2
-                cur -= v * scale
-    else:
-        for (a, b) in links:
-            src_anchor[(a, b)] = pos[a][1]
-            tgt_anchor[(a, b)] = pos[b][1]
-
-    for (a, b), v in sorted(links.items(), key=lambda kv: -kv[1]):
-        p0 = (pos[a][0] + _SANKEY_NODE_W / 2, src_anchor[(a, b)])
-        p1 = (pos[b][0] - _SANKEY_NODE_W / 2, tgt_anchor[(a, b)])
-        ctrl = max(0.55 * abs(p1[0] - p0[0]), ctrl_min)
-        ax.add_patch(PathPatch(_MPath(_sankey_ribbon(p0, p1, v * scale, ctrl)),
-                     facecolor=col[cat[a]], edgecolor='none', alpha=alpha, zorder=1))
-    for n in nodes:
-        x, y = pos[n]
-        h = hgt[n]
-        ax.add_patch(FancyBboxPatch((x - _SANKEY_NODE_W / 2, y - h / 2), _SANKEY_NODE_W, h,
-                     boxstyle='round,pad=0.002,rounding_size=0.008', facecolor=col[cat[n]],
-                     edgecolor='black', linewidth=0.6, zorder=3))
-        if x > _SANKEY_RIGHT_X:  # right-hand external sinks: label outside the box
-            ax.text(x + _SANKEY_NODE_W / 2 + 0.04, y, lab.get(n, n), ha='left',
-                    va='center', fontsize=7.5, fontweight='bold', color=col[cat[n]],
-                    zorder=4)
-        else:  # all pool labels horizontal, centred inside the box
-            ax.text(x, y, lab.get(n, n), ha='center', va='center', fontsize=6.2,
-                    fontweight='bold', color='white', zorder=4)
-    if ref_flux:
-        ax.add_patch(Rectangle((0.0, -0.02), 0.28, ref_flux * scale, facecolor='0.4',
-                     edgecolor='none', alpha=0.5))
-        ax.text(0.30, -0.02 + ref_flux * scale / 2, f'= {ref_flux:.0f}', va='center',
-                fontsize=6.5, color='0.3')
-
-
-def plot_carbon_sankey(links_list, names, mode='stacked', scale=None, min_flux=100,
-                       ref_flux=10000.0, subtitles=None, pos=None, cat=None, col=None,
-                       figsize_per_panel=None, suptitle=None, orient='vertical'):
-    """Draw one carbon-flux network per simulation as side-by-side Sankey diagrams.
-
-    Ribbon width is proportional to the annual C flux and the scale is shared across
-    panels, so REF vs NO-TEP are directly comparable. Feed it the link dicts from
-    simulation_manager.carbon_flux_links.
-
-    Args:
-        links_list: list of {(src, tgt): flux} dicts (one per simulation).
-        names: panel titles (e.g. ['REF', 'NO-TEP']).
-        mode: 'stacked' (default) juxtaposes the links along each node bar, whose height is
-            proportional to the node throughput, so proportions read directly; 'centered'
-            attaches every link at the node centre and overlaps them with transparency.
-        scale: canvas-units per flux unit; default sizes the busiest node to ~0.17
-            (stacked) or the largest link to ~0.11 (centered).
-        min_flux: links below this (same units as the fluxes) are not drawn (declutter).
-        ref_flux: value of the width-reference bar shown in each panel (None to hide).
-        subtitles: optional {name: str} of per-panel annotation (e.g. PP / export totals).
-        pos, cat, col: layout/category/colour overrides (default CARBON_SANKEY_*).
-        figsize_per_panel, suptitle: figure sizing and overall title.
-        orient: 'vertical' (default) stacks the panels top-to-bottom, each spanning the
-            full figure width (publication page width, REF above / NO-TEP below);
-            'horizontal' places them side by side.
-
-    Returns:
-        (fig, axes).
-    """
-    import matplotlib.patches as mpatches
-    pos = pos or CARBON_SANKEY_POS
-    cat = cat or CARBON_SANKEY_CAT
-    col = col or CARBON_SANKEY_COL
-    subtitles = subtitles or {}
-    if scale is None:
-        if mode == 'stacked':
-            def _thru(L):
-                nn = set(a for a, b in L if L[(a, b)] >= min_flux) | \
-                     set(b for a, b in L if L[(a, b)] >= min_flux)
-                return max((max(sum(v for (a, b), v in L.items() if a == n and v >= min_flux),
-                                sum(v for (a, b), v in L.items() if b == n and v >= min_flux))
-                            for n in nn), default=1.0)
-            scale = 0.26 / max(_thru(L) for L in links_list)
-        else:
-            scale = 0.11 / max(max(L.values()) for L in links_list)
-    n = len(links_list)
-    # Panel aspect follows the equal-aspect canvas (x span ~3.16, y span ~1.08 -> ~2.9:1),
-    # so the default per-panel height ~ width / 2.9 avoids large white margins.
-    if orient == 'vertical':
-        fpp = figsize_per_panel or (13.0, 4.6)
-        fig, axes = plt.subplots(n, 1, figsize=(fpp[0], fpp[1] * n))
-    else:
-        fpp = figsize_per_panel or (7.8, 7.4)
-        fig, axes = plt.subplots(1, n, figsize=(fpp[0] * n, fpp[1]))
-    axes = np.atleast_1d(axes)
-    for ax, L, nm in zip(axes, links_list, names):
-        _draw_carbon_sankey(ax, L, scale, pos, cat, col, _CARBON_SANKEY_LAB, min_flux,
-                            nm, subtitles.get(nm), ref_flux, mode=mode)
-    handles = [mpatches.Patch(color=col[k], label=v)
-               for k, v in _CARBON_SANKEY_LEGEND.items()]
-    fig.legend(handles=handles, loc='lower center', ncol=len(handles), fontsize=8,
-               frameon=False)
-    if suptitle is None:
-        suptitle = (r'Annual carbon flux network  [mmol C m$^{-2}$ yr$^{-1}$]  '
-                    r'(width $\propto$ flux)')
-    fig.suptitle(suptitle, fontsize=12, y=0.99)
-    fig.tight_layout(rect=[0, 0.045, 1, 0.95])
-    return fig, axes
-
-
-def _hex_to_rgba(hexcol, alpha=1.0):
-    h = hexcol.lstrip('#')
-    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
-    return f'rgba({r},{g},{b},{alpha})'
-
-
-def _sankey_busiest_column(L, pos):
-    """Value (flux units) of the busiest x-column = the largest sum of node throughputs
-    (max of in/out per node) among nodes sharing an x. This is what drives plotly's
-    auto-scale, so equalising it across panels equalises their value-per-pixel scale."""
-    from collections import defaultdict
-    nodes = set(a for a, b in L) | set(b for a, b in L)
-    out_t = {n: sum(v for (a, b), v in L.items() if a == n) for n in nodes}
-    in_t = {n: sum(v for (a, b), v in L.items() if b == n) for n in nodes}
-    colsum = defaultdict(float)
-    for n in nodes:
-        colsum[round(pos[n][0], 3)] += max(out_t[n], in_t[n])
-    return max(colsum.values()) if colsum else 1.0
-
-
-def plot_carbon_sankey_plotly(links_list, names, min_flux=100, pos=None, cat=None, col=None,
-                              link_alpha=0.45, node_thickness=18, node_pad=9,
-                              width=1000, height=480, vspacing = 0.0, save_path=None, suptitle=None,
-                              equal_scale=True, show_subplot_titles=False,
-                              panel_letters=('a', 'b', 'c', 'd')):
-    """Plotly alternative to plot_carbon_sankey: the SAME carbon_flux_links, drawn with
-    plotly's built-in Sankey (go.Sankey) -- orthogonal rounded ribbons with native overlap
-    transparency, in the style of Kerimoglu et al. (2022, Fig. SI-4).
-
-    Reuses the shared layout/colours (CARBON_SANKEY_POS/CAT/COL): node x from the same left
-    -> right columns, y flipped to plotly's top-down convention, link colour = source colour
-    at `link_alpha`. Panels are stacked (one Sankey subplot per simulation) so REF vs NO-TEP
-    compare directly. plotly + kaleido are imported lazily (optional dependency); pass
-    save_path to write a static PNG (needs kaleido), else the interactive Figure is returned.
-
-    equal_scale (default True): plotly auto-scales EACH Sankey to fill its panel, so without
-    this REF and NO-TEP would use different value-per-pixel scales and their node/ribbon sizes
-    would NOT be comparable (e.g. Phy would look bigger in NO-TEP despite a smaller PP). A
-    transparent 'scale' spacer link of a common value is added to every panel so the busiest
-    column -- hence the scale -- is identical across panels. Set False for per-panel autoscale.
-
-    Paper-figure layout (defaults): no suptitle, no centred subplot titles, and a bold panel
-    letter ('a', 'b', ...) in each panel's top-left corner (`panel_letters`, set to None/() to
-    drop). Pass suptitle=... to restore a title, show_subplot_titles=True to centre `names`
-    above each panel. height is per-panel (total = height * n_panels).
-
-    Returns the plotly Figure.
-    """
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    pos = pos or CARBON_SANKEY_POS
-    cat = cat or CARBON_SANKEY_CAT
-    col = col or CARBON_SANKEY_COL
-    xs_all = [p[0] for p in pos.values()]
-    x0, x1 = min(xs_all), max(xs_all)
-
-    # Pre-filter and, for a shared scale, size a transparent spacer to the busiest column
-    # across ALL panels (its lone column then sets the same scale in every panel).
-    Ls = [{k: v for k, v in L.items() if v >= min_flux and k[0] in pos and k[1] in pos}
-          for L in links_list]
-    V_scale = 1.06 * max(_sankey_busiest_column(L, pos) for L in Ls) if equal_scale else None
-
-    fig = make_subplots(rows=len(Ls), cols=1,
-                        specs=[[{"type": "sankey"}] for _ in Ls],
-                        subplot_titles=names if show_subplot_titles else None,
-                        vertical_spacing=vspacing)
-
-    for row, L in enumerate(Ls, start=1):
-        nodes = [n for n in pos if any(n in (a, b) for (a, b) in L)]
-        idx = {n: i for i, n in enumerate(nodes)}
-        # plotly needs x,y in (0,1); normalise x to columns, flip y to top-down.
-        nx = [0.04 + 0.92 * (pos[n][0] - x0) / (x1 - x0) for n in nodes]
-        ny = [min(0.97, max(0.03, 1.0 - pos[n][1])) for n in nodes]
-        labels = [_CARBON_SANKEY_LAB.get(n, n) for n in nodes]
-        node_colors = [_hex_to_rgba(col[cat[n]], 1.0) for n in nodes]
-        s, t, val, lc = [], [], [], []
-        for (a, b), v in L.items():
-            s.append(idx[a]); t.append(idx[b]); val.append(v)
-            lc.append(_hex_to_rgba(col[cat[a]], link_alpha))
-        if V_scale is not None:
-            # Two off-diagram, fully transparent spacer nodes carrying a fixed-value link:
-            # forces the busiest column (hence the scale) to V_scale in every panel.
-            si = len(nodes); ti = len(nodes) + 1
-            labels += ['', '']
-            nx += [0.995, 0.999]; ny += [0.5, 0.5]
-            node_colors += ['rgba(0,0,0,0)', 'rgba(0,0,0,0)']
-            s.append(si); t.append(ti); val.append(V_scale)
-            lc.append('rgba(0,0,0,0)')
-        fig.add_trace(go.Sankey(
-            arrangement='snap',
-            node=dict(label=labels, x=nx, y=ny, color=node_colors,
-                      thickness=node_thickness, pad=node_pad,
-                      line=dict(width=0)),   # no border -> the transparent spacer is invisible
-            link=dict(source=s, target=t, value=val, color=lc)),
-            row=row, col=1)
-
-    n = len(Ls)
-    fig.update_layout(width=width, height=height * n, title_text=suptitle, font_size=11)
-    if not suptitle:
-        # No title, but KEEP vertical headroom: the recycling links routing over the top node
-        # (e.g. BacF -> DOCS) arc above it, and their apex overshoots the panel top by an amount
-        # that grows with pixel height -- so a fixed top margin clips them on tall figures.
-        # Scale the top/bottom margins with the figure height to always clear the loops.
-        m = max(50, int(0.14 * height * n))
-        fig.update_layout(margin=dict(t=m, b=int(m * 0.55), l=12, r=12))
-    if panel_letters:
-        # Bold letter in each panel's top-left corner. make_subplots stacks rows top->down
-        # with equal heights `rh` separated by `vspacing`; row i (0-based) starts at y_top.
-        rh = (1 - (n - 1) * vspacing) / n
-        for i, letter in zip(range(n), panel_letters):
-            fig.add_annotation(x=0.0, y=1 - i * (rh + vspacing), xref='paper', yref='paper',
-                               text=f'<b>{letter}</b>', showarrow=False,
-                               xanchor='left', yanchor='top', font=dict(size=17))
-    if save_path:
-        fig.write_image(save_path, scale=2)
-    return fig
-
-
-# ============================================================================
-# ============ resuspension_rate SENSITIVITY (REF vs NO-TEP) =================
-# ============================================================================
-
-def plot_resusp_sensitivity(ref_df, notep_df, calib=1.323e6, figsize=(15.5, 8.4),
-                            suptitle=None):
-    """Six-panel resuspension_rate sensitivity of the C cycle, REF (TEP on) vs NO-TEP.
-
-    The §5 knock-out robustness / mechanism figure. Feed two tidy DataFrames (one per
-    regime), each with columns: resusp_rate, PP, e_ratio, Phy_limI, Phy_limNUT, N_tot,
-    N_export (rows = one simulation per swept resuspension_rate). Produced by the sweep
-    in _private/scripts (run_sensitivity over Macroflocs+resuspension_rate).
-
-    The story it draws:
-      (a) PP and (b) e-ratio vs resuspension_rate -- NO-TEP responds smoothly/monotonically
-          while REF is strongly non-linear (PP peaks at the calibrated rate, export flips
-          sign): the TEP-mineral coupling *amplifies* the C-cycle's sensitivity to the
-          resuspension environment rather than buffering it.
-      (c) REF light (limI) vs nutrient (limNUT~Si) limitation -- two competing controls:
-          nutrient-limited below the calibrated rate (organic Si/N exported and not
-          returned), light-limited above it (turbid), optimum at calibration.
-      (d) limNUT REF vs NO-TEP -- the nutrient-limitation collapse at low resuspension
-          happens *only* with TEP.
-      (e) total nutrient inventory (N_tot) and (f) net nutrient export vs resuspension_rate
-          -- direct evidence: with TEP the nutrient inventory is tightly slaved to the
-          resuspension environment (huge swing, export at low rate / accumulation at high
-          rate), whereas NO-TEP stays buffered.
-
-    Args:
-        ref_df, notep_df: per-regime DataFrames (sorted on resusp_rate internally).
-        calib: calibrated resuspension_rate, marked with a dotted line.
-        figsize, suptitle: figure sizing / overriding title.
-
-    Returns:
-        (fig, axs) with axs a (2, 3) array.
-    """
-    cref, cnot = '#2e8b57', '#d1495b'
-    R = ref_df.sort_values('resusp_rate')
-    N = notep_df.sort_values('resusp_rate')
-    x = 'resusp_rate'
-    fig, axs = plt.subplots(2, 3, figsize=figsize)
-
-    ax = axs[0, 0]
-    ax.plot(R[x], R.PP, 'o-', color=cref, label='REF (TEP on)')
-    ax.plot(N[x], N.PP, 's-', color=cnot, label='NO-TEP')
-    ax.set_ylabel(r'PP  [mmol C m$^{-2}$ yr$^{-1}$]')
-    ax.set_title('(a) Primary production'); ax.legend(fontsize=8)
-
-    ax = axs[0, 1]
-    ax.plot(R[x], R.e_ratio, 'o-', color=cref, label='REF (TEP on)')
-    ax.plot(N[x], N.e_ratio, 's-', color=cnot, label='NO-TEP')
-    ax.axhline(0, color='0.7', lw=0.8)
-    ax.set_ylabel('e-ratio  Export/NPP  [%]')
-    ax.set_title('(b) Export efficiency'); ax.legend(fontsize=8)
-
-    ax = axs[1, 0]
-    ax.plot(R[x], R.Phy_limI, 'o-', color='#e0a11e', label='light (limI)')
-    ax.plot(R[x], R.Phy_limNUT, 'o-', color='#3b6fb0',
-            label=r'nutrients (limNUT $\approx$ Si)')
-    ax.set_ylabel('limitation factor  [0-1]')
-    ax.set_title('(c) REF: two competing controls'); ax.legend(fontsize=8)
-    ax.annotate('nutrient-limited\n(Si exported)', (R[x].iloc[0], R.Phy_limNUT.iloc[0]),
-                textcoords='offset points', xytext=(6, 22), fontsize=7.5, color='#3b6fb0')
-    ax.annotate('light-limited\n(turbid)', (R[x].iloc[-1], R.Phy_limI.iloc[-1]),
-                textcoords='offset points', xytext=(-30, 18), fontsize=7.5, color='#e0a11e')
-
-    ax = axs[1, 1]
-    ax.plot(R[x], R.Phy_limNUT, 'o-', color=cref, label='REF (TEP on)')
-    ax.plot(N[x], N.Phy_limNUT, 's-', color=cnot, label='NO-TEP')
-    ax.set_ylim(0, 0.8)
-    ax.set_ylabel('nutrient limitation limNUT  [0-1]')
-    ax.set_title('(d) Nutrient limitation collapses only with TEP'); ax.legend(fontsize=8)
-
-    ax = axs[0, 2]
-    ax.plot(R[x], R.N_tot, 'o-', color=cref, label='REF (TEP on)')
-    ax.plot(N[x], N.N_tot, 's-', color=cnot, label='NO-TEP')
-    ax.set_ylabel(r'total N inventory  [mmol N m$^{-3}$]')
-    ax.set_title('(e) Nutrient inventory slaved to resuspension'); ax.legend(fontsize=8)
-
-    ax = axs[1, 2]
-    ax.plot(R[x], R.N_export, 'o-', color=cref, label='REF (TEP on)')
-    ax.plot(N[x], N.N_export, 's-', color=cnot, label='NO-TEP')
-    ax.axhline(0, color='0.7', lw=0.8)
-    ax.set_ylabel(r'net N export  [mmol N m$^{-2}$ yr$^{-1}$]')
-    ax.set_title('(f) Net nutrient export (>0 = lost to bed)'); ax.legend(fontsize=8)
-    ax.annotate('exported', (R[x].iloc[0], R.N_export.iloc[0]),
-                textcoords='offset points', xytext=(6, -14), fontsize=7.5, color=cref)
-    ax.annotate('returned', (R[x].iloc[-1], R.N_export.iloc[-1]),
-                textcoords='offset points', xytext=(-40, 10), fontsize=7.5, color=cref)
-
-    for a in axs.flat:
-        a.axvline(calib, ls=':', color='0.5')
-        a.set_xlabel('resuspension_rate')
-        a.text(calib, a.get_ylim()[0], ' calib', fontsize=7, color='0.5', va='bottom')
-    if suptitle is None:
-        suptitle = ('TEP-mineral coupling amplifies the C-cycle sensitivity to '
-                    'resuspension\nNO-TEP: light-controlled (smooth)   |   '
-                    'REF: nutrient (low rate) <-> light (high rate)')
-    fig.suptitle(suptitle, fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.92])
-    return fig, axs
-
-
-def plot_tep_double_advantage(ref, notep, year=2023, days=10, figsize=(12, 10.5)):
-    """Seasonal test of TEP's *double advantage* (REF vs NO-TEP at the calibrated rate).
-
-    Phytoplankton exude TEP, which (1) glues mineral flocs -> lowers SPM/turbidity ->
-    improves the light climate, and (2) fuels the microbial loop ('farming' bacteria) ->
-    nutrient recycling. This figure tests how each advantage plays out over the season:
-
-      (a) PP -- REF outproduces NO-TEP, mostly in summer.
-      (b) light limitation limI -- advantage 1: clearly higher (less limiting) with TEP.
-      (c) nutrient limitation lim_Si / lim_P (Droop quota) -- essentially unchanged: the
-          quota formulation buffers it, so nutrient limitation is *not* the proximate PP
-          control here.
-      (d) dissolved DSi / DIP -- collapse post-bloom without TEP (weaker recycling).
-      (e) bacterial biomass -- advantage 2: microbial loop far stronger with TEP.
-      (f) nutrient regeneration (DSi+DIP remineralisation) -- ~2x higher with TEP.
-
-    Takeaway: the two advantages act on different compartments -- light drives PP, while
-    the microbial-loop advantage sustains secondary production and the nutrient inventory;
-    they meet in that recycling replenishes the nutrients drawn down by the light-boosted
-    production, keeping the quota limitation similar between regimes.
-
-    Args:
-        ref, notep: the two Model simulations (REF / NO-TEP) at the calibrated rate.
-        year: analysis year. days: smoothing window (rolling mean, days). figsize.
-
-    Returns:
-        (fig, axs) with axs a (3, 2) array.
-    """
-    cref, cnot = '#2e8b57', '#d1495b'
-
-    def tr(s, col):
-        d = s.df[s.df.index.year == year]
-        if col not in d.columns:
-            return pd.Series(np.nan, index=d.index)
-        return pd.to_numeric(d[col], errors='coerce').resample(f'{days}D',
-                                                               origin='epoch').mean()
-
-    def line(ax, cols, sumcols=False):
-        for s, c, lab in [(ref, cref, 'REF'), (notep, cnot, 'NO-TEP')]:
-            y = sum(tr(s, cc) for cc in cols) if sumcols else tr(s, cols)
-            ax.plot(y.index, y.values, color=c, lw=1.6,
-                    ls='-' if lab == 'REF' else '--', label=lab)
-        ax.legend(fontsize=7.5)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b')); ax.tick_params(labelsize=7.5)
-
-    fig, axs = plt.subplots(3, 2, figsize=figsize, sharex=True)
-    line(axs[0, 0], 'Phy_source_PP.C')
-    axs[0, 0].set_title('(a) Primary production', fontsize=10)
-    axs[0, 0].set_ylabel(r'PP [mmol C m$^{-3}$ d$^{-1}$]', fontsize=8.5)
-    line(axs[0, 1], 'Phy_limI')
-    axs[0, 1].set_title('(b) Light limitation limI -- advantage 1', fontsize=10)
-    axs[0, 1].set_ylabel('limI [0-1]', fontsize=8.5)
-
-    for s, c, lab in [(ref, cref, 'REF'), (notep, cnot, 'NO-TEP')]:
-        axs[1, 0].plot(tr(s, 'Phy_lim_Si').index, tr(s, 'Phy_lim_Si').values, color=c,
-                       lw=1.6, ls='-' if lab == 'REF' else '--', label=f'{lab} Si')
-        axs[1, 0].plot(tr(s, 'Phy_lim_P').index, tr(s, 'Phy_lim_P').values, color=c,
-                       lw=1.1, ls=':', label=f'{lab} P')
-    axs[1, 0].set_title('(c) Nutrient limitation (quota) -- buffered', fontsize=10)
-    axs[1, 0].set_ylabel('lim_Si (solid), lim_P (dotted)', fontsize=8.5)
-    axs[1, 0].legend(fontsize=7, ncol=2)
-    axs[1, 0].xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-
-    ax2 = None
-    for s, c, lab in [(ref, cref, 'REF'), (notep, cnot, 'NO-TEP')]:
-        axs[1, 1].plot(tr(s, 'DSi_concentration').index, tr(s, 'DSi_concentration').values,
-                       color=c, lw=1.6, ls='-' if lab == 'REF' else '--', label=f'{lab} DSi')
-        ax2 = axs[1, 1].twinx() if ax2 is None else ax2
-        ax2.plot(tr(s, 'DIP_concentration').index, tr(s, 'DIP_concentration').values,
-                 color=c, lw=1.1, ls=':', label=f'{lab} DIP')
-    axs[1, 1].set_title('(d) Dissolved nutrients -- collapse without TEP', fontsize=10)
-    axs[1, 1].set_ylabel(r'DSi [mmol m$^{-3}$] (solid)', fontsize=8.5)
-    ax2.set_ylabel(r'DIP [mmol m$^{-3}$] (dotted)', fontsize=8.5)
-    axs[1, 1].legend(fontsize=7, loc='upper right')
-    axs[1, 1].xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-
-    line(axs[2, 0], ['BacF_C', 'BacA_C'], sumcols=True)
-    axs[2, 0].set_title('(e) Bacterial biomass -- advantage 2 (farming)', fontsize=10)
-    axs[2, 0].set_ylabel(r'Bac C [mmol m$^{-3}$]', fontsize=8.5)
-    line(axs[2, 1], ['DSi_source_remineralization', 'DIP_source_remineralization'],
-         sumcols=True)
-    axs[2, 1].set_title('(f) Nutrient regeneration (DSi+DIP remin.)', fontsize=10)
-    axs[2, 1].set_ylabel(r'regen [mmol m$^{-3}$ d$^{-1}$]', fontsize=8.5)
-
-    fig.suptitle("TEP double advantage (REF vs NO-TEP, calibrated): light (b) drives PP; "
-                 "microbial loop + recycling + dissolved nutrients (d,e,f) strongly weakened"
-                 "\nwithout TEP, but nutrient limitation (c) is quota-buffered -> the 2nd "
-                 "advantage does not reach PP in this model", fontsize=10.5)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    return fig, axs

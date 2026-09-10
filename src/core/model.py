@@ -7,21 +7,25 @@ from typing import Dict, List, Optional, Any
 from scipy import integrate
 
 from src.utils import functions as fns
-from core import phys
+from src.core import phys
 from src.utils import evaluation
-from src.components import phytoplankton as phyto
+from src.core import legacy
 from src.config_model import varinfos
 
 
-@staticmethod
 def _track_time(func):
-    """Decorator to track function execution time"""
+    """Decorator accumulating [total seconds, call count] per method.
+
+    Accumulated rather than appended: the derivative methods are called once per
+    timestep, i.e. hundreds of thousands of times per run.
+    """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         start = time.time()
         result = func(self, *args, **kwargs)
-        duration = time.time() - start
-        self.perf_stats[func.__name__].append(duration)
+        stats = self.perf_stats[func.__name__]
+        stats[0] += time.time() - start
+        stats[1] += 1
         return result
     return wrapper
 
@@ -32,7 +36,6 @@ class Model:
             setup: phys.Setup = phys.Setup(dt=0.001, tmax=20),
             dtype: type = np.float64,
             euler: bool = True,
-            output_time_offset: float = 0,
             output_config: Optional[Dict] = None,
             output_vars: Optional[List[str]] = None,
             name: str = 'Model',
@@ -75,14 +78,13 @@ class Model:
         ]
         self.output_config = output_config or varinfos.doutput
         self.output_vars = output_vars or list(self.output_config.keys())
-        self.toutputoffset = output_time_offset
         self.config = config_dict.copy()
 
         # Store aggregate_vars for initialization
         self.aggregate_vars_init = aggregate_vars
 
         # Performance tracking
-        self.perf_stats = defaultdict(list)
+        self.perf_stats = defaultdict(lambda: [0.0, 0])
         self.start_time = time.time()
 
         # Initialize all components
@@ -133,22 +135,14 @@ class Model:
 
     def _initialize_tracking_variables(self):
         """Initialize variables for tracking model state"""
-        self.nsubcomponents = 0
         self.pool_names = []
-        self.generic_pool_names = []
-        self.component_ids = []
         self.pool_ids = []
         self.ipools = {}
         self.pool_indices = {}
 
-        # Track special components
-        self.phyto_components = set()
-        self.phyto_instances = []
-
         # Diagnostic tracking
         self.diag_pool_names = []
         self.diag_indices = {}
-        self.n_diagnostics = None
         self.diag_component_ids = []
 
         # Initialize aggregate variables
@@ -165,11 +159,11 @@ class Model:
         current_idx = 0
 
         for key, cfg in self.config.items():
-            if key == 'formulation':  # Skip the formulation key
+            if key in legacy.NON_COMPONENT_KEYS:
                 continue
 
-            instance = cfg['class'](name=key, dtype=self.dtype, **cfg.get('parameters', {}))
-            instance.formulation = self.config.get('formulation', 'default')
+            parameters = legacy.translate_parameters(key, cfg.get('parameters', {}))
+            instance = cfg['class'](name=key, dtype=self.dtype, **parameters)
             instance.set_ICs(**cfg.get('initialization', {}))
 
             # Get pools and update tracking
@@ -177,30 +171,19 @@ class Model:
             npools = len(pools)
 
             # Update tracking variables
-            self._update_tracking_variables(key, instance, pools, npools, current_idx)
+            self._update_tracking_variables(key, pools, npools, current_idx)
 
             # Handle diagnostics
             if self.do_diagnostics:
                 diags = cfg.get('diagnostics', [])
                 self._setup_diagnostics(instance, diags, key)
 
-            # Track phytoplankton components
-            if isinstance(instance, phyto.Phyto):
-                self.phyto_components.add(key)
-                self.phyto_instances.append(instance)
-
             self.components[key] = instance
             current_idx += npools
 
-    def _update_tracking_variables(self, key, instance, pools, npools, current_idx):
+    def _update_tracking_variables(self, key, pools, npools, current_idx):
         """Update component tracking variables"""
-        self.nsubcomponents += npools
         self.pool_names.extend([f"{key}_{pool}" for pool in pools])
-        self.generic_pool_names.extend([
-            f"{instance.classname}_{key * ('concentration' in pool)}{pool}"
-            for pool in pools
-        ])
-        self.component_ids.extend([key] * npools)
         self.pool_ids.extend(pools)
         self.ipools[key] = np.arange(current_idx, current_idx + npools)
 
@@ -251,7 +234,7 @@ class Model:
     def _setup_component_couplings(self):
         """Setup couplings between components"""
         for key, cfg in self.config.items():
-            if key == 'formulation':
+            if key in legacy.NON_COMPONENT_KEYS:
                 continue
 
             component = self.components[key]
@@ -272,7 +255,7 @@ class Model:
         allowing restart from extracted simulation state.
         """
         for key, cfg in self.config.items():
-            if key == 'formulation' or key not in self.components:
+            if key in legacy.NON_COMPONENT_KEYS or key not in self.components:
                 continue
             component = self.components[key]
             # Apply pre-set state from config (e.g., extracted from previous simulation)
@@ -321,12 +304,23 @@ class Model:
                 str(name): idx for name, idx in zip(pool_names, indices)
             }
 
+        # Components exposing a pre-coupling step, and those carrying diagnostics:
+        # resolved once instead of being probed at every derivative evaluation.
+        self.precoupled_components = [
+            comp for comp in self.components.values()
+            if hasattr(comp, 'get_coupled_processes_indepent_sinks_sources')
+        ]
+        self.diag_components = [comp for comp in self.components.values() if comp.diagnostics]
+
         # Pre-compute fast component indices for two_dt case
         if self.two_dt:
             self.fast_components = [comp for comp in self.components.values()
                                     if hasattr(comp, 'dt2') and comp.dt2]
             self.slow_components = [comp for comp in self.components.values()
                                     if not hasattr(comp, 'dt2') or not comp.dt2]
+            self._fast_ids = fast = {id(comp) for comp in self.fast_components}
+            self.precoupled_fast_components = [comp for comp in self.precoupled_components
+                                               if id(comp) in fast]
 
             # Pre-compute dt factors
             self.dt_factors = []
@@ -344,6 +338,13 @@ class Model:
                 comp.name: np.zeros(len(self.ipools[comp.name]), dtype=self.dtype)
                 for comp in self.slow_components
             }
+
+            # Fast step, in component order: the component itself if it runs at dt2,
+            # otherwise the zero block that stands in for it.
+            self.fast_step_terms = [
+                (comp, None) if id(comp) in fast else (None, self.slow_zeros[comp.name])
+                for comp in self.components.values()
+            ]
 
     def _create_initial_state_vector(self):
         """Create initial state vector from all component ICs"""
@@ -375,11 +376,8 @@ class Model:
     @_track_time
     def _compute_single_timestep_derivatives(self, t: float, t_idx: int = None) -> np.ndarray:
         """Compute derivatives for single timestep case"""
-        for component in self.components.values():
-            try:
-                component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
-            except AttributeError:
-                pass
+        for component in self.precoupled_components:
+            component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
 
         sources = np.hstack([
             comp.get_sources(t, t_idx=t_idx)
@@ -396,13 +394,9 @@ class Model:
     @_track_time
     def _compute_two_timestep_derivatives(self, t: float, t_idx: int, is_slow_step: bool) -> np.ndarray:
         """Compute derivatives for two timestep case using index-based branching"""
-        active_components = self.components.values() if is_slow_step else self.fast_components
-
-        for component in active_components:
-            try:
-                component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
-            except AttributeError:
-                continue
+        for component in (self.precoupled_components if is_slow_step
+                          else self.precoupled_fast_components):
+            component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
 
         if is_slow_step:
             sources = np.hstack([
@@ -414,16 +408,10 @@ class Model:
                 for comp in self.components.values()
             ])
         else:
-            sources = np.hstack([
-                comp.get_sources(t, t_idx=t_idx) if comp in self.fast_components
-                else self.slow_zeros[comp.name]
-                for comp in self.components.values()
-            ])
-            sinks = np.hstack([
-                comp.get_sinks(t, t_idx=t_idx) if comp in self.fast_components
-                else self.slow_zeros[comp.name]
-                for comp in self.components.values()
-            ])
+            sources = np.hstack([comp.get_sources(t, t_idx=t_idx) if comp is not None else zeros
+                                 for comp, zeros in self.fast_step_terms])
+            sinks = np.hstack([comp.get_sinks(t, t_idx=t_idx) if comp is not None else zeros
+                               for comp, zeros in self.fast_step_terms])
 
             if np.all(sources == 0) and np.all(sinks == 0):
                 return np.zeros_like(sources)
@@ -513,30 +501,17 @@ class Model:
     @_track_time
     def _compute_diagnostics(self, t: float, t_idx: int = None, is_slow_step: bool = True) -> np.ndarray:
         """Compute diagnostic variables using index-based branching"""
-        if self.two_dt:
-            if is_slow_step:
-                diag_arrays = [
-                    comp.get_diagnostic_variables()
-                    for comp in self.components.values()
-                    if hasattr(comp, 'get_diagnostic_variables') and comp.diagnostics
-                ]
-                return np.hstack(diag_arrays) if diag_arrays else np.array([])
-            else:
-                diag_arrays = [
-                    comp.get_diagnostic_variables()
-                    if comp in self.fast_components
-                    else np.full(len(self.diag_indices[comp.name]), np.nan)
-                    for comp in self.components.values()
-                    if hasattr(comp, 'get_diagnostic_variables') and comp.diagnostics
-                ]
-                return np.hstack(diag_arrays) if diag_arrays else np.array([])
-        else:
+        if self.two_dt and not is_slow_step:
+            # Fast step: slow components keep their previous value, marked NaN here and
+            # back-filled in _add_diagnostics.
             diag_arrays = [
-                comp.get_diagnostic_variables()
-                for comp in self.components.values()
-                if hasattr(comp, 'get_diagnostic_variables')
+                comp.get_diagnostic_variables() if id(comp) in self._fast_ids
+                else np.full(len(self.diag_indices[comp.name]), np.nan)
+                for comp in self.diag_components
             ]
-            return np.hstack(diag_arrays) if diag_arrays else np.array([])
+        else:
+            diag_arrays = [comp.get_diagnostic_variables() for comp in self.diag_components]
+        return np.hstack(diag_arrays) if diag_arrays else np.array([])
 
     @_track_time
     def _run_model(self) -> None:
@@ -582,9 +557,6 @@ class Model:
             if should_check_nan and np.isnan(derivatives).any():
                 if self.verbose:
                     print(f'STOP MODEL: NaN values in derivatives at t_idx={t_idx}')
-                # states[t_idx:] = np.nan
-                # if self.do_diagnostics:
-                #     diagnostics[t_idx:] = np.nan
                 self.error = True
                 self.name += '-ERROR'
                 break
@@ -619,15 +591,40 @@ class Model:
 
     @_track_time
     def _run_ode_integration(self) -> None:
-        """Run model using ODE solver"""
+        """Run the model with an adaptive ODE solver instead of the Euler scheme.
+
+        The components read their forcings from arrays indexed by timestep, not by time,
+        so the solver's continuous t is mapped back to the nearest index below it. The
+        forcings are therefore piecewise constant over a setup step, which is what the
+        Euler scheme does too.
+
+        Two limitations, both deliberate:
+        - the two-timestep scheme is not supported (its dt_factors weighting only makes
+          sense for a fixed step);
+        - no diagnostics are produced, the solver not evaluating on the output grid.
+        """
+        if self.two_dt:
+            raise NotImplementedError(
+                'euler=False does not support the two-timestep scheme (dt2 is set). '
+                'Use a single timestep (dt2=None), or keep euler=True.')
+
+        n_steps = len(self.dates)
+        used_dt = self.used_dt
+
+        def derivatives(t, y):
+            t_idx = min(int(t / used_dt), n_steps - 1)
+            return self._compute_derivatives(t, y, t_idx=t_idx)
+
         try:
             results = integrate.solve_ivp(
-                self._compute_derivatives,
+                derivatives,
                 self.t_span,
                 self.initial_state,
                 method='DOP853',
-                t_eval=self.dates
+                t_eval=self.setup.t_eval
             )
+            if not results.success:
+                raise RuntimeError(results.message)
             self.t = self.dates  # Use DatetimeIndex instead of results.t
             self.y = results.y
 
@@ -667,7 +664,6 @@ class Model:
             self.output_config.get(pool, {}).get('trsfrm', 1)
             for pool in self.df.columns
         ], dtype=self.dtype)
-        # self.df.iloc[:, :len(self.pool_names)] *= transform_factors
         self.df.iloc[:, :] *= transform_factors
 
         # Remove model-unit columns to save memory if not needed
@@ -702,22 +698,26 @@ class Model:
         for agg_var, indices in agg_indices.items():
             self.df[agg_var] = df_values[:, indices].sum(axis=1)
 
+    def _evaluate_derived_expression(self, expression: str) -> Any:
+        """Evaluate one `oprt` expression against the result DataFrame.
+
+        Shared by _compute_derived_variables (at the end of a run) and by the public
+        compute_derived_variables (after the fact). The two differ only in how they
+        report failures, so only the evaluation itself lives here.
+        """
+        values = fns.eval_expr(expression, subdf=self.df, fulldf=self.df,
+                               setup=self.setup, model=self)
+        # Guard against division-by-zero in ratio expressions (e.g. a denominator
+        # that is 0 at night) producing +/-inf.
+        return pd.Series(values, index=self.df.index).replace([np.inf, -np.inf], np.nan)
+
     @_track_time
     def _compute_derived_variables(self) -> None:
         """Compute variables defined by expressions in output configuration."""
         for var in set(self.output_vars) - set(self.df.columns):
             if expression := self.output_config.get(var, {}).get('oprt'):
                 try:
-                    self.df[var] = fns.eval_expr(
-                        expression,
-                        subdf=self.df,
-                        fulldf=self.df,
-                        setup=self.setup,
-                        model=self
-                    )
-                    # Guard against division-by-zero in ratio expressions (e.g. a
-                    # denominator that is 0 at night) producing +/-inf.
-                    self.df[var] = self.df[var].replace([np.inf, -np.inf], np.nan)
+                    self.df[var] = self._evaluate_derived_expression(expression)
                 except KeyError:
                     if self.verbose:
                         print(f'KeyError in output preparation for {var}')
@@ -770,16 +770,7 @@ class Model:
         for var in vars_to_compute:
             if expression := config.get(var, {}).get('oprt'):
                 try:
-                    self.df[var] = fns.eval_expr(
-                        expression,
-                        subdf=self.df,
-                        fulldf=self.df,
-                        setup=self.setup,
-                        model=self
-                    )
-                    # Guard against division-by-zero in ratio expressions (e.g. a
-                    # denominator that is 0 at night) producing +/-inf.
-                    self.df[var] = self.df[var].replace([np.inf, -np.inf], np.nan)
+                    self.df[var] = self._evaluate_derived_expression(expression)
                     computed.append(var)
                     if verbose:
                         print(f"  ✓ Successfully computed '{var}'")
@@ -854,7 +845,7 @@ class Model:
             'runtime': time.time() - self.start_time,
             'component_count': len(self.components),
             'variable_count': len(self.pool_names),
-            'diagnostic_count': self.n_diagnostics,
+            'diagnostic_count': len(self.diag_pool_names),
             'performance': dict(self.perf_stats),
             'error_status': self.error
         }
@@ -863,10 +854,8 @@ class Model:
         """Report performance statistics"""
         print("\nPerformance Statistics:")
         print("-" * 80)
-        for func_name, times in self.perf_stats.items():
-            avg_time = np.mean(times)
-            total_time = np.sum(times)
-            calls = len(times)
+        for func_name, (total_time, calls) in self.perf_stats.items():
+            avg_time = total_time / calls if calls else 0.
             print(f"{func_name:30s}: {total_time:8.3f}s total, {avg_time * 1000:8.3f}ms/call ({calls} calls)")
 
 

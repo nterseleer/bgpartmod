@@ -13,7 +13,6 @@ def prepare_likelihood_data(
         model_results: pd.DataFrame,
         observations: Any,
         mean_window_days: Optional[int] = 1,
-        daily_mean: Optional[bool] = None,
         _cached_obs: Optional[pd.DataFrame] = None,
         method: str = 'aggregate',  # 'aggregate' or 'interpolate'
 ) -> pd.DataFrame:
@@ -28,7 +27,6 @@ def prepare_likelihood_data(
                          None or 0 disables averaging. Default: 1 (daily mean)
                          IMPORTANT: For sub-hourly data with sparse observations, pre-aggregation
                          dramatically improves performance (~100× faster) by reducing loop iterations.
-        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         method: 'aggregate' (default) aggregates model to obs periods,
                 'interpolate' interpolates model to obs times
         _cached_obs: Optional cached observation data
@@ -36,9 +34,6 @@ def prepare_likelihood_data(
     Returns:
         DataFrame with merged model and observation data
     """
-    # Legacy support: daily_mean overrides mean_window_days if explicitly provided
-    if daily_mean is not None:
-        mean_window_days = 1 if daily_mean else None
 
     # Pre-aggregate model data for performance (critical for high-resolution data)
     if mean_window_days is not None and mean_window_days > 0:
@@ -100,9 +95,7 @@ def calculate_likelihood(
         observations: Any,
         calibrated_vars: Optional[List[str]] = None,
         mean_window_days: Optional[int] = 1,
-        daily_mean: Optional[bool] = None,
         plot: bool = False,
-        name: Optional[str] = None,
         save_plots: bool = False,
         plot_size: Tuple[int, int] = (10, 6),
         verbose: bool = True,
@@ -118,9 +111,7 @@ def calculate_likelihood(
         calibrated_vars: List of variables to include in likelihood calculation
         mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, etc.)
                          Applied to both likelihood calculation and optional plotting for consistency.
-        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
         plot: Whether to create comparison plots
-        name: Optional name for the calculation
         save_plots: Whether to save plots to disk
         plot_size: Figure size for plots
         verbose: Whether to print total log-likelihood
@@ -130,9 +121,6 @@ def calculate_likelihood(
     Returns:
         Total log-likelihood value
     """
-    # Legacy support: daily_mean overrides mean_window_days if explicitly provided
-    if daily_mean is not None:
-        mean_window_days = 1 if daily_mean else None
 
     if calibrated_vars is None:
         calibrated_vars = [
@@ -145,7 +133,6 @@ def calculate_likelihood(
         model_results.df,
         observations,
         mean_window_days,
-        daily_mean=None,  # Already handled above
         _cached_obs=_cached_obs
     )
 
@@ -190,7 +177,6 @@ def calculate_rmse(
         observations: Any,
         variables: Optional[List[str]] = None,
         mean_window_days: Optional[int] = 1,
-        daily_mean: Optional[bool] = None
 ) -> Dict[str, float]:
     """
     Calculate Root Mean Square Error between model and observations.
@@ -201,14 +187,10 @@ def calculate_rmse(
         observations: Observations object with .df attribute and DatetimeIndex
         variables: List of variables to calculate RMSE for
         mean_window_days: Window size in days for temporal averaging (1 = daily, 7 = weekly, etc.)
-        daily_mean: Deprecated. Use mean_window_days=1 instead. Kept for backward compatibility.
 
     Returns:
         Dictionary of RMSE values by variable
     """
-    # Legacy support: daily_mean overrides mean_window_days if explicitly provided
-    if daily_mean is not None:
-        mean_window_days = 1 if daily_mean else None
 
     if variables is None:
         variables = observations.df.columns
