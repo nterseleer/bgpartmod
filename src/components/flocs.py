@@ -361,7 +361,7 @@ class Flocs(BaseStateVar):
             # density must follow d_p_microflocdiam: both define the flocculus building block
             # and are only ever configured on the Microflocs "master". Without this line,
             # Micro_in_Macro computes its mass concentration and Macroflocs its settling
-            # constant with the class default (2500) whatever the master carries.
+            # constant with the class default whatever the master carries.
             self.density = self.coupled_Np.density
 
             self.eps_kd = self.coupled_Np.eps_kd

@@ -22,7 +22,6 @@ python-dateutil==2.9.0.post0
 pytz==2025.2
 scipy==1.15.3
 six==1.17.0
-typing==3.7.4.3
 tzdata==2025.2
 
 # Optional: plotly Sankey alternative for the C-flux diagram (plot_carbon_sankey_plotly)
