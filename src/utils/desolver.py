@@ -1,9 +1,29 @@
 import concurrent.futures
+import multiprocessing
 import numpy as np
 import pandas as pd
 import os
 from datetime import datetime
 from typing import Any, List, Optional, Tuple, Union
+
+
+# The job evaluated by a worker process (an Optimization: setup, observations,
+# configuration). Handed over once, when the pool starts, instead of being pickled with
+# every trial: submitting a bound method ships its whole instance, i.e. ~240 MB and
+# ~4 s of (de)serialisation per trial for a 3-year setup, plus a private copy of the
+# setup in every worker. With the 'fork' start method the workers inherit the job
+# without pickling at all, and share its read-only arrays with the main process.
+_worker_job = None
+
+
+def _init_worker(job: Any) -> None:
+    global _worker_job
+    _worker_job = job
+
+
+def _evaluate_trial(trial: np.ndarray) -> Tuple[np.ndarray, float]:
+    """Evaluate a trial in a worker. Returns (parameter array, likelihood)."""
+    return trial, _worker_job.evaluate_model(trial)
 
 
 class DESolver:
@@ -84,22 +104,6 @@ class DESolver:
         self.initial_costs = initial_costs
         self.start_generation = start_generation
 
-    def evaluate_trial(self, trial: np.ndarray) -> Tuple[np.ndarray, float]:
-        """
-        Evaluate a trial solution.
-
-        Args:
-            trial: Array of parameter values to evaluate
-
-        Returns:
-            Tuple of (parameter array, likelihood)
-        """
-        # Get the actual log likelihood (will be negative)
-        likelihood = self.job.evaluate_model(trial)
-
-        # Return the actual likelihood - DE will handle negation internally
-        return trial, likelihood
-
     def Solve(self) -> bool:
         """Run the differential evolution optimization."""
         # Initialize population
@@ -122,7 +126,12 @@ class DESolver:
         olddf = None   # renseigne en fin de generation, lu a partir de la suivante
 
         try:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=self.num_cpus) as executor:
+            # 'fork' explicitly: it is Linux's default only up to Python 3.13.
+            with concurrent.futures.ProcessPoolExecutor(
+                    max_workers=self.num_cpus,
+                    mp_context=multiprocessing.get_context('fork'),
+                    initializer=_init_worker,
+                    initargs=(self.job,)) as executor:
                 for generation in range(self.start_generation, self.start_generation + self.maxGenerations):
                     print(f'Processing generation {generation}')
                     results = []
@@ -135,7 +144,7 @@ class DESolver:
 
                     # Evaluate trials in parallel
                     future_to_trial = {
-                        executor.submit(self.evaluate_trial, trial): (trial, i)
+                        executor.submit(_evaluate_trial, trial): (trial, i)
                         for i, trial in enumerate(trials)
                     }
 

@@ -1,4 +1,5 @@
 import time
+import warnings
 from functools import wraps
 from collections import defaultdict
 import numpy as np
@@ -28,6 +29,23 @@ def _track_time(func):
         stats[1] += 1
         return result
     return wrapper
+
+class _ModelUnitNames:
+    """Column lookup for derived expressions during _process_results: 'm<pool>' (model
+    units) resolves to the pool column itself, which still holds model units at that
+    point, since the unit transform comes after. Replaces a physical duplicate of every
+    pool. Only valid before _transform_units: compute_derived_variables, run after the
+    fact on converted columns, keeps plain self.df lookup."""
+
+    def __init__(self, df: pd.DataFrame, pool_names: List[str]):
+        self.df = df
+        self.pools = set(pool_names)
+
+    def __getitem__(self, name):
+        if name not in self.df.columns and name[:1] == 'm' and name[1:] in self.pools:
+            return self.df[name[1:]]
+        return self.df[name]
+
 
 class Model:
     def __init__(
@@ -637,40 +655,26 @@ class Model:
 
     @_track_time
     def _process_results(self) -> None:
-        """Process model results into a pandas DataFrame with proper units and aggregated variables."""
+        """Process model results into a pandas DataFrame with proper units and aggregated variables.
+
+        Every step only ADDS columns to self.df, never rebuilds it: on a 3-year run at
+        dt2 = 1e-3 one full copy of the frame costs ~0.4 GB, and during an optimisation
+        that per-worker memory is what bounds how many workers run in parallel. The
+        price is a fragmented frame, which pandas warns about; consolidating it would be
+        one more full copy, so the warning is silenced here on purpose.
+        """
         # Create base DataFrame with padding if needed
         yvals = self._pad_results(self.y.T)
-
-        # Create initial DataFrame
         self.df = pd.DataFrame(yvals, index=self.t, columns=self.pool_names)
 
-        # Store model units (temporarily needed for derived variable calculations)
-        model_data = self.df.values
-        self.df = pd.concat([
-            self.df,
-            pd.DataFrame(model_data, index=self.t, columns=[f'm{col}' for col in self.df.columns])
-        ], axis=1)
-
-        # Compute aggregate variables
-        self._compute_aggregate_variables()
-        # Add diagnostics if available
-        if self.do_diagnostics:
-            self._add_diagnostics()
-        # Compute derived variables
-        self._compute_derived_variables()
-
-        # Batch process transformations
-        transform_factors = np.array([
-            self.output_config.get(pool, {}).get('trsfrm', 1)
-            for pool in self.df.columns
-        ], dtype=self.dtype)
-        self.df.iloc[:, :] *= transform_factors
-
-        # Remove model-unit columns to save memory if not needed
-        self._cleanup_dataframe()
-
-
-
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', pd.errors.PerformanceWarning)
+            self._compute_aggregate_variables(yvals)
+            if self.do_diagnostics:
+                self._add_diagnostics()
+            self._compute_derived_variables()
+            self._transform_units()
+            self._cleanup_dataframe(yvals)
 
     @_track_time
     def _pad_results(self, yvals: np.ndarray) -> np.ndarray:
@@ -685,27 +689,23 @@ class Model:
         return yvals
 
     @_track_time
-    def _compute_aggregate_variables(self) -> None:
-        """Compute aggregate variables using optimized numpy operations."""
-        # Pre-compute column indices for each aggregate variable
-        agg_indices = {
-            agg_var: [self.df.columns.get_loc(comp) for comp in components]
-            for agg_var, components in self.aggregate_vars.items()
-        }
+    def _compute_aggregate_variables(self, yvals: np.ndarray) -> None:
+        """Compute aggregate variables, summing pool columns of the raw state array
+        (not self.df.values, which would copy the whole frame)."""
+        pool_index = {name: i for i, name in enumerate(self.pool_names)}
+        for agg_var, components in self.aggregate_vars.items():
+            self.df[agg_var] = yvals[:, [pool_index[comp] for comp in components]].sum(axis=1)
 
-        # Compute all aggregates at once using numpy operations
-        df_values = self.df.values
-        for agg_var, indices in agg_indices.items():
-            self.df[agg_var] = df_values[:, indices].sum(axis=1)
-
-    def _evaluate_derived_expression(self, expression: str) -> Any:
+    def _evaluate_derived_expression(self, expression: str, names=None) -> Any:
         """Evaluate one `oprt` expression against the result DataFrame.
 
         Shared by _compute_derived_variables (at the end of a run) and by the public
         compute_derived_variables (after the fact). The two differ only in how they
-        report failures, so only the evaluation itself lives here.
+        report failures, so only the evaluation itself lives here. `names` resolves the
+        column names used in the expression (default: self.df).
         """
-        values = fns.eval_expr(expression, subdf=self.df, fulldf=self.df,
+        names = self.df if names is None else names
+        values = fns.eval_expr(expression, subdf=names, fulldf=names,
                                setup=self.setup, model=self)
         # Guard against division-by-zero in ratio expressions (e.g. a denominator
         # that is 0 at night) producing +/-inf.
@@ -714,10 +714,11 @@ class Model:
     @_track_time
     def _compute_derived_variables(self) -> None:
         """Compute variables defined by expressions in output configuration."""
+        names = _ModelUnitNames(self.df, self.pool_names)
         for var in set(self.output_vars) - set(self.df.columns):
             if expression := self.output_config.get(var, {}).get('oprt'):
                 try:
-                    self.df[var] = self._evaluate_derived_expression(expression)
+                    self.df[var] = self._evaluate_derived_expression(expression, names)
                 except KeyError:
                     if self.verbose:
                         print(f'KeyError in output preparation for {var}')
@@ -800,26 +801,33 @@ class Model:
         diag_df = pd.DataFrame(ydiags, index=self.t, columns=self.diag_pool_names)
         with pd.option_context('future.no_silent_downcasting', True):
             diag_df = diag_df.bfill()
-        # Skip diagnostic columns that already exist in main df to avoid duplicates
-        diag_df = diag_df[[col for col in diag_df.columns if col not in self.df.columns]]
-        self.df = pd.concat([self.df, diag_df], axis=1)
+        # Skip diagnostic columns that already exist in main df to avoid duplicates.
+        # Added column by column: a concat would copy the whole frame.
+        for col in diag_df.columns:
+            if col not in self.df.columns:
+                self.df[col] = diag_df[col].values
 
-    def _cleanup_dataframe(self) -> None:
+    def _transform_units(self) -> None:
+        """Convert columns to output units (varinfos 'trsfrm'). Only the few columns whose
+        factor is not 1 are touched, instead of multiplying (and copying) the whole frame."""
+        factors = np.array([self.output_config.get(col, {}).get('trsfrm', 1)
+                            for col in self.df.columns], dtype=self.dtype)
+        for col, factor in zip(list(self.df.columns), factors):
+            if factor != 1:
+                self.df[col] = self.df[col] * factor
+
+    def _cleanup_dataframe(self, yvals: np.ndarray) -> None:
         """
-        Remove model-unit columns (m-prefixed) and optionally raw solver results
+        Optionally add the model-unit columns (m-prefixed), and remove raw solver results
         to aggressively reduce memory footprint.
         """
         memory_saved = 0
 
-        # Step 1: Remove m-prefixed columns (model units)
-        if not self.keep_model_units:
-            m_cols = [col for col in self.df.columns
-                     if col.startswith('m') and col[1:] in self.df.columns]
-            if m_cols:
-                self.df.drop(columns=m_cols, inplace=True)
-                memory_saved += len(m_cols) * self.df.shape[0] * 8  # 8 bytes per float64
-                if self.verbose:
-                    print(f'Removed {len(m_cols)} model-unit columns')
+        # Step 1: model-unit columns, only on request (derived expressions resolve their
+        # m-names without them, cf. _ModelUnitNames)
+        if self.keep_model_units:
+            for i, name in enumerate(self.pool_names):
+                self.df[f'm{name}'] = yvals[:, i].copy()
 
         # Step 2: Aggressive cleanup - remove raw solver results
         if self.aggressive_cleanup:
