@@ -2189,10 +2189,19 @@ def plot_optimization_evolution(df: pd.DataFrame,
     ax.plot(df[generationname][max_cost_idx],
             df[cost_col][max_cost_idx],
             'ro')
+
+    # Summary text: best score, generation of best/generations done
+    last_gen = df[generationname].max()
+    ax.text(0.98, 0.8,
+            f'lnl = {df[costname][max_cost_idx]:.2f} (best @ gen {df[generationname][max_cost_idx]}/{last_gen})',
+            transform=ax.transAxes, ha='right', va='bottom', fontsize=9,
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'), color='red')
+
     ax.text(df[generationname][max_cost_idx],
             df[cost_col][max_cost_idx],
-            f'{df[generationname][max_cost_idx]}',
-            color='red')
+            f'{df[costname][max_cost_idx]:.2f}', color='red')
+
+
 
     ax.set_xlabel('Optimization generation')
     ax.set_ylabel('Cost function (score)')

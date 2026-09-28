@@ -17,7 +17,7 @@ import numpy as np
 from src.utils import config_tools as cfg
 from src.utils import desolver
 from src.core import model
-from src.core import phys  # Import nécessaire pour la désérialisation pickle des objets Setup
+from src.core import phys  # Setup.from_recipe, and unpickling of pre-recipe setup.pkl
 from src.config_system import path_config as path_cfg
 # The diagnostics levels are the user's own choice of what to save; a minimal fallback
 # ships with the library.
@@ -29,6 +29,25 @@ from src.utils import simulation_manager as sim_manager
 
 # Constants
 OPTIMIZATIONS_DIR = path_cfg.OPTIM_DIR
+
+
+def _write_setup_recipe(setup, path: str):
+    """Save a Setup as its recipe (Setup.to_recipe): a few KB of JSON instead of a pickle
+    of every forcing array (~300 MB for a 3-year run at dt2 = 1e-3)."""
+    with open(path, 'w') as f:
+        json.dump(setup.to_recipe(), f, indent=2)
+
+
+def _read_setup(json_path: str, pkl_path: str):
+    """Rebuild a Setup from its recipe, or unpickle it for optimizations saved before
+    recipes existed. None if neither file is there."""
+    if os.path.exists(json_path):
+        with open(json_path) as f:
+            return phys.Setup.from_recipe(json.load(f))
+    if os.path.exists(pkl_path):
+        with open(pkl_path, 'rb') as f:
+            return pickle.load(f)
+    return None
 
 
 @dataclass
@@ -583,28 +602,17 @@ class Optimization:
 
 
     def _save_setup(self):
-        """Save setup separately from modkwargs."""
-        setup_path = os.path.join(self.optdir, f"{self.name}_setup.pkl")
-        with open(setup_path, 'wb') as f:
-            pickle.dump(self.setup, f)
-
-        # Save human-readable version using Setup's to_dict method
-        try:
-            setup_dict = self.setup.to_dict()
-            cfg.write_dict_to_file(setup_dict, f"{self.name}_setup_readable", fdir=self.optdir)
-        except Exception as e:
-            print(f"Could not save human-readable setup: {e}")
-
+        """Save setup separately from modkwargs, as its recipe."""
+        setup_path = os.path.join(self.optdir, f"{self.name}_setup.json")
+        _write_setup_recipe(self.setup, setup_path)
         if self.verbose:
             print(f'Setup saved to {setup_path}')
 
     def _load_setup(self):
         """Load setup separately with backward compatibility."""
-        setup_path = os.path.join(self.optdir, f"{self.name}_setup.pkl")
-        if os.path.exists(setup_path):
-            with open(setup_path, 'rb') as f:
-                self.setup = pickle.load(f)
-        else:
+        self.setup = _read_setup(os.path.join(self.optdir, f"{self.name}_setup.json"),
+                                 os.path.join(self.optdir, f"{self.name}_setup.pkl"))
+        if self.setup is None:
             # Backward compatibility: extract from modkwargs
             self.setup = self.config['modkwargs'].get('setup', None)
             if self.setup is None:
@@ -625,8 +633,7 @@ class Optimization:
                 pickle.dump(case.dconf, f)
             cfg.write_dict_to_file(case.dconf, f"{case.case_id}_dconf", fdir=case_subdir)
 
-            with open(os.path.join(case_subdir, "setup.pkl"), 'wb') as f:
-                pickle.dump(case.setup, f)
+            _write_setup_recipe(case.setup, os.path.join(case_subdir, "setup.json"))
 
             with open(os.path.join(case_subdir, "observations.pkl"), 'wb') as f:
                 pickle.dump(case.obs, f)
@@ -656,8 +663,10 @@ class Optimization:
             with open(os.path.join(case_subdir, "dconf.pkl"), 'rb') as f:
                 dconf = pickle.load(f)
 
-            with open(os.path.join(case_subdir, "setup.pkl"), 'rb') as f:
-                setup = pickle.load(f)
+            setup = _read_setup(os.path.join(case_subdir, "setup.json"),
+                                os.path.join(case_subdir, "setup.pkl"))
+            if setup is None:
+                raise FileNotFoundError(f"No setup.json nor setup.pkl in {case_subdir}")
 
             with open(os.path.join(case_subdir, "observations.pkl"), 'rb') as f:
                 obs = pickle.load(f)

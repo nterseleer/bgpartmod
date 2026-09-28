@@ -3,14 +3,19 @@
 Physical setup configuration for BGC model Simulations.
 Defines the physical and computational environment for model runs.
 """
+import hashlib
 import os.path
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from src.config_system import path_config as path_cfg
+
+
+def _sha256(values) -> str:
+    return hashlib.sha256(np.ascontiguousarray(values).tobytes()).hexdigest()
 
 @dataclass
 class PhysicalConstants:
@@ -70,6 +75,20 @@ class Setup:
         'Cphy_tot',  # Total phytoplankton carbon
     ]
 
+    # Series summarised by fingerprint(): the time grid and every forcing the model reads.
+    # Those left at None by the configuration (no riverine loads, no prescribed TEP...) are
+    # skipped.
+    FINGERPRINT_ARRAYS = [
+        't_eval', 'PAR_array', 'T_array', 'mu_water_array', 'water_depth_array',
+        'g_shear_rate_array', 'bed_shear_stress_array',
+        'loads_NH4_array', 'loads_NO3_array', 'loads_DIP_array', 'loads_DSi_array',
+        'TEP_array',
+        'Microflocs_massconc_array', 'Micro_in_Macro_massconc_array',
+        'Macroflocs_sink_sed_array', 'Macroflocs_source_resusp_array',
+        'Macroflocs_numconc_array',
+    ]
+    FINGERPRINT_STATS = ('first', 'last', 'min', 'max', 'mean')
+
     def __init__(self,
                  name: str = '',
                  tmin: float = 0,
@@ -124,6 +143,12 @@ class Setup:
                  plotFlocs: bool = False,
                  flocs_year: int = 2023):
         """Initialize physical setup for simulation."""
+        # Constructor arguments, defaults included, captured before any other local exists.
+        # They are the Setup's recipe (cf. to_recipe): rebuilding from them reproduces this
+        # instance without storing its forcing arrays. crop_from_date and extend_duration
+        # reset it to None, since these arguments no longer describe what they return.
+        self.init_kwargs = {k: v for k, v in locals().items() if k != 'self'}
+
         # Store initialization parameters
         self.constants = PhysicalConstants()
         self.name = name
@@ -966,6 +991,105 @@ class Setup:
         from src.utils import config_tools as cfg
         return cfg.serialize_for_json(self)
 
+    def fingerprint(self) -> Dict[str, Any]:
+        """Compact, human-readable description of the forcing actually built.
+
+        Per series: dtype, first / last / min / max / mean, and the SHA256 of the raw
+        buffer. The hash tells whether a rebuild is bit-identical; when it is not, the
+        statistics tell which forcing moved and by how much (a real change of input, or
+        last-digit noise from another platform).
+        """
+        fp = {
+            'n_steps': len(self.t_eval),
+            'first_date': str(self.dates[0]),
+            'last_date': str(self.dates[-1]),
+            'dates_sha256': _sha256(self.dates.asi8),
+            'T_max': float(self.T_max),
+            'T_min': float(self.T_min),
+            'arrays': {},
+        }
+        for name in self.FINGERPRINT_ARRAYS:
+            values = getattr(self, name, None)
+            if values is None:
+                continue
+            values = np.asarray(values)
+            fp['arrays'][name] = {
+                'dtype': values.dtype.name,
+                'first': float(values[0]),
+                'last': float(values[-1]),
+                'min': float(np.nanmin(values)),
+                'max': float(np.nanmax(values)),
+                'mean': float(np.nanmean(values)),
+                'sha256': _sha256(values),
+            }
+        return fp
+
+    def to_recipe(self) -> Dict[str, Any]:
+        """JSON-ready description from which from_recipe rebuilds this Setup.
+
+        'init_kwargs' are the constructor arguments, defaults included, so a later change
+        of a default cannot silently alter the rebuild. 'fingerprint' records the forcing
+        they produced, against which the rebuild is checked.
+        """
+        init_kwargs = getattr(self, 'init_kwargs', None)
+        if init_kwargs is None:
+            raise ValueError(
+                f"Setup '{self.name}' has no recipe: it was derived by crop_from_date or "
+                "extend_duration (or unpickled from before recipes existed), so no set of "
+                "constructor arguments reproduces it.")
+        return {
+            'init_kwargs': {**init_kwargs, 'dtype': np.dtype(init_kwargs['dtype']).name},
+            'fingerprint': self.fingerprint(),
+        }
+
+    @classmethod
+    def from_recipe(cls, recipe: Dict[str, Any], verbose: bool = True) -> 'Setup':
+        """Rebuild a Setup from to_recipe() output, and report how its forcing compares
+        with the fingerprint recorded when the recipe was written."""
+        kwargs = {**recipe['init_kwargs'],
+                  'dtype': np.dtype(recipe['init_kwargs']['dtype']).type,
+                  'plotPAR': False, 'plotTEMP': False, 'plotTEP': False, 'plotFlocs': False}
+        setup = cls(**kwargs)
+        if verbose and 'fingerprint' in recipe:
+            print(setup.compare_fingerprint(recipe['fingerprint'])[1])
+        return setup
+
+    def compare_fingerprint(self, saved: Dict[str, Any]) -> Tuple[bool, str]:
+        """Compare this Setup's forcing with a saved fingerprint.
+
+        Returns (identical, report). The report names every series that is not
+        bit-identical, with the statistics that moved and the largest relative change
+        among them: ~1e-16 is platform noise, anything larger is a different forcing.
+        """
+        current = self.fingerprint()
+        lines = []
+        for key in ('n_steps', 'first_date', 'last_date', 'dates_sha256', 'T_max', 'T_min'):
+            if current[key] != saved.get(key):
+                lines.append(f"  {key}: saved {saved.get(key)} -> rebuilt {current[key]}")
+
+        for name in sorted(set(saved['arrays']) | set(current['arrays'])):
+            old, new = saved['arrays'].get(name), current['arrays'].get(name)
+            if old is None or new is None:
+                lines.append(f"  {name}: {'absent' if old is None else 'present'} when saved, "
+                             f"{'absent' if new is None else 'present'} after rebuild")
+                continue
+            if old['sha256'] == new['sha256']:
+                continue
+            moved = [s for s in self.FINGERPRINT_STATS if old[s] != new[s]]
+            if old['dtype'] != new['dtype']:
+                lines.append(f"  {name}: dtype {old['dtype']} -> {new['dtype']}")
+            elif not moved:
+                lines.append(f"  {name}: not bit-identical, summary statistics unchanged")
+            else:
+                rel = max(abs(new[s] - old[s]) / max(abs(old[s]), 1e-300) for s in moved)
+                stats = ', '.join(f"{s} {old[s]!r} -> {new[s]!r}" for s in moved)
+                lines.append(f"  {name}: {stats} (max rel. change {rel:.1e})")
+
+        if not lines:
+            return True, "Setup rebuilt from recipe: forcing bit-identical to the saved fingerprint."
+        return False, "\n".join(["WARNING: Setup rebuilt from recipe differs from the saved "
+                                 "fingerprint:"] + lines)
+
     def summarize(self) -> str:
         """
         Create a human-readable summary of the setup.
@@ -1067,6 +1191,7 @@ class Setup:
 
         # Update name
         cropped.name = new_name if new_name else f"{self.name}_cropped"
+        cropped.init_kwargs = None   # no longer reproducible from constructor arguments
 
         # Update time parameters
         cropped.tmin = 0  # Reset to 0 since we're starting fresh
@@ -1213,6 +1338,7 @@ class Setup:
 
         extended = copy.copy(self)
         extended.name = new_name if new_name else f"{self.name}_extended"
+        extended.init_kwargs = None   # dates appended, not rebuilt: see crop_from_date
 
         # Preserve full-cycle normalization constants (inherited, like crop_from_date)
         T_max, T_min = self.T_max, self.T_min
