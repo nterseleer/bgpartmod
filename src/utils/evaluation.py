@@ -70,8 +70,11 @@ def prepare_likelihood_data(
             period_model = model_data[period_mask]
 
             if len(period_model) > 0:
-                # Compute mean over the period
-                period_mean = period_model.mean()
+                # Mean over the period, column by column: a DataFrame-wide float32 mean
+                # sums in an order set by the frame's memory layout, so a variable's mean
+                # would depend (in its last bits) on which other columns are present.
+                period_mean = pd.Series({col: period_model[col].mean()
+                                         for col in period_model.columns})
                 period_mean.name = obs_time
                 aggregated_model.append(period_mean)
 
@@ -128,9 +131,10 @@ def calculate_likelihood(
             'DIP_concentration', 'DSi_concentration', 'Phy_C', 'TEPC_C'
         ]
 
-    # Use streamlined data preparation
+    # Use streamlined data preparation, on the scored columns only: resampling the whole
+    # frame (~100 to ~300 columns at dt2 resolution) costs time and memory for nothing.
     merged_data = prepare_likelihood_data(
-        model_results.df,
+        model_results.df[calibrated_vars],
         observations,
         mean_window_days,
         _cached_obs=_cached_obs

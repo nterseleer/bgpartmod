@@ -798,7 +798,10 @@ class Optimization:
                 # Single-case mode
                 param_dict = dict(zip(self.config['optimized_parameters'], parameters))
                 newconfig = cfg.update_config(self.config['dconf'], param_dict)
-                trial = model.Model(newconfig, setup=self.setup, **self.config['modkwargs'])
+                # output_vars: a trial only needs the derived variables it is scored on.
+                # get_best_model rebuilds the winner with all of them.
+                trial = model.Model(newconfig, setup=self.setup, output_vars=self.calibrated_vars,
+                                    **self.config['modkwargs'])
                 # A diverged run is not a bad fit, it is no fit at all. Model.error is set
                 # when the derivatives go NaN, but _pad_results only NaNs the POOLS: the
                 # diagnostics (Macroflocs_diam, the mass concentrations behind SPMC -- i.e.
@@ -824,7 +827,9 @@ class Optimization:
                     # Build case-specific parameter dict (handles @case_id suffixes)
                     case_param_dict = self._build_case_param_dict(parameters, case.case_id)
                     case_dconf = cfg.update_config(case.dconf, case_param_dict)
-                    trial = model.Model(case_dconf, setup=case.setup, **self.config['modkwargs'])
+                    trial = model.Model(case_dconf, setup=case.setup,
+                                        output_vars=case.calibrated_vars,
+                                        **self.config['modkwargs'])
                     if getattr(trial, 'error', False):   # see the single-case branch above
                         return self.config['badlnl']
                     lnl = trial.get_likelihood(
