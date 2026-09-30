@@ -69,12 +69,6 @@ class Setup:
         ]
     }
 
-    # Variables that are computed/updated during simulation
-    DIAGNOSTIC_VARIABLES = [
-        'Chl_tot',  # Total chlorophyll
-        'Cphy_tot',  # Total phytoplankton carbon
-    ]
-
     # Series summarised by fingerprint(): the time grid and every forcing the model reads.
     # Those left at None by the configuration (no riverine loads, no prescribed TEP...) are
     # skipped.
@@ -302,12 +296,6 @@ class Setup:
         # Create mapping for fast time index lookup
         self.dates_to_index = {date: idx for idx, date in enumerate(self.dates)}
 
-        # Initialize diagnostic variables
-        for var in self.DIAGNOSTIC_VARIABLES:
-            setattr(self, var, 0)
-
-        # Spin-up phase tracking
-        self.in_spinup_phase: bool = False
 
     def _cycle_yearly_dataframe(self, df: pd.DataFrame, years_needed: int) -> pd.DataFrame:
         """

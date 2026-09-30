@@ -377,7 +377,6 @@ def update_config(dconf: Dict, param_dict: Dict[str, float]) -> Dict:
     # Mapping for BGC parameters that need renaming when applied to components
     BGC_PARAM_MAPPING = {
         'resusp_ewma_alpha': 'prescribed_resusp_ewma_alpha',
-        'vertical_coupling_alpha': 'prescribed_resusp_ewma_alpha',  # backward compat (to remove when obsolete)
     }
 
     # Build nested update dictionary

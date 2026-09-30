@@ -13,6 +13,10 @@ from src.utils import evaluation
 from src.core import legacy
 from src.config_model import varinfos
 
+# Precision of the computation. The `dtype` of a Model only sets the precision in which
+# its outputs are stored.
+COMPUTE_DTYPE = np.float64
+
 
 def _track_time(func):
     """Decorator accumulating [total seconds, call count] per method.
@@ -68,7 +72,15 @@ class Model:
             debug_mode_check_interval: float = 5.0,
             keep_model_units: bool = False,
             aggressive_cleanup: bool = True,
+            output_fast_steps: bool = False,
     ):
+        """
+        dtype: precision in which the outputs are stored (float32 halves their memory and
+            disk footprint). The computation itself is always done in float64.
+        output_fast_steps: two-timestep scheme only. Record the outputs at every fast step
+            (dt2) instead of every slow step (dt): ten times more rows, for a time
+            resolution that the slow step (14.4 min at dt = 0.01 d) already covers.
+        """
         # Basic attributes
         self.setup = setup
         self.dtype = dtype
@@ -84,6 +96,7 @@ class Model:
         self.aggressive_cleanup = aggressive_cleanup
         self.error = False
         self.euler = euler
+        self.output_fast_steps = output_fast_steps
 
         # Default calibrated variables (typically used in optimization)
         self.calibrated_vars = [
@@ -107,10 +120,6 @@ class Model:
 
         # Initialize all components
         self._initialize_all()
-
-        # Optional spin-up phase before main simulation
-        if self._has_spinup_components():
-            self._run_spinup_phase()
 
         # Run model and process results
         self._run_model()
@@ -181,7 +190,7 @@ class Model:
                 continue
 
             parameters = legacy.translate_parameters(key, cfg.get('parameters', {}))
-            instance = cfg['class'](name=key, dtype=self.dtype, **parameters)
+            instance = cfg['class'](name=key, dtype=COMPUTE_DTYPE, **parameters)
             instance.set_ICs(**cfg.get('initialization', {}))
 
             # Get pools and update tracking
@@ -299,19 +308,10 @@ class Model:
         return couplings
 
     def _precompute_performance_optimizations(self):
-        """Precompute arrays and mappings for better performance"""
+        """Precompute, once per run, everything the timestep loop would otherwise rebuild
+        at each of its ~10^6 iterations."""
         # Convert poolID to array for faster indexing
         self.pool_id_array = np.array(self.pool_ids)
-
-        # Pre-compute indices for totals
-        self.chl_tot_indices = [
-            self.pool_indices[name]
-            for name in self.aggregate_vars['Chl_tot']
-        ]
-        self.cphy_tot_indices = [
-            self.pool_indices[name]
-            for name in self.aggregate_vars['Cphy_tot']
-        ]
 
         # Pre-compute component update mappings
         self.component_update_maps = {}
@@ -322,6 +322,19 @@ class Model:
                 str(name): idx for name, idx in zip(pool_names, indices)
             }
 
+        # Layout of the state vector, in component order: (component, [(pool name, index)],
+        # slice of the component's pools). Drives both the state update and the assembly
+        # of the derivatives.
+        self.state_layout = [
+            (comp, list(self.component_update_maps[key].items()),
+             slice(self.ipools[key][0], self.ipools[key][-1] + 1))
+            for key, comp in self.components.items()
+        ]
+        # Buffers into which the components write their sources and sinks
+        n_pools = len(self.pool_names)
+        self._sources = np.zeros(n_pools, dtype=COMPUTE_DTYPE)
+        self._sinks = np.zeros(n_pools, dtype=COMPUTE_DTYPE)
+
         # Components exposing a pre-coupling step, and those carrying diagnostics:
         # resolved once instead of being probed at every derivative evaluation.
         self.precoupled_components = [
@@ -330,12 +343,10 @@ class Model:
         ]
         self.diag_components = [comp for comp in self.components.values() if comp.diagnostics]
 
-        # Pre-compute fast component indices for two_dt case
+        # Two-timestep scheme: what a fast step (dt2) touches
         if self.two_dt:
             self.fast_components = [comp for comp in self.components.values()
                                     if hasattr(comp, 'dt2') and comp.dt2]
-            self.slow_components = [comp for comp in self.components.values()
-                                    if not hasattr(comp, 'dt2') or not comp.dt2]
             self._fast_ids = fast = {id(comp) for comp in self.fast_components}
             self.precoupled_fast_components = [comp for comp in self.precoupled_components
                                                if id(comp) in fast]
@@ -349,20 +360,29 @@ class Model:
                 # Multiply by component's time conversion factor
                 factor *= comp.time_conversion_factor
                 self.dt_factors.extend([factor] * len(self.ipools[comp.name]))
-            self.dt_factors = np.array(self.dt_factors, dtype=self.dtype)
+            self.dt_factors = np.array(self.dt_factors, dtype=COMPUTE_DTYPE)
 
-            # Pre-compute zero arrays for slow components
-            self.slow_zeros = {
-                comp.name: np.zeros(len(self.ipools[comp.name]), dtype=self.dtype)
-                for comp in self.slow_components
-            }
-
-            # Fast step, in component order: the component itself if it runs at dt2,
-            # otherwise the zero block that stands in for it.
-            self.fast_step_terms = [
-                (comp, None) if id(comp) in fast else (None, self.slow_zeros[comp.name])
-                for comp in self.components.values()
-            ]
+            # The fast pools, gathered into a sub-vector: its layout (same as state_layout,
+            # slices now pointing into the sub-vector), indices in the full state vector,
+            # dt factors, and source/sink buffers.
+            self.fast_layout = []
+            start = 0
+            for comp, items, pools in self.state_layout:
+                if id(comp) in fast:
+                    n = pools.stop - pools.start
+                    self.fast_layout.append((comp, items, slice(start, start + n)))
+                    start += n
+            self.fast_indices = np.array([idx for comp in self.fast_components
+                                          for idx in self.ipools[comp.name]], dtype=int)
+            self.fast_dt_factors = self.dt_factors[self.fast_indices]
+            # Where the fast pools sit in the state vector: a slice when they are
+            # contiguous (the usual case), which numpy reads and writes faster
+            contiguous = len(self.fast_indices) and np.all(np.diff(self.fast_indices) == 1)
+            self._fast_slots = (slice(self.fast_indices[0], self.fast_indices[-1] + 1)
+                                if contiguous else self.fast_indices)
+            self._fast_sources = np.zeros(start, dtype=COMPUTE_DTYPE)
+            self._fast_sinks = np.zeros(start, dtype=COMPUTE_DTYPE)
+            self.fast_diag_components = [comp for comp in self.diag_components if id(comp) in fast]
 
     def _create_initial_state_vector(self):
         """Create initial state vector from all component ICs"""
@@ -370,165 +390,65 @@ class Model:
             comp.ICs for comp in self.components.values()
         ])
 
-    @_track_time
-    def _compute_derivatives(self, t: float, y: np.ndarray, t_idx: int = None, is_slow_step: bool = True) -> np.ndarray:
-        """Highly vectorized derivative computation."""
-        # Update component states
-        for key, component in self.components.items():
-            update_map = self.component_update_maps[key]
-            component.update_val(
-                t=t,
-                t_idx=t_idx,
-                debugverbose=self.debug_budgets,
-                **{name: y[idx] for name, idx in update_map.items()}
-            )
+    def _update_components(self, layout, t, t_idx, y):
+        """Hand each component of `layout` its pools, read from the state vector y.
 
-        # Update totals
-        self.setup.Chl_tot = y[self.chl_tot_indices].sum()
-        self.setup.Cphy_tot = y[self.cphy_tot_indices].sum()
+        As Python floats: the components compute on scalars, and arithmetic on numpy
+        scalars is several times slower."""
+        values = y.tolist()
+        for component, pools, _ in layout:
+            component.update_val(t=t, t_idx=t_idx, debugverbose=self.debug_budgets,
+                                 **{name: values[idx] for name, idx in pools})
 
-        if self.two_dt:
-            return self._compute_two_timestep_derivatives(t, t_idx, is_slow_step)
-        return self._compute_single_timestep_derivatives(t, t_idx)
+    def _compute_derivatives(self, t: float, y: np.ndarray, t_idx: int = None) -> np.ndarray:
+        """Derivatives of the whole state vector: every component is updated and evaluated.
 
-    @_track_time
-    def _compute_single_timestep_derivatives(self, t: float, t_idx: int = None) -> np.ndarray:
-        """Compute derivatives for single timestep case"""
+        This is a full step. In the two-timestep scheme it is the slow step, and the dt
+        factors then scale each pool to its own timestep. The fast steps in between, where
+        only the dt2 components move, are done by _fast_step.
+        """
+        self._update_components(self.state_layout, t, t_idx, y)
         for component in self.precoupled_components:
             component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
 
-        sources = np.hstack([
-            comp.get_sources(t, t_idx=t_idx)
-            for comp in self.components.values()
-        ])
+        sources, sinks = self._sources, self._sinks
+        for component, _, pools in self.state_layout:
+            sources[pools] = component.get_sources(t, t_idx=t_idx)
+        for component, _, pools in self.state_layout:
+            sinks[pools] = component.get_sinks(t, t_idx=t_idx)
 
-        sinks = np.hstack([
-            comp.get_sinks(t, t_idx=t_idx)
-            for comp in self.components.values()
-        ])
-
+        if self.two_dt:
+            return (sources - sinks) * self.dt_factors
         return sources - sinks
 
-    @_track_time
-    def _compute_two_timestep_derivatives(self, t: float, t_idx: int, is_slow_step: bool) -> np.ndarray:
-        """Compute derivatives for two timestep case using index-based branching"""
-        for component in (self.precoupled_components if is_slow_step
-                          else self.precoupled_fast_components):
+    def _fast_step(self, t, t_idx: int, y: np.ndarray, resync: bool) -> np.ndarray:
+        """One fast step (dt2) of the two-timestep scheme, on y in place.
+
+        Only the dt2 components are updated, evaluated and integrated: the slow pools do
+        not move between two slow steps, so recomputing them (as a full step would) only
+        to multiply them by zero is wasted. Returns the derivatives of the fast pools.
+
+        resync: True on the first fast step after a slow step. The slow pools have just
+        moved, and the fast components read some of them (Flocs reads TEPC.C through
+        coupled_glue): every component is handed its new pools once.
+        """
+        self._update_components(self.state_layout if resync else self.fast_layout, t, t_idx, y)
+        for component in self.precoupled_fast_components:
             component.get_coupled_processes_indepent_sinks_sources(t, t_idx=t_idx)
 
-        if is_slow_step:
-            sources = np.hstack([
-                comp.get_sources(t, t_idx=t_idx)
-                for comp in self.components.values()
-            ])
-            sinks = np.hstack([
-                comp.get_sinks(t, t_idx=t_idx)
-                for comp in self.components.values()
-            ])
-        else:
-            sources = np.hstack([comp.get_sources(t, t_idx=t_idx) if comp is not None else zeros
-                                 for comp, zeros in self.fast_step_terms])
-            sinks = np.hstack([comp.get_sinks(t, t_idx=t_idx) if comp is not None else zeros
-                               for comp, zeros in self.fast_step_terms])
+        sources, sinks = self._fast_sources, self._fast_sinks
+        for component, _, pools in self.fast_layout:
+            sources[pools] = component.get_sources(t, t_idx=t_idx)
+        for component, _, pools in self.fast_layout:
+            sinks[pools] = component.get_sinks(t, t_idx=t_idx)
+        derivatives = (sources - sinks) * self.fast_dt_factors
 
-            if np.all(sources == 0) and np.all(sinks == 0):
-                return np.zeros_like(sources)
+        y[self._fast_slots] += self.used_dt * derivatives
+        return derivatives
 
-        return (sources - sinks) * self.dt_factors
-
-    def _has_spinup_components(self) -> bool:
-        """Check if any components require spin-up"""
-        spinup_found = any(getattr(comp, 'spinup_days', 0) > 0 for comp in self.components.values())
-        if self.verbose and spinup_found:
-            spinup_components = [comp.name for comp in self.components.values()
-                               if getattr(comp, 'spinup_days', 0) > 0]
-            print(f'Found components requiring spin-up: {spinup_components}')
-        return spinup_found
-
-    @_track_time
-    def _run_spinup_phase(self) -> None:
-        """Run spin-up phase for components that require it"""
-        spinup_components = [comp for comp in self.components.values()
-                            if getattr(comp, 'spinup_days', 0) > 0]
-
-        if not spinup_components:
-            return
-
-        max_spinup_days = max(comp.spinup_days for comp in spinup_components)
-
-        if self.verbose:
-            print(f'Running spin-up phase for {max_spinup_days} days for components: {[comp.name for comp in spinup_components]}')
-
-        # Set spin-up flag
-        self.setup.in_spinup_phase = True
-
-        # Create spin-up time array
-        spinup_steps = int(max_spinup_days / self.used_dt)
-        spinup_dates = np.linspace(0, max_spinup_days, spinup_steps + 1)
-
-        # Run spin-up using existing integration machinery
-        y_spinup = self.initial_state.copy()
-
-        for t_spinup_idx, t_spinup in enumerate(spinup_dates[1:], start=1):
-            # Map spin-up time to setup time index (use first setup time for all spin-up)
-            t_setup = self.setup.dates[0]
-
-            # Update ONLY spin-up component states
-            for component in spinup_components:
-                key = component.name
-                update_map = self.component_update_maps[key]
-                component.update_val(
-                    t=t_setup,  # Use setup time instead of spinup time
-                    debugverbose=False,
-                    **{name: y_spinup[idx] for name, idx in update_map.items()}
-                )
-
-            # Update totals (only if needed by spinup components)
-            self.setup.Chl_tot = y_spinup[self.chl_tot_indices].sum()
-            self.setup.Cphy_tot = y_spinup[self.cphy_tot_indices].sum()
-
-            # Compute derivatives ONLY for spin-up components
-            derivatives = np.zeros_like(y_spinup)
-            for component in spinup_components:
-                key = component.name
-                component_indices = self.ipools[key]
-                component_sources = component.get_sources(t_setup)
-                component_sinks = component.get_sinks(t_setup)
-
-                # Apply time conversion factors for this component
-                if self.two_dt:
-                    factor = (1 if hasattr(component, 'dt2') and component.dt2 else self.dt_ratio)
-                    factor *= component.time_conversion_factor
-                    derivatives[component_indices] = (component_sources - component_sinks) * factor
-                else:
-                    derivatives[component_indices] = component_sources - component_sinks
-
-            y_spinup = y_spinup + self.used_dt * derivatives
-
-            if self.verbose and t_spinup_idx % int(self.verbose_print_tstep / self.used_dt) == 0:
-                print(f'Spin-up integration for t = {t_spinup:.1f} days')
-
-        self.initial_state = y_spinup
-
-        # Reset spin-up flag
-        self.setup.in_spinup_phase = False
-
-        if self.verbose:
-            print(f'Spin-up phase completed. Starting main simulation.')
-
-    @_track_time
-    def _compute_diagnostics(self, t: float, t_idx: int = None, is_slow_step: bool = True) -> np.ndarray:
-        """Compute diagnostic variables using index-based branching"""
-        if self.two_dt and not is_slow_step:
-            # Fast step: slow components keep their previous value, marked NaN here and
-            # back-filled in _add_diagnostics.
-            diag_arrays = [
-                comp.get_diagnostic_variables() if id(comp) in self._fast_ids
-                else np.full(len(self.diag_indices[comp.name]), np.nan)
-                for comp in self.diag_components
-            ]
-        else:
-            diag_arrays = [comp.get_diagnostic_variables() for comp in self.diag_components]
+    def _compute_diagnostics(self, components) -> np.ndarray:
+        """Current values of the diagnostics of `components`, concatenated."""
+        diag_arrays = [comp.get_diagnostic_variables() for comp in components]
         return np.hstack(diag_arrays) if diag_arrays else np.array([])
 
     @_track_time
@@ -544,31 +464,49 @@ class Model:
 
     @_track_time
     def _run_euler_integration(self) -> None:
-        """Run model using Euler integration with pre-allocated arrays"""
+        """Run model using Euler integration with pre-allocated arrays.
+
+        Two-timestep scheme: every dt_ratio-th step is a full (slow) step, all components
+        being evaluated; the steps in between are fast steps (_fast_step), where only the
+        dt2 components move. The outputs are recorded at the slow steps, or at every step
+        with output_fast_steps.
+        """
         n_steps = len(self.dates)
         n_vars = len(self.initial_state)
 
-        # Pre-allocate result arrays
-        states = np.empty((n_steps, n_vars), dtype=self.dtype)
+        # Output rows: one every `stride` steps
+        stride = self.dt_ratio if (self.two_dt and not self.output_fast_steps) else 1
+        out_dates = self.dates[::stride]
+        # Fast-step rows, where only the fast components' diagnostics are computed: the
+        # others are left NaN and back-filled in _add_diagnostics
+        self._diag_backfill = self.two_dt and stride == 1
+
+        # Pre-allocate result arrays (NaN: the rows after an interrupted run stay NaN)
+        states = np.full((len(out_dates), n_vars), np.nan, dtype=self.dtype)
         states[0] = self.initial_state
 
         if self.do_diagnostics:
-            n_diags = len(self.diag_pool_names)
-            diagnostics = np.empty((n_steps, n_diags), dtype=self.dtype)
-            diagnostics[0] = self._compute_diagnostics(self.setup.dates[0], t_idx=0, is_slow_step=True)
+            diagnostics = np.full((len(out_dates), len(self.diag_pool_names)), np.nan, dtype=self.dtype)
+            diagnostics[0] = self._compute_diagnostics(self.diag_components)
+            if self._diag_backfill:
+                fast_diag_columns = np.array([col for comp in self.fast_diag_components
+                                              for col in self.diag_indices[comp.name]], dtype=int)
 
-        y = self.initial_state.astype(self.dtype, copy=True)
-
-        # Cast used_dt to model dtype to avoid implicit conversions in hot loop
-        used_dt = self.dtype(self.used_dt)
+        y = self.initial_state.astype(COMPUTE_DTYPE, copy=True)
+        used_dt = self.used_dt
 
         # Optimization: Check for NaN every 5 days instead of every timestep
         nan_check_interval = int(5.0 / self.used_dt)
         neg_check_interval = int(self.debug_mode_check_interval / self.used_dt) if self.debug_mode else None
 
+        previous_was_slow = True
         for t_idx, t in enumerate(self.dates[1:], start=1):
             is_slow_step = self.is_slow_dt[t_idx] if self.two_dt else True
-            derivatives = self._compute_derivatives(t, y, t_idx=t_idx, is_slow_step=is_slow_step)
+            if is_slow_step:
+                derivatives = self._compute_derivatives(t, y, t_idx=t_idx)
+            else:
+                derivatives = self._fast_step(t, t_idx, y, resync=previous_was_slow)
+            previous_was_slow = is_slow_step
 
             # Check for NaN periodically and at final timestep (critical for optimization workflow)
             should_check_nan = (t_idx % nan_check_interval == 0) or (t_idx == n_steps - 1)
@@ -579,7 +517,8 @@ class Model:
                 self.name += '-ERROR'
                 break
 
-            y = y + used_dt * derivatives
+            if is_slow_step:
+                y = y + used_dt * derivatives
 
             # Debug mode: check for negative state variables
             if self.debug_mode:
@@ -593,15 +532,19 @@ class Model:
                         self.name += '-ERROR'
                         break
 
-            states[t_idx] = y
-
-            if self.do_diagnostics:
-                diagnostics[t_idx] = self._compute_diagnostics(t, t_idx=t_idx, is_slow_step=is_slow_step)
+            if t_idx % stride == 0:
+                row = t_idx // stride
+                states[row] = y
+                if self.do_diagnostics:
+                    if is_slow_step:
+                        diagnostics[row] = self._compute_diagnostics(self.diag_components)
+                    elif len(fast_diag_columns):
+                        diagnostics[row, fast_diag_columns] = self._compute_diagnostics(self.fast_diag_components)
 
             if self.verbose and t_idx % int(self.verbose_print_tstep / self.used_dt) == 0:
                 print(f'Eulerian integration for t = {t}')
 
-        self.t = self.dates
+        self.t = out_dates
         self.y = states.T
 
         if self.do_diagnostics:
@@ -799,8 +742,10 @@ class Model:
             return
         ydiags = self._pad_results(self.diagnostics.T)
         diag_df = pd.DataFrame(ydiags, index=self.t, columns=self.diag_pool_names)
-        with pd.option_context('future.no_silent_downcasting', True):
-            diag_df = diag_df.bfill()
+        if getattr(self, '_diag_backfill', False):
+            # Fast-step rows: the slow components' diagnostics take their next value
+            with pd.option_context('future.no_silent_downcasting', True):
+                diag_df = diag_df.bfill()
         # Skip diagnostic columns that already exist in main df to avoid duplicates.
         # Added column by column: a concat would copy the whole frame.
         for col in diag_df.columns:

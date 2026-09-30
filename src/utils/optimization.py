@@ -609,16 +609,11 @@ class Optimization:
             print(f'Setup saved to {setup_path}')
 
     def _load_setup(self):
-        """Load setup separately with backward compatibility."""
+        """Load the setup saved with the optimization (recipe, or pickle before recipes)."""
         self.setup = _read_setup(os.path.join(self.optdir, f"{self.name}_setup.json"),
                                  os.path.join(self.optdir, f"{self.name}_setup.pkl"))
         if self.setup is None:
-            # Backward compatibility: extract from modkwargs
-            self.setup = self.config['modkwargs'].get('setup', None)
-            if self.setup is None:
-                print(f"Warning: Could not load setup for optimization {self.name}")
-            else:
-                print(f"Loaded setup from legacy modkwargs for optimization {self.name}")
+            print(f"Warning: Could not load setup for optimization {self.name}")
 
     def _save_cases(self):
         """Save all case configurations."""

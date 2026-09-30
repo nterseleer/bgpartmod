@@ -239,7 +239,7 @@ class Detritus(BaseOrg):
         self.source_sloppy_feeding.P = 0.
         if self.Si is not None:
             if self.coupled_sloppy_feeding_sources is not None:
-                self.source_sloppy_feeding.Si = np.sum([sum(sf.source_ingestion.Si.values()) * sf.f_unass_Si
+                self.source_sloppy_feeding.Si = sum([sum(sf.source_ingestion.Si.values()) * sf.f_unass_Si
                                                         for sf in self.coupled_sloppy_feeding_sources])
             else:
                 self.source_sloppy_feeding.Si = 0.
@@ -275,13 +275,13 @@ class Detritus(BaseOrg):
 
     def get_sink_ingestion(self):
         """Calculate ingestion sinks for Kerimoglu22 formulation."""
-        self.sink_ingestion.C = np.sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
+        self.sink_ingestion.C = sum([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
         if self.N is not None:
-            self.sink_ingestion.N = np.sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
+            self.sink_ingestion.N = sum([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
         if self.P is not None:
-            self.sink_ingestion.P = np.sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
+            self.sink_ingestion.P = sum([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
         if self.Si is not None:
-            self.sink_ingestion.Si = np.sum([c.source_ingestion.Si[self.name] for c in self.coupled_consumers])
+            self.sink_ingestion.Si = sum([c.source_ingestion.Si[self.name] for c in self.coupled_consumers])
 
     def get_sink_remineralization(self, t=None):
         self.sink_remineralization.C = 0.

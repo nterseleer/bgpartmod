@@ -357,9 +357,6 @@ class Phyto(BaseOrg):
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.Chl_sinks, self.P_sinks, self.Si_sinks) if
              sinks is not None], dtype=self.dtype)
 
-    def get_diagnostic_variables(self):
-        return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics], dtype=self.dtype)
-
     def get_limNUT(self):
         """Calculate nutrient limitations for Kerimoglu22 formulation."""
         active_lims = []

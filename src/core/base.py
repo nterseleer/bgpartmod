@@ -1,5 +1,10 @@
+import operator
 import numpy as np
 from ..utils import functions as fns
+
+
+# Attribute holding the smoothed <currency>/N_F ratio of the vertical coupling
+_SMOOTHED_RATIO = {cur: f'smoothed_{cur}_to_Nf_ratio' for cur in ('C', 'N', 'P', 'Si')}
 
 
 class BaseStateVar:
@@ -9,10 +14,18 @@ class BaseStateVar:
         self.debug_mode = False
         self.time_conversion_factor = 1
         self.diagnostics = None
-        self.spinup_days = 0
 
     def get_diagnostic_variables(self):
-        return np.array([fns.get_nested_attr(self, diag) for diag in self.diagnostics], dtype=self.dtype)
+        """Current values of the diagnostics, in the order of self.diagnostics.
+
+        Read through an operator.attrgetter (it resolves dotted names like 'source_PP.C'),
+        built once per diagnostics list: called at every timestep.
+        """
+        if getattr(self, '_diag_reader_for', None) is not self.diagnostics:
+            self._diag_reader = operator.attrgetter(*self.diagnostics)
+            self._diag_reader_for = self.diagnostics
+        values = self._diag_reader(self)
+        return np.array(values if len(self.diagnostics) > 1 else (values,), dtype=self.dtype)
 
     def _precompute_temp_limitation(self, A_E, T_ref, boltz=False,
                                    bound_temp_to_1=True, suffix=''):
@@ -208,23 +221,23 @@ class BaseOrg(BaseStateVar):
 
         Applies to the currencies the component actually carries; the others are set to 0.
         """
-        currencies = ('C', 'N', 'P', 'Si')
+        loss = self.sink_vertical_loss
         if self.coupled_aggregate is None:
-            for cur in currencies:
-                setattr(self.sink_vertical_loss, cur, 0.)
+            loss.C = loss.N = loss.P = loss.Si = 0.
             return
 
         conv = self.coupled_aggregate.time_conversion_factor
         Nf = self.coupled_aggregate.numconc
+        pools = {'C': self.C, 'N': self.N, 'P': self.P, 'Si': self.Si}
 
         # Update smoothed ratios (EWMA filter: alpha=0 -> fixed, alpha>0 -> adaptive)
         # Ratios based on fraction forming organo-mineral aggregates
         if Nf > 0 and self.resusp_ewma_alpha > 0:
-            for cur in currencies:
-                pool = getattr(self, cur)
-                ratio = getattr(self, f'smoothed_{cur}_to_Nf_ratio')
+            for cur, pool in pools.items():
+                ratio_name = _SMOOTHED_RATIO[cur]
+                ratio = getattr(self, ratio_name)
                 if pool is not None and ratio is not None:
-                    setattr(self, f'smoothed_{cur}_to_Nf_ratio',
+                    setattr(self, ratio_name,
                             self.resusp_ewma_alpha * (pool * self.organomin_coupling_fraction / Nf)
                             + (1 - self.resusp_ewma_alpha) * ratio)
 
@@ -234,16 +247,14 @@ class BaseOrg(BaseStateVar):
         # Net vertical loss (positive = loss from water column). Sedimentation applies
         # only to the fraction forming organo-mineral aggregates; resuspension is an
         # absolute flux [mmol m-3 d-1] rebuilt from the smoothed ratio.
-        for cur in currencies:
-            pool = getattr(self, cur)
+        for cur, pool in pools.items():
             if pool is None:
-                setattr(self.sink_vertical_loss, cur, 0.)
+                setattr(loss, cur, 0.)
                 continue
-            ratio = getattr(self, f'smoothed_{cur}_to_Nf_ratio')
+            ratio = getattr(self, _SMOOTHED_RATIO[cur])
             resusp = (self.coupled_aggregate.source_resuspension * conv * ratio) \
                 if ratio is not None else 0.0
-            setattr(self.sink_vertical_loss, cur,
-                    settling_rate * pool * self.organomin_coupling_fraction - resusp)
+            setattr(loss, cur, settling_rate * pool * self.organomin_coupling_fraction - resusp)
 
     def update_val(self, C,
                    N=None,

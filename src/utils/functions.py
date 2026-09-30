@@ -102,34 +102,25 @@ def cleantext(utxt):
 def get_all_contributors(contributors, term, pool=None, dkey=None):
     """
     Sum contributions from single or multiple contributors.
-    Optimized: uses native sum() and single-pass iteration.
 
     Args:
-        contributors: Single contributor or iterable of contributors
+        contributors: Single contributor or list of contributors
         term: Attribute name to retrieve
         pool: Optional nested attribute (e.g., 'C', 'N', 'P')
         dkey: Optional dictionary key
     """
-    try:
-        iter(contributors)
-    except TypeError:
-        # Single contributor
-        result = getattr(contributors, term)
-        if pool is not None:
-            result = getattr(result, pool)
-        return result[dkey] if dkey is not None else result
+    if not isinstance(contributors, (list, tuple)):
+        contributors = (contributors,)
+        single = True
+    else:
+        single = False
 
-    # Multiple contributors - single-pass iteration (optimized)
-    values = []
-    for c in contributors:
-        val = getattr(c, term)
-        if pool is not None:
-            val = getattr(val, pool)
-        if dkey is not None:
-            val = val[dkey]
-        values.append(val)
-
-    return sum(values)  # Native sum is ~90% faster than np.sum for small lists
+    values = [getattr(c, term) for c in contributors]
+    if pool is not None:
+        values = [getattr(v, pool) for v in values]
+    if dkey is not None:
+        values = [v[dkey] for v in values]
+    return values[0] if single else sum(values)  # builtin sum: far faster than np.sum on a few items
 
 operators = {ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul,
              ast.Div: op.truediv, ast.Pow: op.pow, ast.BitXor: op.xor,

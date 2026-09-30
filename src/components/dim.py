@@ -170,15 +170,15 @@ class DIM(BaseStateVar):
         if self.name == 'DIC':
             self.source_sloppy_feeding = 0.
         elif self.name == 'NH4':
-            self.source_sloppy_feeding = np.sum(
+            self.source_sloppy_feeding = sum(
                 [sf.source_ing_N_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
         elif self.name == 'NO3':
             self.source_sloppy_feeding = 0.
         elif self.name == 'DIP':
-            self.source_sloppy_feeding = np.sum(
+            self.source_sloppy_feeding = sum(
                 [sf.source_ing_P_unassimilated_to_dim for sf in self.coupled_sloppy_feeding_sources])
         elif self.name == 'DSi':
-            self.source_sloppy_feeding = np.sum([sum(sf.source_ingestion.Si.values()) * (1 - sf.f_unass_Si)
+            self.source_sloppy_feeding = sum([sum(sf.source_ingestion.Si.values()) * (1 - sf.f_unass_Si)
                                                  for sf in self.coupled_sloppy_feeding_sources])
 
 

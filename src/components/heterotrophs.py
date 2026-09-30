@@ -241,29 +241,31 @@ class Heterotrophs(BaseOrg):
                         if sinks is not None], dtype=self.dtype)
 
     def get_source_ingestion(self):
-        """Calculate ingestion with vectorized operations for Kerimoglu22 formulation."""
-        # Vectorize: extract arrays from coupled targets
-        n_targets = len(self.coupled_targets)
-        prefs = np.array([self.pref[t.name] for t in self.coupled_targets])
-        Cs = np.array([t.C for t in self.coupled_targets])
+        """Calculate ingestion for Kerimoglu22 formulation.
 
-        # Vectorized calculation of real preferences
-        sumpc = np.sum(prefs * Cs)
-        realprefs = (prefs * Cs) / sumpc
+        Plain Python on the 3-6 prey rather than numpy arrays: on so few values, building
+        the arrays costs more than the arithmetic. The prey carbon is read as float
+        (exact), which keeps the float64 arithmetic of the former array version.
+        """
+        targets = self.coupled_targets
+        Cs = [float(t.C) for t in targets]
+        pref_C = [self.pref[t.name] * C for t, C in zip(targets, Cs)]
 
-        # Vectorized calculation of sumrpc (redundant with sumpc, but kept for consistency)
-        sumrpc = np.sum(realprefs * Cs)
+        # Real preferences
+        sumpc = sum(pref_C)
+        realprefs = [pc / sumpc for pc in pref_C]
+        sumrpc = sum(rp * C for rp, C in zip(realprefs, Cs))  # (redundant with sumpc, kept for consistency)
 
-        # Vectorized ingestion calculation
         common_factor = self.C * self.g_max * self.lim_T / (self.K_i + sumrpc)
-        ingestion_C = common_factor * realprefs * Cs
 
-        # Assign to dict and calculate N, P, Si
-        for i, t in enumerate(self.coupled_targets):
-            self.source_ingestion.C[t.name] = ingestion_C[i]
-            self.source_ingestion.N[t.name] = ingestion_C[i] * t.N / t.C if t.N is not None else 0.
-            self.source_ingestion.P[t.name] = ingestion_C[i] * t.P / t.C if t.P is not None else 0.
-            self.source_ingestion.Si[t.name] = ingestion_C[i] * t.Si / t.C if t.Si is not None else 0.
+        # Ingestion per prey, and the N, P, Si that go with it
+        ingestion = self.source_ingestion
+        ingestion_C = [common_factor * rp * C for rp, C in zip(realprefs, Cs)]
+        for t, ing_C in zip(targets, ingestion_C):
+            ingestion.C[t.name] = ing_C
+            ingestion.N[t.name] = ing_C * t.N / t.C if t.N is not None else 0.
+            ingestion.P[t.name] = ing_C * t.P / t.C if t.P is not None else 0.
+            ingestion.Si[t.name] = ing_C * t.Si / t.C if t.Si is not None else 0.
 
         # Diagnostic mirror (gated: empty list -> no-op). See set_coupling.
         for i, name in self._ingestion_mirror:
