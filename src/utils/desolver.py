@@ -123,7 +123,11 @@ class DESolver:
             cost = np.full(self.population.shape[0], np.inf)
             ibest = None
         file_exists = os.path.exists(self.job.files['results'])
-        olddf = None   # renseigne en fin de generation, lu a partir de la suivante
+        parameter_names = list(self.job.config['optimized_parameters'])
+        # Score written for a member that has never been evaluated successfully (its cost
+        # is still +inf): the job's own failure score, which the result readers treat as
+        # "no fit" -- and which a resumed run reads back as a finite cost to beat.
+        badlnl = self.job.config.get('badlnl', -np.inf)
 
         try:
             # 'fork' explicitly: it is Linux's default only up to Python 3.13.
@@ -134,7 +138,6 @@ class DESolver:
                     initargs=(self.job,)) as executor:
                 for generation in range(self.start_generation, self.start_generation + self.maxGenerations):
                     print(f'Processing generation {generation}')
-                    results = []
 
                     # Generate trials
                     trials = [
@@ -143,52 +146,35 @@ class DESolver:
                     ]
 
                     # Evaluate trials in parallel
-                    future_to_trial = {
-                        executor.submit(_evaluate_trial, trial): (trial, i)
-                        for i, trial in enumerate(trials)
+                    future_to_target = {
+                        executor.submit(_evaluate_trial, trial): itarget
+                        for itarget, trial in enumerate(trials)
                     }
 
-                    # Process results as they complete
-                    for future in concurrent.futures.as_completed(future_to_trial):
-                        original_trial, itarget = future_to_trial[future]
+                    # Selection, as the results come in: a trial replaces its target if it
+                    # does better (DE minimises the negative likelihood)
+                    for future in concurrent.futures.as_completed(future_to_target):
+                        itarget = future_to_target[future]
                         try:
                             trial, likelihood = future.result()
-
-                            # Store parameters and actual likelihood
-                            param_dict = {
-                                name: value
-                                for name, value in zip(self.job.config['optimized_parameters'], trial)
-                            }
-                            param_dict['cost'] = likelihood  # Store actual likelihood
-                            results.append(param_dict)
-
-                            # For DE optimization, minimize negative likelihood
-                            neg_likelihood = -likelihood
-
-                            if neg_likelihood < cost[itarget]:  # Using < because we're minimizing the negative
-                                self.population[itarget, :] = trial
-                                cost[itarget] = neg_likelihood
-                                if ibest is None or neg_likelihood < cost[ibest]:
-                                    ibest = itarget
-
                         except Exception as e:
                             print(f'Trial evaluation failed: {e}')
+                            continue
 
-                    # Create results dataframe
-                    newdf = pd.DataFrame(results)
-                    newdf['generation'] = generation + 1
+                        neg_likelihood = -likelihood
+                        if neg_likelihood < cost[itarget]:
+                            self.population[itarget, :] = trial
+                            cost[itarget] = neg_likelihood
+                            if ibest is None or neg_likelihood < cost[ibest]:
+                                ibest = itarget
 
-                    # Save results using actual likelihoods
-                    if generation == self.start_generation:
-                        resdf = newdf
-                    else:
-                        newwinning = newdf['cost'] > olddf['cost']  # Higher likelihood is better
-                        resdf = newdf.where(newwinning, olddf)
-                        resdf['generation'] = generation + 1
-
-                    # Add timestamp column
+                    # Save the population after selection: row i is member i. This is what
+                    # resume_existing reads back as the population to start from.
+                    resdf = pd.DataFrame(self.population, columns=parameter_names)
+                    resdf['cost'] = np.where(np.isinf(cost), badlnl, -cost)  # actual likelihood
+                    resdf['generation'] = generation + 1
                     resdf['timestamp'] = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
-                    
+
                     # Append to results file
                     resdf.to_csv(
                         self.job.files['results'],
@@ -197,7 +183,6 @@ class DESolver:
                         index=False
                     )
                     file_exists = True
-                    olddf = resdf
 
                     best_likelihood = -cost[ibest] if ibest is not None else -np.inf
                     print(f'Generation {generation}: Best likelihood = {best_likelihood}')

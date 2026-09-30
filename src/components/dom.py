@@ -225,33 +225,29 @@ class DOM(BaseOrg):
             self.source_aggregation.P = 0.
 
     def get_source_sloppy_feeding(self):
-        """Calculate sloppy feeding sources (vectorized)."""
+        """Calculate sloppy feeding sources. Builtin sum throughout: on a handful of
+        scalars it is far faster than building a numpy array to sum it."""
         if self.name == 'DOCS':
-            # Vectorized: extract all unassimilated contributions at once
-            C_unassim = np.array([sf.source_ing_C_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources])
-            self.source_sloppy_feeding.C = np.sum(C_unassim)
+            sources = self.coupled_sloppy_feeding_sources
+            self.source_sloppy_feeding.C = sum(sf.source_ing_C_unassimilated_to_dom for sf in sources)
             if self.N is not None:
-                N_unassim = np.array([sf.source_ing_N_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources if sf.N is not None])
-                self.source_sloppy_feeding.N = np.sum(N_unassim)
+                self.source_sloppy_feeding.N = sum(sf.source_ing_N_unassimilated_to_dom
+                                                   for sf in sources if sf.N is not None)
             if self.P is not None:
-                P_unassim = np.array([sf.source_ing_P_unassimilated_to_dom for sf in self.coupled_sloppy_feeding_sources if sf.P is not None])
-                self.source_sloppy_feeding.P = np.sum(P_unassim)
+                self.source_sloppy_feeding.P = sum(sf.source_ing_P_unassimilated_to_dom
+                                                   for sf in sources if sf.P is not None)
         else:
             self.source_sloppy_feeding.C = 0
 
     def get_sink_ingestion(self):
-        """Calculate ingestion sinks for Kerimoglu22 formulation (vectorized)."""
-        # Vectorized: extract all consumer contributions
-        C_ing = np.array([c.source_ingestion.C[self.name] for c in self.coupled_consumers])
-        self.sink_ingestion.C = np.sum(C_ing)
+        """Calculate ingestion sinks for Kerimoglu22 formulation."""
+        self.sink_ingestion.C = sum(c.source_ingestion.C[self.name] for c in self.coupled_consumers)
 
         if self.name == "DOCS":
             if self.N is not None:
-                N_ing = np.array([c.source_ingestion.N[self.name] for c in self.coupled_consumers])
-                self.sink_ingestion.N = np.sum(N_ing)
+                self.sink_ingestion.N = sum(c.source_ingestion.N[self.name] for c in self.coupled_consumers)
             if self.P is not None:
-                P_ing = np.array([c.source_ingestion.P[self.name] for c in self.coupled_consumers])
-                self.sink_ingestion.P = np.sum(P_ing)
+                self.sink_ingestion.P = sum(c.source_ingestion.P[self.name] for c in self.coupled_consumers)
         else:
             self.sink_ingestion.N = 0.
             self.sink_ingestion.P = 0.
