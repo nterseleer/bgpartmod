@@ -788,11 +788,24 @@ class Optimization:
 
     def evaluate_model(self, parameters):
         """Evaluate parameter set (single-case or multi-case mode)."""
+        # A configuration error is not a model failure: it must reach the solver (which
+        # stops when every trial of a generation raises), not score badlnl like a
+        # divergence. So the configurations are built outside the try below, which catches
+        # ValueError; for the same reason the legacy translation, run by Model() inside
+        # it, refuses a configuration with a TypeError.
+        if not self.is_multi_case:
+            param_dict = dict(zip(self.config['optimized_parameters'], parameters))
+            newconfig = cfg.update_config(self.config['dconf'], param_dict)
+        else:
+            # Case-specific parameter dicts handle @case_id suffixes
+            case_dconfs = [
+                cfg.update_config(case.dconf, self._build_case_param_dict(parameters, case.case_id))
+                for case in self.cases
+            ]
+
         try:
             if not self.is_multi_case:
                 # Single-case mode
-                param_dict = dict(zip(self.config['optimized_parameters'], parameters))
-                newconfig = cfg.update_config(self.config['dconf'], param_dict)
                 # output_vars: a trial only needs the derived variables it is scored on.
                 # get_best_model rebuilds the winner with all of them.
                 trial = model.Model(newconfig, setup=self.setup, output_vars=self.calibrated_vars,
@@ -818,10 +831,7 @@ class Optimization:
             else:
                 # Multi-case mode: aggregate scores across all cases
                 total_lnl = 0.0
-                for case in self.cases:
-                    # Build case-specific parameter dict (handles @case_id suffixes)
-                    case_param_dict = self._build_case_param_dict(parameters, case.case_id)
-                    case_dconf = cfg.update_config(case.dconf, case_param_dict)
+                for case, case_dconf in zip(self.cases, case_dconfs):
                     trial = model.Model(case_dconf, setup=case.setup,
                                         output_vars=case.calibrated_vars,
                                         **self.config['modkwargs'])

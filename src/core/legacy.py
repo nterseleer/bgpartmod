@@ -12,6 +12,10 @@ configurations, drop a `_legacy_tables.py` module next to this file, exposing:
     translate_parameters(component, params) # -> params with legacy names translated
 
 Without it, both are inert and configurations pass through unchanged.
+
+A configuration the table refuses must raise a TypeError (as a component signature would),
+not a ValueError: an optimization trial scores a ValueError as a model failure (badlnl)
+instead of stopping.
 """
 try:
     from src.core import _legacy_tables as _tables

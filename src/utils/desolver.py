@@ -42,7 +42,8 @@ class DESolver:
                  start_generation: int = 0,
                  num_cpus: Optional[int] = 30,
                  n_unused_cpu: int = 2,
-                 strictbounds: bool = True):
+                 strictbounds: bool = True,
+                 stop_on_failed_generation: bool = True):
         """
         Initialize the Differential Evolution solver.
 
@@ -60,6 +61,13 @@ class DESolver:
             strictbounds: Reflect a trial vector back inside [min, max] until it complies.
                 Set False to let the mutation leave the bounds (the parameter space is then
                 unbounded, which the model does not necessarily tolerate).
+            stop_on_failed_generation: Stop when EVERY trial of a generation raised, instead
+                of writing an unchanged population and moving on. Only exceptions count: a
+                model that diverges or scores NaN is caught by the job and returns its
+                badlnl, which is a (bad) evaluation, not a failure. A generation where all
+                trials raise points to the code or the configuration (e.g. a parameter the
+                component no longer accepts) and would otherwise fill the results file with
+                copies of the population until the job is killed.
         """
         # Store job object
         self.job = job
@@ -77,6 +85,7 @@ class DESolver:
         self.scale = diffScale
         self.crossOverProbability = crossoverProb
         self.strictbounds = strictbounds
+        self.stop_on_failed_generation = stop_on_failed_generation
 
         # Parallel processing settings
         if num_cpus is None:
@@ -153,12 +162,15 @@ class DESolver:
 
                     # Selection, as the results come in: a trial replaces its target if it
                     # does better (DE minimises the negative likelihood)
+                    n_failed, first_error = 0, None
                     for future in concurrent.futures.as_completed(future_to_target):
                         itarget = future_to_target[future]
                         try:
                             trial, likelihood = future.result()
                         except Exception as e:
                             print(f'Trial evaluation failed: {e}')
+                            n_failed += 1
+                            first_error = first_error or e
                             continue
 
                         neg_likelihood = -likelihood
@@ -167,6 +179,13 @@ class DESolver:
                             cost[itarget] = neg_likelihood
                             if ibest is None or neg_likelihood < cost[ibest]:
                                 ibest = itarget
+
+                    # Raised before the save: the failed generation is not written.
+                    if self.stop_on_failed_generation and n_failed == len(trials):
+                        raise RuntimeError(
+                            f'all {n_failed} trials of generation {generation} raised '
+                            f'(first error: {type(first_error).__name__}: {first_error}); '
+                            f'stopping (stop_on_failed_generation=True)')
 
                     # Save the population after selection: row i is member i. This is what
                     # resume_existing reads back as the population to start from.
