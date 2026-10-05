@@ -23,7 +23,35 @@ class PhysicalConstants:
     degCtoK: float = 273.15          # Conversion from Celsius to Kelvin
     molmass_C: float = 12.0107       # Molar mass of carbon [g/mol]
     day_to_seconds: float = 86400    # Seconds in a day
-    PAR_conversion: float = 0.5 / 0.0079 / 54  # PAR/Wm-2 conversion factor
+
+
+# Global solar radiation [W m-2] -> PAR [µmol photon m-2 s-1] used until 2026-10, from
+# X. Desmit's solrad.m: 1 lux = 0.0079 W m-2 (sun), 1 µmol m-2 s-1 = 54 lux, times a PAR
+# fraction of 0.5. That fraction is counted twice: 0.0079 W/lux is the efficacy of TOTAL
+# solar radiation and the lux -> µmol conversion already covers the visible band only
+# (without it, 1 W m-2 global -> 2.34 µmol = 0.51 W of PAR, the expected fraction; with it,
+# 0.26). PAR is thus ~1.85x too low; Rousseau (2000), as used by Gypens et al. (2007) and
+# Ruddick & Lacroix (2006), gives 2.15-2.21 µmol J-1. Kept as the Setup default only so
+# that every setup built before the fix (recipes and pickles that do not carry
+# PAR_conversion) rebuilds bit-identically. To be removed once all runs in use are
+# corrected ones.
+LEGACY_PAR_CONVERSION = 0.5 / 0.0079 / 54
+
+
+def global_radiation_to_PAR(gsr, conversion):
+    """Global solar radiation [W m-2] -> PAR [µmol photon m-2 s-1].
+
+    conversion: a factor [µmol J-1], or 'Rousseau2000' for the empirical BCZ relation
+    GSR = 3.43e-6 PAR^2 + 0.0805 PAR (GSR in J cm-2 per 30 min, PAR in µmol m-2 s-1;
+    Rousseau 2000, cited by Gypens et al. 2007), inverted here.
+    """
+    if conversion == 'Rousseau2000':
+        gsr_30min = np.asarray(gsr) * 1800. / 1e4  # W m-2 -> J cm-2 (30 min)-1
+        a, b = 3.43e-6, 0.0805
+        return (-b + np.sqrt(b * b + 4. * a * gsr_30min)) / (2. * a)
+    if isinstance(conversion, str):
+        raise ValueError(f"Unknown PAR_conversion '{conversion}' (a factor or 'Rousseau2000')")
+    return conversion * np.asarray(gsr)
 
 
 class Setup:
@@ -60,6 +88,8 @@ class Setup:
             'light_prop',  # Proportion of time with light
             'PARfromfile',  # Whether PAR is loaded from file
             'lightfirst',  # Whether light period is at start of day
+            'PAR_conversion',  # Global radiation -> PAR conversion (PARfromfile)
+            'PAR_sinusoid',  # Whether PAR is a seasonal sinusoid with astronomical photoperiod
         ],
         'shear_settings': [
             'g_shear_rate',  # Base shear rate
@@ -95,6 +125,17 @@ class Setup:
                  I: float = 100. * 3600. * 24.,
                  light_prop: float = 0.5,
                  lightfirst: bool = True,
+                 PAR_conversion=LEGACY_PAR_CONVERSION,  # factor [µmol J-1] or 'Rousseau2000'
+                 PAR_sinusoid: bool = False,
+                 # Photoperiod-averaged PAR just above the sea surface [µmol m-2 s-1]: cosine
+                 # fitted on Ruddick & Lacroix (2006, Fig. 1.5, station 330, 1991-2004): mean
+                 # 494, amplitude 318, max on day 169 -- the same as solrad_clim.dat converted
+                 # with Rousseau (2000): 489 / 314 / day 171. Annual mean ~500 as in Gypens
+                 # et al. (2007).
+                 PAR_photoperiod_mean: float = 490.,
+                 PAR_photoperiod_amplitude: float = 315.,
+                 PAR_doy_max: float = 170.,
+                 latitude: float = 51.4,  # [°N], for the astronomical photoperiod
                  T: float = 18.,
                  varyingTEMP: bool = False,
                  g_shear_rate: float = 95,
@@ -249,6 +290,14 @@ class Setup:
         self.I = I
         self.light_prop = light_prop
         self.lightfirst = lightfirst
+        self.PAR_conversion = PAR_conversion
+        self.PAR_sinusoid = PAR_sinusoid
+        self.PAR_photoperiod_mean = PAR_photoperiod_mean
+        self.PAR_photoperiod_amplitude = PAR_photoperiod_amplitude
+        self.PAR_doy_max = PAR_doy_max
+        self.latitude = latitude
+        if PAR_sinusoid and PARfromfile:
+            raise ValueError("PAR_sinusoid and PARfromfile are exclusive: set PARfromfile=False")
         self.PAR = self._initialize_PAR(plotPAR)
 
         # Temperature settings
@@ -534,6 +583,9 @@ class Setup:
 
     def _initialize_PAR(self, plotPAR: bool) -> pd.DataFrame:
         """Initialize Photosynthetically Active Radiation data."""
+        # getattr: setups pickled before PAR_sinusoid existed (extend_duration rebuilds PAR)
+        if getattr(self, 'PAR_sinusoid', False):
+            return self._create_sinusoid_PAR(plotPAR)
         if not self.PARfromfile:
             # One light/dark switch per simulated day; np.linspace needs an integer count.
             ndays = int(self.tmax - self.tmin)
@@ -569,9 +621,12 @@ class Setup:
                                   header=None,
                                   names=['DOY', 'Hour', 'PAR1', 'PAR2', 'PAR3'])
 
-        # Convert to PAR
-        solrad_clim['PAR'] = (self.constants.PAR_conversion *
-                              solrad_clim['PAR1'])  # µmol photon m-2 s-1 of PAR
+        # Convert to PAR. PAR1 is the hourly global solar radiation [W m-2] (annual mean
+        # 125 W m-2). getattr: setups pickled before PAR_conversion existed keep the legacy
+        # factor when extend_duration rebuilds their PAR.
+        conversion = getattr(self, 'PAR_conversion', LEGACY_PAR_CONVERSION)
+        solrad_clim['PAR'] = global_radiation_to_PAR(
+            solrad_clim['PAR1'], conversion)  # µmol photon m-2 s-1 of PAR
         solrad_clim['PAR'] = (solrad_clim['PAR'] *
                               self.constants.day_to_seconds)  # µmol photon m-2 d-1 of PAR
 
@@ -597,6 +652,40 @@ class Setup:
             self._plot_PAR(filtered_df, combined_df)
 
         return combined_df.loc[self.dates, ['PAR']]
+
+    # Solar noon in the clock of setup.dates, matched to solrad_clim.dat (its hourly
+    # climatology peaks between 11:00 and 12:00), so both PAR options share the diel phase.
+    PAR_SOLAR_NOON_HOUR = 11.5
+
+    def _create_sinusoid_PAR(self, plotPAR: bool) -> pd.DataFrame:
+        """Smooth PAR: seasonal cosine of the photoperiod-averaged PAR, astronomical day length.
+
+        P(doy) = PAR_photoperiod_mean + PAR_photoperiod_amplitude cos(2 pi (doy - PAR_doy_max) / 365.25)
+        is the mean PAR over the photoperiod D(doy) (Cooper 1969 declination, `latitude`).
+        Within the day, a half-sine between sunrise and sunset whose photoperiod mean is P:
+        I(t) = P pi/2 sin(pi (h - h_rise) / D), 0 at night. Returned in µmol photon m-2 d-1
+        like the file option.
+        """
+        doy = self.dates.dayofyear.to_numpy().astype(float)
+        hour = (self.dates.hour + self.dates.minute / 60. + self.dates.second / 3600.).to_numpy()
+        declination = np.radians(23.45) * np.sin(2 * np.pi * (284 + doy) / 365.)
+        cos_h0 = np.clip(-np.tan(np.radians(self.latitude)) * np.tan(declination), -1., 1.)
+        day_length = 24. / np.pi * np.arccos(cos_h0)  # [h]
+
+        P = (self.PAR_photoperiod_mean + self.PAR_photoperiod_amplitude
+             * np.cos(2 * np.pi * (doy - self.PAR_doy_max) / 365.25))
+        phase = (hour - (self.PAR_SOLAR_NOON_HOUR - day_length / 2.)) / day_length
+        par = np.where((phase > 0.) & (phase < 1.), P * np.pi / 2. * np.sin(np.pi * phase), 0.)
+        par = par * self.constants.day_to_seconds  # µmol photon m-2 s-1 -> m-2 d-1
+
+        df = pd.DataFrame(par.astype(self.dtype), index=self.dates, columns=['PAR'])
+        if plotPAR:
+            plt.figure(figsize=(10, 6))
+            plt.plot(df.index, df['PAR'] / self.constants.day_to_seconds)
+            plt.ylabel('PAR (µmol photon m-2 s-1)')
+            plt.title('Sinusoidal PAR forcing')
+            plt.show()
+        return df
 
     def _plot_PAR(self, original_df: pd.DataFrame, interpolated_df: pd.DataFrame):
         """Plot PAR data for verification."""
