@@ -332,6 +332,12 @@ ref_values = {
         'units': 'm3 mmolC-1 d-1',
         'complete_name': 'Maximum collision kernel for A2'
     },
+    'DetL+KA2': {
+        'reference_value': 57.48,
+        'symbol': 'K^{A2}_{TEP}',
+        'units': 'mmolC m-3',
+        'complete_name': 'Half saturation constant for TEP dependence of A2'
+    },
 
     # === TEPC+ parameters ===
     'TEPC+kleak': {
