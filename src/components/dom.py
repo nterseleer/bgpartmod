@@ -80,6 +80,13 @@ class DOM(BaseOrg):
                      coupled_aggregate=None
                      ):
         self.coupled_exud_sources_phyto = coupled_exud_sources_phyto
+        # A single Phy or a list of phytoplankton groups, normalised once here
+        if coupled_exud_sources_phyto is None:
+            self._exud_sources_phyto = []
+        elif isinstance(coupled_exud_sources_phyto, (list, tuple)):
+            self._exud_sources_phyto = list(coupled_exud_sources_phyto)
+        else:
+            self._exud_sources_phyto = [coupled_exud_sources_phyto]
         self.coupled_exud_sources_zoo = coupled_exud_sources_zoo
         self.coupled_breakdown_sources = coupled_breakdown_sources
         self.coupled_lysis_sources = coupled_lysis_sources
@@ -185,16 +192,17 @@ class DOM(BaseOrg):
 
     def get_source_exudation(self):
         """Calculate exudation sources for Kerimoglu22 formulation."""
+        # Each phytoplankton group splits its exudation with its own frac_exud_small
         if self.name == "DOCS":
-            self.source_exudation.C = (self.coupled_exud_sources_phyto.sink_exudation.C *
-                                       self.coupled_exud_sources_phyto.frac_exud_small)
+            self.source_exudation.C = sum([phy.sink_exudation.C * phy.frac_exud_small
+                                           for phy in self._exud_sources_phyto])
             if self.N is not None:
-                self.source_exudation.N = self.coupled_exud_sources_phyto.sink_exudation.N
+                self.source_exudation.N = sum([phy.sink_exudation.N for phy in self._exud_sources_phyto])
             if self.P is not None:
-                self.source_exudation.P = self.coupled_exud_sources_phyto.sink_exudation.P
+                self.source_exudation.P = sum([phy.sink_exudation.P for phy in self._exud_sources_phyto])
         elif self.name == "DOCL":
-            self.source_exudation.C = (self.coupled_exud_sources_phyto.sink_exudation.C *
-                                       (1. - self.coupled_exud_sources_phyto.frac_exud_small))
+            self.source_exudation.C = sum([phy.sink_exudation.C * (1. - phy.frac_exud_small)
+                                           for phy in self._exud_sources_phyto])
         else:
             self.source_exudation.C = 0.
 

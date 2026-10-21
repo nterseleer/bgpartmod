@@ -82,6 +82,13 @@ class DIM(BaseStateVar):
         self.coupled_NH4 = coupled_NH4
         self.coupled_NO3 = coupled_NO3
         self.coupled_exud_sources_phyto = coupled_exud_sources_phyto
+        # A single Phy or a list of phytoplankton groups, normalised once here
+        if coupled_exud_sources_phyto is None:
+            self._exud_sources_phyto = []
+        elif isinstance(coupled_exud_sources_phyto, (list, tuple)):
+            self._exud_sources_phyto = list(coupled_exud_sources_phyto)
+        else:
+            self._exud_sources_phyto = [coupled_exud_sources_phyto]
         self.coupled_sloppy_feeding_sources = coupled_sloppy_feeding_sources
 
         # Optimization: Pre-compute temperature limitation array for entire simulation
@@ -184,8 +191,8 @@ class DIM(BaseStateVar):
 
     def get_source_exudation(self):
         if self.name == 'DSi':
-            self.source_exudation = self.coupled_exud_sources_phyto.sink_exudation.Si
-            self.source_exudation = self.source_exudation + self.coupled_exud_sources_phyto.sink_lysis.Si
+            self.source_exudation = sum([phy.sink_exudation.Si + phy.sink_lysis.Si
+                                         for phy in self._exud_sources_phyto])
         else:
             self.source_exudation = 0.
 

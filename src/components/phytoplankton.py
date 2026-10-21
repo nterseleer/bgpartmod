@@ -15,6 +15,13 @@ def _floor_min(x):
     """Floor a limitation factor at 1e-6, no upper bound (default mode)."""
     return max(1e-6, x)
 
+def _resting_transition_hill(x, K, n):
+    """Hill term x^n / (K^n + x^n) of one factor (light, temperature, nutrient) of the
+    PhyA <-> PhyR transition (see Phyto.get_resting_transition_factor)."""
+    xn = max(x, 0.) ** n
+    return xn / (K ** n + xn)
+
+
 _M_EPS = 1e-6  # slope below which the exponential biomass profile is numerically
                # indistinguishable from homogeneous: use the exact E1 form there
                # (gamma(s)*gammaincc(s,x) loses precision as s = m/kd -> 0).
@@ -71,6 +78,27 @@ class Phyto(BaseOrg):
                                                       # Silori 2025 Fig 4b)
                  compound_production_factor=1.0,  # [-] lumped multiplier on realised production for
                                                   # 0D-unresolved processes; 1.0 = off
+                 # Transitions of the attached group (PhyA) with the free (coupled_free) and
+                 # resting (coupled_resting) groups. Set on PhyA only; 0 = off.
+                 attachment_rate=0.,  # [d-1] PhyF -> PhyA = attachment_rate * PhyF_C
+                 detachment_rate=0.,  # [d-1] PhyA -> PhyF = detachment_rate * PhyA_C
+                 # PhyA <-> PhyR: hysteresis between awakening and dormancy, the resting
+                 # thresholds (K_resting_*) lying below the rejuvenation ones (K_rejuvenation_*)
+                 resting_rate=0.,  # [d-1] PhyA -> PhyR = resting_rate * (1 - h(K_resting)) * PhyA_C
+                 rejuvenation_rate=0.,  # [d-1] PhyR -> PhyA = rejuvenation_rate * h(K_rejuvenation) * PhyR_C
+                 K_rejuvenation_I=None,  # [µE m-2 d-1] rejuvenation threshold on the effective irradiance I_eff
+                 K_rejuvenation_T=None,  # [°C] rejuvenation threshold on temperature
+                 K_rejuvenation_DIN=None,  # [mmolN m-3] rejuvenation threshold on DIN (NH4 + NO3)
+                 K_rejuvenation_DIP=None,  # [mmolP m-3] rejuvenation threshold on DIP
+                 K_rejuvenation_DSi=None,  # [mmolSi m-3] rejuvenation threshold on DSi
+                 K_resting_I=None,  # [µE m-2 d-1] resting threshold on the effective irradiance I_eff
+                 K_resting_T=None,  # [°C] resting threshold on temperature
+                 K_resting_DIN=None,  # [mmolN m-3] resting threshold on DIN (NH4 + NO3)
+                 K_resting_DIP=None,  # [mmolP m-3] resting threshold on DIP
+                 K_resting_DSi=None,  # [mmolSi m-3] resting threshold on DSi
+                 n_resting_I=None,  # [-] Hill exponent on I_eff (both transitions)
+                 n_resting_T=None,  # [-] Hill exponent on temperature (both transitions)
+                 n_resting_nut=None,  # [-] Hill exponent on the nutrients (both transitions)
                  ):
 
         super().__init__(dtype=dtype)
@@ -130,6 +158,23 @@ class Phyto(BaseOrg):
         self.biomass_profile_slope_seasonal_amp = biomass_profile_slope_seasonal_amp
         self.biomass_profile_slope_peak_doy = biomass_profile_slope_peak_doy
         self.compound_production_factor = compound_production_factor
+        self.attachment_rate = attachment_rate
+        self.detachment_rate = detachment_rate
+        self.resting_rate = resting_rate
+        self.rejuvenation_rate = rejuvenation_rate
+        self.K_rejuvenation_I = K_rejuvenation_I
+        self.K_rejuvenation_T = K_rejuvenation_T
+        self.K_rejuvenation_DIN = K_rejuvenation_DIN
+        self.K_rejuvenation_DIP = K_rejuvenation_DIP
+        self.K_rejuvenation_DSi = K_rejuvenation_DSi
+        self.K_resting_I = K_resting_I
+        self.K_resting_T = K_resting_T
+        self.K_resting_DIN = K_resting_DIN
+        self.K_resting_DIP = K_resting_DIP
+        self.K_resting_DSi = K_resting_DSi
+        self.n_resting_I = n_resting_I
+        self.n_resting_T = n_resting_T
+        self.n_resting_nut = n_resting_nut
         # Effective biomass-profile slope per timestep (precomputed in set_coupling) and its
         # current value (diagnostic, set in get_source_PP).
         self.biomass_profile_slope_array = None
@@ -151,6 +196,9 @@ class Phyto(BaseOrg):
         self.z_upper_layer = None
         self.PAR_t = None
         self.I_H = None  # Irradiance reaching the seabed [µE m-2 d-1] (diagnostic)
+        self.I_eff = 0.  # Effective irradiance perceived for growth [µE m-2 d-1] (set in get_source_PP)
+        self.hT_rejuvenation_array = None
+        self.hT_resting_array = None
 
         self.limQUOTA = Elms()
         self.limQUOTAmin = Elms()
@@ -166,6 +214,14 @@ class Phyto(BaseOrg):
         self.sink_respiration = Elms()
         self.sink_ingestion = Elms()
         self.sink_aggregation = Elms()
+        # Transitions between groups, computed by PhyA. Each group sums the fluxes it
+        # receives (_transitions_in) and loses (_transitions_out), registered by PhyA.
+        self.flux_attachment = Elms()
+        self.flux_detachment = Elms()
+        self.flux_resting = Elms()
+        self.flux_rejuvenation = Elms()
+        self._transitions_in = []
+        self._transitions_out = []
 
         # Coupling links
         self.coupled_consumer = None
@@ -186,7 +242,9 @@ class Phyto(BaseOrg):
                      coupled_NH4=None, coupled_NO3=None, coupled_DIP=None, coupled_DSi=None,
                      coupled_TEPC=None, coupled_Det=None, coupled_SPM=None,
                      coupled_aggreg_target=None,
-                     coupled_light_attenuators=None):
+                     coupled_light_attenuators=None,
+                     coupled_free=None,
+                     coupled_resting=None):
         # Coupling links
         self.coupled_consumer = coupled_consumer
         self.coupled_NH4 = coupled_NH4
@@ -213,6 +271,21 @@ class Phyto(BaseOrg):
         self.coupled_aggreg_target = coupled_aggreg_target
         self.coupled_light_attenuators = coupled_light_attenuators or []
 
+        # Transitions (on PhyA): PhyA registers each flux on the group that receives it and on
+        # the group that loses it.
+        self.coupled_free = coupled_free
+        self.coupled_resting = coupled_resting
+        if coupled_free is not None:
+            self._transitions_in.append(self.flux_attachment)
+            self._transitions_out.append(self.flux_detachment)
+            coupled_free._transitions_in.append(self.flux_detachment)
+            coupled_free._transitions_out.append(self.flux_attachment)
+        if coupled_resting is not None:
+            self._transitions_in.append(self.flux_rejuvenation)
+            self._transitions_out.append(self.flux_resting)
+            coupled_resting._transitions_in.append(self.flux_resting)
+            coupled_resting._transitions_out.append(self.flux_rejuvenation)
+
         # Optimization: Lazy initialization flag for eps_kd cache
         self._eps_kds_cached = False
 
@@ -226,6 +299,12 @@ class Phyto(BaseOrg):
                 A_E=self.A_E_grazing, T_ref=self.T_ref_grazing, boltz=True,
                 bound_temp_to_1=self.bound_temp_to_1, suffix='_grazing'
             )
+            if self.coupled_resting is not None:
+                T_degC = (self.setup.T_array - self.setup.constants.degCtoK).tolist()
+                self.hT_rejuvenation_array = [_resting_transition_hill(T, self.K_rejuvenation_T, self.n_resting_T)
+                                             for T in T_degC]
+                self.hT_resting_array = [_resting_transition_hill(T, self.K_resting_T, self.n_resting_T)
+                                            for T in T_degC]
 
             # Pre-compute the effective biomass-profile slope m(t) for the biomass-weighted
             # light-limitation path. doy is taken from setup.dates (same indexing as PAR_array
@@ -250,6 +329,50 @@ class Phyto(BaseOrg):
     def _spm_index(self, name):
         """Index of a mineral pool in coupled_SPM, or None when it is not coupled."""
         return next((i for i, spm in enumerate(self.coupled_SPM) if spm.name == name), None)
+
+    def get_coupled_processes_indepent_sinks_sources(self, t=None, t_idx=None):
+        """Transitions computed by PhyA, before any source or sink so that PhyF and PhyR
+        read them whatever the component order. get_source_PP has not run yet at this
+        point: the light factor uses the effective irradiance I_eff of the previous step.
+        """
+        if self.coupled_free is not None:
+            self._set_transition_flux(self.flux_attachment, self.attachment_rate, self.coupled_free)
+            self._set_transition_flux(self.flux_detachment, self.detachment_rate, self)
+        if self.coupled_resting is not None:
+            # Rejuvenation needs light, temperature and nutrients to be above the rejuvenation
+            # thresholds together (h); resting starts as soon as one of them falls below its
+            # resting threshold (1 - h). With K_resting < K_rejuvenation, both fluxes are
+            # weak between the two thresholds: the populations keep their state (hysteresis).
+            # Each uses the light perceived by the cells that leave.
+            h_rejuvenation = self.get_resting_transition_factor(
+                self.coupled_resting.I_eff, self.hT_rejuvenation_array[t_idx], self.K_rejuvenation_I,
+                self.K_rejuvenation_DIN, self.K_rejuvenation_DIP, self.K_rejuvenation_DSi)
+            h_resting = self.get_resting_transition_factor(
+                self.I_eff, self.hT_resting_array[t_idx], self.K_resting_I,
+                self.K_resting_DIN, self.K_resting_DIP, self.K_resting_DSi)
+            self._set_transition_flux(self.flux_rejuvenation, self.rejuvenation_rate * h_rejuvenation,
+                                      self.coupled_resting)
+            self._set_transition_flux(self.flux_resting, self.resting_rate * (1. - h_resting), self)
+
+    def get_resting_transition_factor(self, I_eff, hT, K_I, K_DIN, K_DIP, K_DSi):
+        """Hill factor h in [0, 1] of the PhyA <-> PhyR transitions for one set of thresholds:
+        product of the Hill terms on light (I_eff), temperature (hT, precomputed) and
+        nutrients (min over DIN, DIP, DSi)."""
+        hI = _resting_transition_hill(I_eff, K_I, self.n_resting_I)
+        DIN = self.coupled_NH4.concentration + self.coupled_NO3.concentration
+        hNut = min(_resting_transition_hill(DIN, K_DIN, self.n_resting_nut),
+                   _resting_transition_hill(self.coupled_DIP.concentration, K_DIP, self.n_resting_nut),
+                   _resting_transition_hill(self.coupled_DSi.concentration, K_DSi, self.n_resting_nut))
+        return hI * hT * hNut
+
+    @staticmethod
+    def _set_transition_flux(flux, rate, donor):
+        """Whole cells leave the donor at `rate` [d-1], carrying its current quotas."""
+        flux.C = rate * donor.C
+        flux.N = flux.C * donor.QN
+        flux.Chl = flux.C * donor.thetaC
+        flux.P = flux.C * donor.QP
+        flux.Si = flux.C * donor.QSi
 
     def get_sources(self, t, t_idx):
         # Optimization: Use pre-computed arrays for faster access
@@ -300,6 +423,14 @@ class Phyto(BaseOrg):
         if self.Si is not None:
             self.Si_sources = self.source_uptake.Si
 
+        # Cells received from the other phytoplankton groups
+        for flux in self._transitions_in:
+            self.C_sources += flux.C
+            self.N_sources += flux.N
+            self.Chl_sources += flux.Chl
+            self.P_sources += flux.P
+            self.Si_sources += flux.Si
+
         return np.array(
             [sources for sources in (self.C_sources, self.N_sources, self.Chl_sources, self.P_sources, self.Si_sources)
              if sources is not None], dtype=self.dtype)
@@ -346,6 +477,14 @@ class Phyto(BaseOrg):
                              self.sink_ingestion.Si +
                              self.sink_lysis.Si +
                              self.sink_mortality.Si)
+
+        # Cells leaving to the other phytoplankton groups
+        for flux in self._transitions_out:
+            self.C_sinks += flux.C
+            self.N_sinks += flux.N
+            self.Chl_sinks += flux.Chl
+            self.P_sinks += flux.P
+            self.Si_sinks += flux.Si
 
         if self.debug_mode and self.C < 1e-3:
             print(f'DEBUG C={self.C:.2e} | source_PP={self.source_PP.C:.2e} | sinks={self.C_sinks:.2e}')
@@ -486,6 +625,7 @@ class Phyto(BaseOrg):
             # [mgChl mmolC-1], so theta_max/QN_max is in [mgChl mmolN-1].
             if self.limI > 1e-6:
                 I_eff = -np.log(1.0 - self.limI) / a if self.limI < 1.0 else I_0
+                self.I_eff = float(I_eff)
                 thetaC_safe = max(self.thetaC, 1e-9) if self.apply_numerical_protections else self.thetaC
                 denom = self.alpha * thetaC_safe * I_eff
                 rho_Chl_raw = self.theta_max / self.QN_max * (PC_geom * varinfos.molmass_C / denom)
@@ -493,6 +633,7 @@ class Phyto(BaseOrg):
                     if self.apply_numerical_protections else rho_Chl_raw
             else:
                 self.rho_Chl = 0.
+                self.I_eff = 0.
 
         else:
             # No usable light: production and all light-related terms vanish. The
@@ -504,6 +645,7 @@ class Phyto(BaseOrg):
             self.limI_theoretical = 0.0
             self.PC = 0.0
             self.rho_Chl = 0.0
+            self.I_eff = 0.0
 
         C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
         self.source_PP.C = self.PC * C_safe
@@ -630,12 +772,13 @@ class Phyto(BaseOrg):
             self.sink_ingestion.Si = 0.
 
     def get_sink_aggregation(self):
-        """Calculate aggregation for Kerimoglu22 formulation."""
-        self.sink_aggregation.C = self.coupled_aggreg_target.aggPhy_C
+        """Calculate aggregation for Kerimoglu22 formulation (own share of DetL aggregation)."""
+        agg = self.coupled_aggreg_target.aggPhy_by_group[self.name]
+        self.sink_aggregation.C = agg.C
         if self.N is not None:
-            self.sink_aggregation.N = self.coupled_aggreg_target.aggPhy_N
+            self.sink_aggregation.N = agg.N
         if self.P is not None:
-            self.sink_aggregation.P = self.coupled_aggreg_target.aggPhy_P
+            self.sink_aggregation.P = agg.P
         if self.Si is not None:
-            self.sink_aggregation.Si = self.coupled_aggreg_target.aggPhy_Si
-        self.sink_aggregation.Chl = self.coupled_aggreg_target.aggPhy_Chl
+            self.sink_aggregation.Si = agg.Si
+        self.sink_aggregation.Chl = agg.Chl

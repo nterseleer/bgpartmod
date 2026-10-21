@@ -36,8 +36,8 @@ def _track_time(func):
 
 class _ModelUnitNames:
     """Column lookup for derived expressions during _process_results: 'm<pool>' (model
-    units) resolves to the pool column itself, which still holds model units at that
-    point, since the unit transform comes after. Replaces a physical duplicate of every
+    units) resolves to the pool (or aggregate) column itself, which still holds model
+    units at that point, since the unit transform comes after. Replaces a physical duplicate of every
     pool. Only valid before _transform_units: compute_derived_variables, run after the
     fact on converted columns, keeps plain self.df lookup."""
 
@@ -273,7 +273,9 @@ class Model:
             # Register aggregates
             if 'aggregate' in cfg:
                 for agg_key, agg_value in cfg['aggregate'].items():
-                    self.aggregate_vars[agg_key].append(f"{key}_{agg_value}")
+                    # A key outside the defaults (e.g. 'Phy_C' summing several Phyto groups)
+                    # defines a new aggregate.
+                    self.aggregate_vars.setdefault(agg_key, []).append(f"{key}_{agg_value}")
 
     def _initialize_vertical_coupling_ratios(self):
         """Initialize BGC/floc ratios for vertical coupling after all components are set up.
@@ -657,7 +659,7 @@ class Model:
     @_track_time
     def _compute_derived_variables(self) -> None:
         """Compute variables defined by expressions in output configuration."""
-        names = _ModelUnitNames(self.df, self.pool_names)
+        names = _ModelUnitNames(self.df, list(self.pool_names) + list(self.aggregate_vars))
         for var in set(self.output_vars) - set(self.df.columns):
             if expression := self.output_config.get(var, {}).get('oprt'):
                 try:

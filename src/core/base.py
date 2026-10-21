@@ -113,28 +113,28 @@ class BaseOrg(BaseStateVar):
         self.Si = Si
 
         if self.N is not None:
-            if self.name == 'Phy':
+            if self.classname == 'Phy':
                 if self.QratioIC:
                     Qmaxratio = self.QratioIC
                     self.N = self.C * self.QN_max * Qmaxratio
             self.QN = self.N / self.C
-            if self.name == 'Phy' and self.checkQmax  and self.QN > self.QN_max:
+            if self.classname == 'Phy' and self.checkQmax  and self.QN > self.QN_max:
                 self.N = self.C * self. QN_max * Qmaxratio
                 print('Phytoplankton N initial pool too high compared to QN_max, changed from {} to {}'.format(N, self.N))
                 self.QN = self.N / self.C
         if self.P is not None:
-            if self.name == 'Phy':
+            if self.classname == 'Phy':
                 self.P = self.C * self.QP_max * Qmaxratio
             self.QP = self.P / self.C
-            if self.name == 'Phy' and self.checkQmax  and self.QP > self.QP_max:
+            if self.classname == 'Phy' and self.checkQmax  and self.QP > self.QP_max:
                 self.P = self.C * self. QP_max * Qmaxratio
                 print('Phytoplankton P initial pool too high compared to QP_max, changed from {} to {}'.format(P, self.P))
                 self.QP = self.P / self.C
         if self.Si is not None:
-            if self.name == 'Phy':
+            if self.classname == 'Phy':
                 self.Si = self.C * self.QSi_max * Qmaxratio
             self.QSi = self.Si / self.C
-            if self.name == 'Phy' and self.checkQmax  and self.QSi > self.QSi_max:
+            if self.classname == 'Phy' and self.checkQmax  and self.QSi > self.QSi_max:
                 self.Si = self.C * self. QSi_max * Qmaxratio
                 print('Phytoplankton Si initial pool too high compared to QSi_max, changed from {} to {}'.format(Si, self.Si))
                 self.QSi = self.Si / self.C

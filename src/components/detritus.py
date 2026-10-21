@@ -85,6 +85,15 @@ class Detritus(BaseOrg):
         self.coupled_mortality_sources = coupled_mortality_sources
         self.coupled_sloppy_feeding_sources = coupled_sloppy_feeding_sources
         self.coupled_Phy = coupled_Phy
+        # Phytoplankton groups aggregating into DetL: a single Phy or a list (PhyF, PhyA, ...).
+        # Normalised once here; per-group shares are stored in aggPhy_by_group[name].
+        if coupled_Phy is None:
+            self._coupled_Phys = []
+        elif isinstance(coupled_Phy, (list, tuple)):
+            self._coupled_Phys = list(coupled_Phy)
+        else:
+            self._coupled_Phys = [coupled_Phy]
+        self.aggPhy_by_group = {phy.name: Elms() for phy in self._coupled_Phys}
         self.coupled_TEPC = coupled_TEPC
         self.coupled_larger_Det = coupled_larger_Det
         self.coupled_smaller_Det = coupled_smaller_Det
@@ -180,17 +189,31 @@ class Detritus(BaseOrg):
         """Calculate aggregation sources for Kerimoglu22 formulation."""
         if self.name == 'DetL':
             betaA2 = self.beta_max * self.coupled_TEPC.C / (self.coupled_TEPC.C + self.KA2)
+            Phy_C = sum([phy.C for phy in self._coupled_Phys])
             self.aggPD_tot = betaA2 * (
-                    self.coupled_Phy.C + self.coupled_TEPC.C + self.coupled_smaller_Det.C) * self.C
+                    Phy_C + self.coupled_TEPC.C + self.coupled_smaller_Det.C) * self.C
 
-            self.sumc = self.coupled_Phy.C + self.coupled_TEPC.C + self.coupled_smaller_Det.C + self.C
+            self.sumc = Phy_C + self.coupled_TEPC.C + self.coupled_smaller_Det.C + self.C
 
-            # PD is Phyto+Detritus
-            self.aggPhy_C = self.aggPD_tot * self.coupled_Phy.C / self.sumc
-            self.aggPhy_N = self.aggPhy_C * self.coupled_Phy.QN if self.coupled_Phy.N is not None else 0.
-            self.aggPhy_P = self.aggPhy_C * self.coupled_Phy.QP if self.coupled_Phy.P is not None else 0.
-            self.aggPhy_Si = self.aggPhy_C * self.coupled_Phy.QSi if self.coupled_Phy.Si is not None else 0.
-            self.aggPhy_Chl = self.aggPhy_C * self.coupled_Phy.thetaC
+            # PD is Phyto+Detritus. Each phytoplankton group aggregates in proportion to its
+            # own C; aggPhy_* hold the totals over all groups.
+            self.aggPhy_C = 0.
+            self.aggPhy_N = 0.
+            self.aggPhy_P = 0.
+            self.aggPhy_Si = 0.
+            self.aggPhy_Chl = 0.
+            for phy in self._coupled_Phys:
+                agg = self.aggPhy_by_group[phy.name]
+                agg.C = self.aggPD_tot * phy.C / self.sumc
+                agg.N = agg.C * phy.QN if phy.N is not None else 0.
+                agg.P = agg.C * phy.QP if phy.P is not None else 0.
+                agg.Si = agg.C * phy.QSi if phy.Si is not None else 0.
+                agg.Chl = agg.C * phy.thetaC
+                self.aggPhy_C += agg.C
+                self.aggPhy_N += agg.N
+                self.aggPhy_P += agg.P
+                self.aggPhy_Si += agg.Si
+                self.aggPhy_Chl += agg.Chl
 
             self.aggDetS_C = self.aggPD_tot * self.coupled_smaller_Det.C / self.sumc
             self.aggDetS_N = self.aggDetS_C * self.coupled_smaller_Det.QN if self.coupled_smaller_Det.N is not None else 0.
