@@ -63,12 +63,14 @@ The framework is built around the concept of **components** - self-contained mod
 
 ## Installation
 
-### Prerequisites
+### With pip
+
+#### Prerequisites
 
 - Python 3.8+
 - Required packages: numpy, pandas, matplotlib, scipy, dill
 
-### Setup
+#### Setup
 
 1. Clone the repository:
    ```bash
@@ -90,6 +92,76 @@ The framework is built around the concept of **components** - self-contained mod
    ```bash
    python src/main_example.py
    ```
+
+### With UV
+
+#### Prerequisites
+
+- [uv](https://github.com/astral-sh/uv) installed
+- Python 3.13.13 (uv will install this version automatically if needed)
+
+#### Setup local
+
+1. Clone the repository:
+```bash
+   git clone https://github.com/nterseleer/bgpartmod.git
+   cd bgpartmod
+```
+
+2. Install dependencies:
+```bash
+   uv sync --group local
+```
+
+3. Create necessary directories:
+```bash
+   mkdir -p Figs Observations Simulations/{Model_runs,Reference_simulations,Optimizations}
+```
+
+4. Verify installation:
+```bash
+   uv run python src/main_example.py
+```
+
+#### Setup server
+
+1. Load uv and clone the repository:
+```bash
+   module load uv/new python3
+   git clone https://github.com/nterseleer/bgpartmod.git
+   cd bgpartmod
+```
+
+2. Create the venv with access to system packages:
+```bash
+   uv venv --system-site-packages .venv
+```
+
+3. Install dependencies:
+```bash
+   uv sync --group server
+```
+
+4. Create necessary directories:
+```bash
+   mkdir -p Figs Observations Simulations/{Model_runs,Reference_simulations,Optimizations}
+```
+
+5. Register the Jupyter kernel:
+```bash
+   uv run python -m ipykernel install --user --name=bgpartmod --env PATH "$(pwd)/.venv/bin:\$PATH"
+```
+
+6. Verify installation:
+```bash
+   uv run python src/main_example.py
+```
+
+**Updating dependencies later:**
+```bash
+uv add --group server package-name   # or --group local
+uv sync --group server               # or --group local
+```
 
 ## Quick Start
 
