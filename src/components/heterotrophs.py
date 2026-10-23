@@ -93,10 +93,6 @@ class Heterotrophs(BaseOrg):
         self.sink_respiration = Elms()
         self.sink_lysis = Elms()
         self.sink_mortality = Elms()
-        self.sink_vertical_loss = Elms()  # Vertical loss coupled to mineral flocs
-
-        # Coupling links
-        self.coupled_aggregate = None  # Link to Macroflocs for vertical dynamics
 
     def set_coupling(self, coupled_targets,
                      coupled_consumers=None,
@@ -211,9 +207,7 @@ class Heterotrophs(BaseOrg):
         # SINKS
         self.get_sink_ingestion()
 
-        self._update_prescribed_aggregate(t_idx)
-
-        self.get_sink_vertical_loss()
+        self.get_sink_vertical_loss(t_idx)
 
         # SINK terms of the state equation
         # sink_respiration.C is NOT summed here: it is already subtracted from the

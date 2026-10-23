@@ -3,8 +3,10 @@ import numpy as np
 from ..utils import functions as fns
 
 
-# Attribute holding the smoothed <currency>/N_F ratio of the vertical coupling
-_SMOOTHED_RATIO = {cur: f'smoothed_{cur}_to_Nf_ratio' for cur in ('C', 'N', 'P', 'Si')}
+# Currencies that can follow the mineral flocs, and the attribute holding the smoothed
+# <currency>/N_F ratio of each (public names: diagnostics and vertical_coupling_state)
+VERTICAL_CURRENCIES = ('C', 'N', 'Chl', 'P', 'Si')
+SMOOTHED_RATIO = {cur: f'smoothed_{cur}_to_Nf_ratio' for cur in VERTICAL_CURRENCIES}
 
 
 class BaseStateVar:
@@ -71,10 +73,24 @@ class BaseOrg(BaseStateVar):
 
         self.ICs = None
 
+        # Vertical coupling to the mineral flocs (see _attach_aggregate). The prescribed_*
+        # values are overwritten by the subclasses that expose them as parameters.
+        self.coupled_aggregate = None  # Link to Macroflocs for vertical dynamics
+        self.prescribe_aggregate_from_setup = False
+        self.prescribed_resusp_ewma_alpha = 0.0
+        self.prescribed_organomin_coupling_fraction = 1.0
+        self.resusp_ewma_alpha = 0.0  # [-] cached from coupled_aggregate
+        self.organomin_coupling_fraction = 1.0  # [-] cached from coupled_aggregate
+        self.sink_vertical_loss = Elms()  # [mmol m-3 d-1] None (NaN at t0) until first computed
+        self._vertical_ratios = ()  # (currency, ratio attribute) of the pools carried
+        self._vertical_absent = VERTICAL_CURRENCIES  # currencies not carried: loss set to 0
+        self._smoothed_ratios_pending = False  # True while an aggregate ratio is still unset
+
         # Smoothed ratios for vertical coupling (set by initialize_vertical_coupling_ratios)
         # Controlled by coupled_aggregate.resusp_ewma_alpha
         self.smoothed_C_to_Nf_ratio = None
         self.smoothed_N_to_Nf_ratio = None
+        self.smoothed_Chl_to_Nf_ratio = None
         self.smoothed_P_to_Nf_ratio = None
         self.smoothed_Si_to_Nf_ratio = None
 
@@ -145,6 +161,12 @@ class BaseOrg(BaseStateVar):
 
         self.ICs = np.array([pool for pool in [self.C, self.N, self.Chl, self.P, self.Si] if pool is not None], dtype=self.dtype)
 
+    # -- Couplage vertical aux flocs mineraux ------------------------------------------
+    # Mutualise entre Phyto, DOM, Detritus et Heterotrophs : meme formulation, seul
+    # l'ensemble des devises transportees change d'un composant a l'autre. Protocole :
+    # set_coupling -> _attach_aggregate ; Model -> initialize_vertical_coupling_ratios
+    # (apres les ICs) ; get_sinks -> get_sink_vertical_loss(t_idx), somme dans *_sinks.
+
     def set_vertical_coupling_state(self, state_dict):
         """
         Set smoothed BGC/floc ratios from extracted state (e.g., from a previous simulation).
@@ -152,9 +174,12 @@ class BaseOrg(BaseStateVar):
         Args:
             state_dict: Dict with keys like 'smoothed_C_to_Nf_ratio', 'smoothed_N_to_Nf_ratio', etc.
         """
+        unknown = set(state_dict) - set(SMOOTHED_RATIO.values())
+        if unknown:
+            raise TypeError(f"{self.name}: unknown vertical_coupling_state keys {sorted(unknown)}, "
+                            f"expected some of {list(SMOOTHED_RATIO.values())}")
         for attr, value in state_dict.items():
-            if hasattr(self, attr):
-                setattr(self, attr, value)
+            setattr(self, attr, value)
 
     def initialize_vertical_coupling_ratios(self):
         """
@@ -164,22 +189,36 @@ class BaseOrg(BaseStateVar):
         With resusp_ewma_alpha:
         - α=0 (default): Fixed ratio from initial conditions (Option A)
         - α>0: Exponentially weighted moving average (Option B1)
+
+        A ratio that cannot be set yet (no flocs, N_F = 0) is set at the first timestep
+        where N_F > 0 (see get_sink_vertical_loss).
+
+        ECART CONNU, NON CORRIGE : le ratio initial vaut pool / N_F alors que le filtre
+        EWMA le fait tendre vers pool * organomin_coupling_fraction / N_F. Avec une
+        fraction < 1, la resuspension est donc surestimee au debut de la simulation (le
+        temps que le filtre oublie le ratio initial), et pendant toute la simulation avec
+        alpha = 0. Le corriger change les trajectoires et casserait la comparabilite avec
+        les optimisations en cours (OPT639 : fraction 0.154).
         """
-        # Skip if values already set (e.g., from extracted state)
-        if self.smoothed_C_to_Nf_ratio is not None:
+        if self.coupled_aggregate is None:
             return
+        self._vertical_ratios = tuple((cur, SMOOTHED_RATIO[cur]) for cur in VERTICAL_CURRENCIES
+                                      if getattr(self, cur) is not None)
+        self._vertical_absent = tuple(cur for cur in VERTICAL_CURRENCIES if getattr(self, cur) is None)
+        # A prescribed aggregate holds no value before its first refresh
+        self._update_prescribed_aggregate(0)
+        self._smoothed_ratios_pending = True
+        self._set_initial_smoothed_ratios(self.coupled_aggregate.numconc)
 
-        if hasattr(self, 'coupled_aggregate') and self.coupled_aggregate is not None:
-            Nf = self.coupled_aggregate.numconc
-            if Nf > 0:
-                self.smoothed_C_to_Nf_ratio = self.C / Nf if self.C is not None else None
-                self.smoothed_N_to_Nf_ratio = self.N / Nf if self.N is not None else None
-                self.smoothed_P_to_Nf_ratio = self.P / Nf if self.P is not None else None
-                self.smoothed_Si_to_Nf_ratio = self.Si / Nf if self.Si is not None else None
-
-    # -- Couplage vertical aux flocs mineraux ------------------------------------------
-    # Mutualise entre DOM, Detritus et Heterotrophs : meme formulation, seul l'ensemble
-    # des devises transportees change d'un composant a l'autre.
+    def _set_initial_smoothed_ratios(self, Nf):
+        """Seed the smoothed ratios still unset from the current pools (see the known gap
+        in initialize_vertical_coupling_ratios)."""
+        if Nf <= 0:
+            return
+        for cur, ratio_name in self._vertical_ratios:
+            if getattr(self, ratio_name) is None:
+                setattr(self, ratio_name, getattr(self, cur) / Nf)
+        self._smoothed_ratios_pending = False
 
     def _attach_aggregate(self, coupled_aggregate):
         """Wire the mineral aggregate driving the vertical dynamics, and cache its two
@@ -212,49 +251,48 @@ class BaseOrg(BaseStateVar):
             self.coupled_aggregate.source_resuspension = self.setup.Macroflocs_source_resusp_array[t_idx]
             self.coupled_aggregate.numconc = self.setup.Macroflocs_numconc_array[t_idx]
 
-    def get_sink_vertical_loss(self):
+    def get_sink_vertical_loss(self, t_idx):
         """Vertical loss coupled to mineral floc dynamics (sedimentation - resuspension).
 
         Separated formulation:
         - Sedimentation: proportional to current concentration in water column
         - Resuspension: absolute flux based on smoothed BGC/floc ratio (EWMA filter)
 
-        Applies to the currencies the component actually carries; the others are set to 0.
+        Applies to the currencies the component actually carries; the others are set to 0,
+        as are all of them without aggregate. Positive = loss from the water column.
         """
         loss = self.sink_vertical_loss
-        if self.coupled_aggregate is None:
-            loss.C = loss.N = loss.P = loss.Si = 0.
+        for cur in self._vertical_absent:
+            setattr(loss, cur, 0.)
+        aggregate = self.coupled_aggregate
+        if aggregate is None:
             return
+        self._update_prescribed_aggregate(t_idx)
 
-        conv = self.coupled_aggregate.time_conversion_factor
-        Nf = self.coupled_aggregate.numconc
-        pools = {'C': self.C, 'N': self.N, 'P': self.P, 'Si': self.Si}
+        Nf = aggregate.numconc
+        if self._smoothed_ratios_pending:
+            self._set_initial_smoothed_ratios(Nf)
+        conv = aggregate.time_conversion_factor
+        alpha = self.resusp_ewma_alpha
+        fraction = self.organomin_coupling_fraction
 
-        # Update smoothed ratios (EWMA filter: alpha=0 -> fixed, alpha>0 -> adaptive)
-        # Ratios based on fraction forming organo-mineral aggregates
-        if Nf > 0 and self.resusp_ewma_alpha > 0:
-            for cur, pool in pools.items():
-                ratio_name = _SMOOTHED_RATIO[cur]
-                ratio = getattr(self, ratio_name)
-                if pool is not None and ratio is not None:
-                    setattr(self, ratio_name,
-                            self.resusp_ewma_alpha * (pool * self.organomin_coupling_fraction / Nf)
-                            + (1 - self.resusp_ewma_alpha) * ratio)
+        # Sedimentation applies only to the fraction forming organo-mineral aggregates
+        settling_rate = (aggregate.sink_sedimentation / Nf * conv) if Nf > 0 else 0.0  # [d-1]
+        resusp_rate = aggregate.source_resuspension * conv  # [# m-3 d-1]
+        update_ratios = Nf > 0 and alpha > 0
 
-        # Sedimentation rate [d-1]
-        settling_rate = (self.coupled_aggregate.sink_sedimentation / Nf * conv) if Nf > 0 else 0.0
-
-        # Net vertical loss (positive = loss from water column). Sedimentation applies
-        # only to the fraction forming organo-mineral aggregates; resuspension is an
-        # absolute flux [mmol m-3 d-1] rebuilt from the smoothed ratio.
-        for cur, pool in pools.items():
-            if pool is None:
-                setattr(loss, cur, 0.)
+        for cur, ratio_name in self._vertical_ratios:
+            pool = getattr(self, cur)
+            ratio = getattr(self, ratio_name)
+            if ratio is None:  # N_F = 0 since the start: no deposit to resuspend yet
+                setattr(loss, cur, settling_rate * pool * fraction)
                 continue
-            ratio = getattr(self, _SMOOTHED_RATIO[cur])
-            resusp = (self.coupled_aggregate.source_resuspension * conv * ratio) \
-                if ratio is not None else 0.0
-            setattr(loss, cur, settling_rate * pool * self.organomin_coupling_fraction - resusp)
+            # EWMA filter of the ratio (alpha = 0 -> fixed, alpha > 0 -> adaptive)
+            if update_ratios:
+                ratio = alpha * (pool * fraction / Nf) + (1 - alpha) * ratio
+                setattr(self, ratio_name, ratio)
+            # Resuspension: absolute flux [mmol m-3 d-1] rebuilt from the smoothed ratio
+            setattr(loss, cur, settling_rate * pool * fraction - resusp_rate * ratio)
 
     def update_val(self, C,
                    N=None,

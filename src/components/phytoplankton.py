@@ -63,6 +63,9 @@ class Phyto(BaseOrg):
                  eps_kd=0.024,  # [m2 mmolC-1] Diffuse attenuation cross section of phytoplankton (Kerimoglu22)
                  prescribe_SPM_from_setup=False,  # Whether to use prescribed SPM from Setup (for BGC-only runs)
                  prescribed_SPM_eps_kd=0.066e3,  # [m² kg⁻¹] Light attenuation cross section for prescribed SPM
+                 prescribe_aggregate_from_setup=False,  # Whether to use prescribed aggregate from Setup
+                 prescribed_resusp_ewma_alpha=0.0,  # [-] EWMA smoothing for prescribed aggregate coupling
+                 prescribed_organomin_coupling_fraction=1.0,  # [-] Organo-mineral coupling fraction for prescribed aggregate
                  dt2=False,
                  dtype=np.float64,
                  name='DefaultPhyto',
@@ -145,6 +148,9 @@ class Phyto(BaseOrg):
         self.eps_kd = eps_kd
         self.prescribe_SPM_from_setup = prescribe_SPM_from_setup
         self.prescribed_SPM_eps_kd = prescribed_SPM_eps_kd
+        self.prescribe_aggregate_from_setup = prescribe_aggregate_from_setup
+        self.prescribed_resusp_ewma_alpha = prescribed_resusp_ewma_alpha
+        self.prescribed_organomin_coupling_fraction = prescribed_organomin_coupling_fraction
         self.dt2 = dt2
         self.name = name
         self.bound_temp_to_1 = bound_temp_to_1
@@ -244,7 +250,8 @@ class Phyto(BaseOrg):
                      coupled_aggreg_target=None,
                      coupled_light_attenuators=None,
                      coupled_free=None,
-                     coupled_resting=None):
+                     coupled_resting=None,
+                     coupled_aggregate=None):
         # Coupling links
         self.coupled_consumer = coupled_consumer
         self.coupled_NH4 = coupled_NH4
@@ -270,6 +277,9 @@ class Phyto(BaseOrg):
 
         self.coupled_aggreg_target = coupled_aggreg_target
         self.coupled_light_attenuators = coupled_light_attenuators or []
+
+        # Whole cells settle and resuspend with the Macroflocs, like DOM, Det and Het
+        self._attach_aggregate(coupled_aggregate)
 
         # Transitions (on PhyA): PhyA registers each flux on the group that receives it and on
         # the group that loses it.
@@ -439,6 +449,7 @@ class Phyto(BaseOrg):
         # SINKS
         self.get_sink_ingestion()
         self.get_sink_aggregation()
+        self.get_sink_vertical_loss(t_idx)
 
         # SINK terms of the state equation
         self.C_sinks = (self.sink_respiration.C +
@@ -446,21 +457,24 @@ class Phyto(BaseOrg):
                         self.sink_aggregation.C +
                         self.sink_ingestion.C +
                         self.sink_lysis.C +
-                        self.sink_mortality.C)
+                        self.sink_mortality.C +
+                        self.sink_vertical_loss.C)
 
         self.N_sinks = (self.sink_respiration.N +
                         self.sink_exudation.N +
                         self.sink_aggregation.N +
                         self.sink_ingestion.N +
                         self.sink_lysis.N +
-                        self.sink_mortality.N)
+                        self.sink_mortality.N +
+                        self.sink_vertical_loss.N)
 
         self.Chl_sinks = (self.sink_respiration.Chl +
                           self.sink_exudation.Chl +
                           self.sink_aggregation.Chl +
                           self.sink_ingestion.Chl +
                           self.sink_lysis.Chl +
-                          self.sink_mortality.Chl)
+                          self.sink_mortality.Chl +
+                          self.sink_vertical_loss.Chl)
 
         if self.P is not None:
             self.P_sinks = (self.sink_respiration.P +
@@ -468,7 +482,8 @@ class Phyto(BaseOrg):
                             self.sink_aggregation.P +
                             self.sink_ingestion.P +
                             self.sink_lysis.P +
-                            self.sink_mortality.P)
+                            self.sink_mortality.P +
+                            self.sink_vertical_loss.P)
 
         if self.Si is not None:
             self.Si_sinks = (self.sink_respiration.Si +
@@ -476,7 +491,8 @@ class Phyto(BaseOrg):
                              self.sink_aggregation.Si +
                              self.sink_ingestion.Si +
                              self.sink_lysis.Si +
-                             self.sink_mortality.Si)
+                             self.sink_mortality.Si +
+                             self.sink_vertical_loss.Si)
 
         # Cells leaving to the other phytoplankton groups
         for flux in self._transitions_out:
@@ -490,7 +506,8 @@ class Phyto(BaseOrg):
             print(f'DEBUG C={self.C:.2e} | source_PP={self.source_PP.C:.2e} | sinks={self.C_sinks:.2e}')
             print(f'  resp={self.sink_respiration.C:.2e}, exud={self.sink_exudation.C:.2e}, '
                   f'agg={self.sink_aggregation.C:.2e}, ing={self.sink_ingestion.C:.2e}, '
-                  f'lys={self.sink_lysis.C:.2e}, mort={self.sink_mortality.C:.2e}')
+                  f'lys={self.sink_lysis.C:.2e}, mort={self.sink_mortality.C:.2e}, '
+                  f'vloss={self.sink_vertical_loss.C:.2e}')
 
         return np.array(
             [sinks for sinks in (self.C_sinks, self.N_sinks, self.Chl_sinks, self.P_sinks, self.Si_sinks) if

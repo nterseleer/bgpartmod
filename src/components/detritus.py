@@ -56,7 +56,6 @@ class Detritus(BaseOrg):
         self.sink_aggregation = Elms()
         self.sink_leakage_out = Elms()
         self.sink_remineralization = Elms()
-        self.sink_vertical_loss = Elms()  # Vertical loss coupled to mineral flocs
 
 
         # Coupling links
@@ -68,7 +67,6 @@ class Detritus(BaseOrg):
         self.coupled_larger_Det = None
         self.coupled_smaller_Det = None
         self.coupled_consumers = None
-        self.coupled_aggregate = None
         self.coupled_remin_products = None
 
     def set_coupling(self,
@@ -147,9 +145,7 @@ class Detritus(BaseOrg):
         self.get_sink_leakage_out()
         self.get_sink_ingestion()
 
-        self._update_prescribed_aggregate(t_idx)
-
-        self.get_sink_vertical_loss()
+        self.get_sink_vertical_loss(t_idx)
 
         # SINK terms of the state equation
         self.C_sinks = (self.sink_breakdown.C +

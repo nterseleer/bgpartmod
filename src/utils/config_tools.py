@@ -534,6 +534,31 @@ def remove_components(dconf: Dict, components_map: Dict) -> Dict:
 
     return result
 
+def smoothed_ratio_diagnostics(dconf: Dict) -> Dict:
+    """Diagnostics recording the EWMA vertical-coupling state of `dconf`.
+
+    One 'smoothed_<pool>_to_Nf_ratio' per pool carried, for every component coupled to an
+    aggregate (coupled_aggregate set, or prescribe_aggregate_from_setup). Built from the
+    configuration rather than listed by hand, so that it never names a component the
+    configuration lacks (deep_update would add it as a component without class) and
+    follows the phytoplankton groups whatever their names.
+
+    Example:
+        >>> dconf = deep_update(dconf, smoothed_ratio_diagnostics(dconf))
+    """
+    from src.core.base import SMOOTHED_RATIO
+    diagnostics = {}
+    for name, comp in dconf.items():
+        if not isinstance(comp, dict):
+            continue
+        if not (comp.get('coupling', {}).get('coupled_aggregate')
+                or comp.get('parameters', {}).get('prescribe_aggregate_from_setup')):
+            continue
+        ratios = [SMOOTHED_RATIO[pool] for pool in comp.get('initialization', {}) if pool in SMOOTHED_RATIO]
+        if ratios:
+            diagnostics[name] = {'diagnostics': ratios}
+    return diagnostics
+
 def deep_update(mapping: Dict[KeyType, Any], *updating_mappings: Dict[KeyType, Any],
                 overwrite_keys: list = None, merge_lists: list = None) -> Dict[KeyType, Any]:
     """

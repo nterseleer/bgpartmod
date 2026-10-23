@@ -52,11 +52,9 @@ class DOM(BaseOrg):
         self.sink_remineralization = Elms()
         self.sink_breakdown = Elms()
         self.sink_aggregation = Elms()
-        self.sink_vertical_loss = Elms()  # Vertical loss coupled to mineral flocs
         self.sink_leakage_out = Elms()
 
         # Coupling links
-        self.coupled_aggregate = None  # Link to Macroflocs for vertical dynamics
         self.coupled_exud_sources_phyto = None
         self.coupled_exud_sources_zoo = None
         self.coupled_breakdown_sources = None
@@ -160,9 +158,7 @@ class DOM(BaseOrg):
         # SINKS
         self.get_sink_ingestion()
 
-        self._update_prescribed_aggregate(t_idx)
-
-        self.get_sink_vertical_loss()
+        self.get_sink_vertical_loss(t_idx)
 
 
         # SINK terms of the state equation

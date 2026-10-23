@@ -1044,18 +1044,18 @@ class Optimization:
         """Configuration and Model kwargs used to rebuild a best model.
 
         Shared by the single-case and multi-case branches of get_best_model. The plotting
-        diagnostics make a saved best model plottable; smoothed_ratios carries the EWMA
+        diagnostics make a saved best model plottable; the smoothed ratios carry the EWMA
         vertical-coupling state, without which a restart from this model re-seeds the ratio
-        from the instantaneous C/Nf and drifts. Both levels are filtered on the components
-        actually present (the mineral pools are absent from a BGC-only configuration).
+        from the instantaneous C/Nf and drifts. The plotting level is filtered on the
+        components actually present (the mineral pools are absent from a BGC-only
+        configuration); the smoothed ratios are built from the configuration itself, for
+        every aggregate-coupled component (phytoplankton groups included).
         """
         best_config = cfg.update_config(base_dconf, best_parameters)
         filtered_plotting_diag = {k: v for k, v in config_diagnostics.plotting.items()
                                   if k in best_config}
-        filtered_smoothed_ratios = {k: v for k, v in config_diagnostics.smoothed_ratios.items()
-                                    if k in best_config}
         best_config = cfg.deep_update(best_config, filtered_plotting_diag,
-                                      filtered_smoothed_ratios)
+                                      cfg.smoothed_ratio_diagnostics(best_config))
         model_kwargs = {
             **self.config['modkwargs'],
             'verbose': True,
