@@ -886,165 +886,181 @@ class Setup:
             return base_value + tidal_oscillation
 
 
-    def plot_setup(self, days_to_plot: float = None, save_path: str = None) -> None:
+    def plot_setup(self, time_filter=None, zoom_cycles: float = 1., par_envelope: bool = False,
+                   panel: Optional[Tuple[float, float]] = None,
+                   **style) -> Tuple[plt.Figure, np.ndarray]:
         """
-        Plot all major setup properties for visualization and verification.
-        
+        Plot the forcings at the publication layout (plotting.paper_grid, plot_config typography).
+
+        Left column, seasonal forcings: (a) PAR, (b) temperature, (c) dynamic viscosity,
+        (d) riverine nutrient loads. Right column, tidal forcings: (e) the raw signal over
+        `zoom_cycles` spring-neap cycles centred on the spring tide nearest the middle of the
+        period, one strip per forcing on the y scale of its yearly panel; (f) water depth,
+        (g) shear rate, (h) bed shear stress.
+
+        Over periods longer than a month, the tides are drawn as their daily min-max envelope
+        (grey) under their daily mean (black): at that scale the raw signal would only fill the
+        envelope. PAR is drawn raw, in a hairline (or as the tides, with par_envelope=True).
+
         Parameters:
-        - days_to_plot: Number of days to plot (default: min(tmax, 5))
-        - save_path: Path to save plot (optional)
+        - time_filter: None (whole run), a year string ('2023') or a (start, end) tuple, as in
+          plotting.plot_results
+        - zoom_cycles: number of spring-neap cycles shown in (e); 0 leaves the panel out
+        - par_envelope: draw PAR as its daily envelope and mean instead of its raw signal
+        - panel: axes box in inches (default: plot_config.PANEL_SIZE)
+        - style: overrides of plot_config.plot_kwargs (font sizes, ticks, date format...)
+
+        Prints the min / mean / max of each forcing over the period. Returns (fig, axes), the
+        axes in letter order, (e) as its three strips.
         """
-        
-        # Determine plotting range
-        if days_to_plot is None:
-            days_to_plot = self.tmax
-        
-        # Get time indices for plotting
-        end_idx = int(days_to_plot / self.used_dt)
-        end_idx = min(end_idx, len(self.t_eval))
-        
-        t_plot = self.t_eval[:end_idx]
-        dates_plot = self.dates[:end_idx]
-        
-        # Prepare data
-        plot_data = {}
-        
-        # PAR data
-        if hasattr(self, 'PAR'):
-            plot_data['PAR'] = {
-                'values': self.PAR['PAR'].values[:end_idx],
-                'ylabel': 'PAR (µmol photon m⁻² d⁻¹)',
-                'title': 'Photosynthetically Active Radiation'
-            }
-        
-        # Temperature data  
-        if hasattr(self, 'T'):
-            plot_data['Temperature'] = {
-                'values': self.T['T'].values[:end_idx] - self.constants.degCtoK,  # Convert to Celsius
-                'ylabel': 'Temperature (°C)',
-                'title': 'Water Temperature'
-            }
+        import matplotlib.dates as mdates
+        import matplotlib.ticker as mticker
+        from src.utils import functions as fns
+        from src.utils import plotting as plotres  # its import also sets the publication font
+        try:
+            from src.config_model import plot_config
+        except ImportError:
+            from src.config_model._defaults import plot_config
+        kw = {**plot_config.plot_kwargs, **style}
+        tick_kw = {k: v for k, v in {'labelsize': kw.get('tick_labelsize'),
+                                     'pad': kw.get('tick_label_pad'),
+                                     'length': kw.get('tick_length'),
+                                     'width': kw.get('tick_width')}.items() if v is not None}
+        label_kw = {k: v for k, v in {'fontsize': kw.get('ylabel_fontsize'),
+                                      'labelpad': kw.get('ylabel_pad')}.items() if v is not None}
+        legend_kw = {'frameon': False, 'fontsize': kw.get('legend_fontsize'),
+                     'handlelength': 1.8, 'columnspacing': 1.0, 'labelspacing': 0.2}
 
-        # Water dynamic viscosity
-        if hasattr(self, 'mu_water'):
-            plot_data['Dynamic Viscosity'] = {
-                'values': self.mu_water['mu_water'].values[:end_idx],
-                'ylabel': 'Dynamic viscosity (Pa.s)',
-                'title': 'Seawater Dynamic Viscosity'
-            }
+        # Every forcing on the model time grid, in display units, restricted to the period.
+        loads = ['NO3', 'NH4', 'DSi', 'DIP'] if self.riverine_loads else []
+        forcings = pd.DataFrame({
+            'PAR': self.PAR['PAR'] / self.constants.day_to_seconds,  # µmol m-2 s-1
+            'T': self.T['T'] - self.constants.degCtoK,  # °C
+            'mu_water': self.mu_water['mu_water'] * 1e3,  # mPa s
+            'WaterDepth': self.water_depth['WaterDepth'],
+            'ShearRate': self.g_shear_rate['ShearRate'],
+            'BedShearStress': self.bed_shear_stress['BedShearStress'],
+        })
+        if loads:
+            forcings = forcings.join(self.loads[loads])
+        forcings['t'] = self.t_eval
+        forcings = plotres._filter_by_time(forcings, time_filter)
+        start, end = forcings.index[0], forcings.index[-1]
 
-        # Water depth data
-        if hasattr(self, 'water_depth'):
-            plot_data['Water Depth'] = {
-                'values': self.water_depth['WaterDepth'].values[:end_idx],
-                'ylabel': 'Water Depth (m)',
-                'title': 'Tidal Water Depth' if self.vary_water_depth else 'Water Depth (constant)'
-            }
-        
-        # Shear rate data
-        if hasattr(self, 'g_shear_rate'):
-            plot_data['Shear Rate'] = {
-                'values': self.g_shear_rate['ShearRate'].values[:end_idx],
-                'ylabel': 'Shear Rate (s⁻¹)',
-                'title': 'Shear Rate'
-            }
-        
-        # Bed shear stress data
-        if hasattr(self, 'bed_shear_stress'):
-            plot_data['Bed Shear Stress'] = {
-                'values': self.bed_shear_stress['BedShearStress'].values[:end_idx],
-                'ylabel': 'Bed Shear Stress (Pa)',
-                'title': 'Bed Shear Stress'
-            }
+        if end - start > pd.Timedelta(days=31):
+            days = forcings.resample('D')
+            low, mean, high = days.min(), days.mean(), days.max()
+            for df in (low, mean, high):
+                df.index += pd.Timedelta(hours=12)  # each day drawn at its middle
+        else:
+            low = high = None
+            mean = forcings
 
-        # Riverine loads data
-        if hasattr(self, 'loads') and self.riverine_loads:
-            # We'll plot all 4 nutrients in a single subplot
-            plot_data['Riverine Loads'] = {
-                'values': {
-                    'NH4': self.loads['NH4'].values[:end_idx],
-                    'NO3': self.loads['NO3'].values[:end_idx],
-                    'DIP': self.loads['DIP'].values[:end_idx],
-                    'DSi': self.loads['DSi'].values[:end_idx]
-                },
-                'ylabel': 'Load (mmol N/P/Si m⁻² d⁻¹)',
-                'title': 'Riverine Nutrient Loads',
-                'multi': True  # Flag to indicate multiple lines
-            }
+        # (columns, name, units, drawing, y floor). Drawing: 'line', the daily mean;
+        # 'envelope', the daily min-max (grey) under the daily mean; 'raw', every time step in a
+        # hairline (over a year, the diel cycle fills the area under the daily maximum).
+        seasonal = [(['PAR'], 'PAR', 'µmol m-2 s-1', 'envelope' if par_envelope else 'raw', 0.),
+                    (['T'], 'Temperature', '°C', 'line', None),
+                    (['mu_water'], 'Viscosity', 'mPa s', 'line', None),
+                    (loads, 'Loads', 'mmol m-3 d-1', 'line', 0.)]
+        tidal = [(['WaterDepth'], 'Water depth $h$', 'm', 'envelope', None),
+                 (['ShearRate'], 'Shear rate $G$', 's-1', 'envelope', 0.),
+                 (['BedShearStress'], r'Bed shear stress $\tau_b$', 'Pa', 'envelope', 0.)]
+        line = {'color': 'black', 'linewidth': 1.0}
+        hairline = {'color': 'black', 'linewidth': 0.2}
+        load_styles = {'NO3': {'linestyle': '-', 'label': r'NO$_3$'},
+                       'NH4': {'linestyle': '--', 'label': r'NH$_4$'},
+                       'DSi': {'color': '0.55', 'linestyle': '-', 'label': 'DSi'},
+                       'DIP': {'color': '0.55', 'linestyle': '--', 'label': 'DIP'}}
 
-        # Create subplot layout
-        n_plots = len(plot_data)
-        if n_plots == 0:
-            print("No data to plot")
-            return
-            
-        fig, axes = plt.subplots(n_plots, 1, figsize=(12, 2.5 * n_plots))
-        if n_plots == 1:
-            axes = [axes]  # Make it iterable
-        
-        # Plot each variable
-        colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink']
-        load_colors = {'NH4': 'blue', 'NO3': 'green', 'DIP': 'red', 'DSi': 'orange'}
+        # The zoom (e) heads the right column with its time axis on top, so that both
+        # columns end on the shared month axis.
+        fig, axes = plotres.paper_grid(4, 2, panel=panel, sharex=False,
+                                       **({'top': 0.35} if zoom_cycles else {}))
+        left, right = list(axes[0::2]), list(axes[1::2])
+        zoom_ax = right.pop(0)
 
-        for i, (var_name, data) in enumerate(plot_data.items()):
-            ax = axes[i]
+        year_axes = []
+        for ax, (cols, name, units, drawing, floor) in zip(left + right, seasonal + tidal):
+            if not cols:
+                ax.set_visible(False)
+                continue
+            for col in cols:
+                if drawing == 'raw':
+                    ax.plot(forcings.index, forcings[col], **hairline)
+                    continue
+                if drawing == 'envelope' and low is not None:
+                    ax.fill_between(low.index, low[col], high[col], color='0.82', linewidth=0)
+                ax.plot(mean.index, mean[col], **{**line, **load_styles.get(col, {})})
+            y0, y1 = ax.dataLim.intervaly
+            if floor is not None:
+                y0 = floor
+            span = (y1 - y0) or abs(y1) or 1.  # a constant forcing is framed around its value
+            # 20 % headroom keeps the panel letter (and the loads legend) off the data.
+            ax.set_ylim(y0 if floor is not None else y0 - 0.05 * span, y1 + 0.2 * span)
+            ax.set_ylabel(f'{name} [{fns.cleantext(units)}]', **label_kw)
+            if len(cols) > 1:
+                ax.legend(loc='upper center', ncol=2, **legend_kw)
+            year_axes.append(ax)
 
-            # Check if this is a multi-line plot (riverine loads)
-            if data.get('multi', False):
-                # Plot each nutrient load separately
-                for nutrient, values in data['values'].items():
-                    ax.plot(t_plot, values, color=load_colors[nutrient],
-                           linewidth=1.5, label=nutrient, alpha=0.8)
-                ax.legend(loc='best', framealpha=0.9)
-            else:
-                # Single line plot
-                color = colors[i % len(colors)]
-                ax.plot(t_plot, data['values'], color=color, linewidth=2)
+        for ax in year_axes[1:]:
+            ax.sharex(year_axes[0])
+        year_axes[0].xaxis.set_major_formatter(mdates.DateFormatter(kw.get('date_format', '%b')))
+        for column in (left, right):
+            shown = [ax for ax in column if ax.get_visible()]
+            for ax in shown[:-1]:
+                ax.tick_params(axis='x', labelbottom=False)
+            shown[-1].tick_params(axis='x', labelrotation=kw.get('xlabel_rotation', 0))
 
-            ax.set_ylim(0, None)
-            ax.set_ylabel(data['ylabel'], fontsize=9)
-            ax.set_title(data['title'], fontsize=9, pad=3)
-            ax.grid(True, alpha=0.3)
-            ax.tick_params(labelsize=7)
+        strips = []
+        if zoom_cycles:
+            # The spring-neap cycle repeats identically all year: (e) shows its raw signal,
+            # neap to neap through the spring tide, which falls at t = k * spring_neap_period
+            # (cf. _calculate_tidal_parameter).
+            t_mid = forcings['t'].iloc[len(forcings) // 2]
+            t_spring = round(t_mid / self.spring_neap_period) * self.spring_neap_period
+            days_from_spring = self.t_eval - t_spring
+            sel = np.abs(days_from_spring) <= zoom_cycles * self.spring_neap_period / 2.
+            strips = list(zoom_ax.get_subplotspec().subgridspec(3, 1, hspace=0.12)
+                          .subplots(sharex=True))
+            zoom_ax.remove()
+            for strip, year_ax, values, symbol, units in zip(
+                    strips, right,
+                    [self.water_depth_array, self.g_shear_rate_array, self.bed_shear_stress_array],
+                    ['$h$', '$G$', r'$\tau_b$'], ['m', 's-1', 'Pa']):
+                strip.plot(days_from_spring[sel], values[sel], color='black', linewidth=0.4)
+                strip.set_ylim(year_ax.get_ylim())  # same scale as the yearly panel below
+                strip.yaxis.set_major_locator(mticker.MaxNLocator(nbins=2, steps=[1, 5, 10]))
+                strip.set_ylabel(f'{symbol} [{fns.cleantext(units)}]', **label_kw)
+                strip.tick_params(axis='x', labelbottom=False)
+            strips[0].set_xlim(days_from_spring[sel][[0, -1]])
+            strips[0].xaxis.set_major_locator(mticker.MultipleLocator(2.))
+            strips[0].tick_params(axis='x', top=True, labeltop=True, bottom=False)
+            strips[0].xaxis.set_label_position('top')
+            strips[0].set_xlabel('Time from spring tide [d]', **label_kw)
+        else:
+            zoom_ax.set_visible(False)
 
-            # Only show x-label and x-tick labels on bottom plot
-            if i == n_plots - 1:
-                ax.set_xlabel('Time (days)')
-            else:
-                ax.tick_params(labelbottom=False)
-        
-        # Add overall title with setup info
-        title_parts = [f"Setup: {self.name}" if self.name else "Physical Setup"]
-        if self.vary_water_depth:
-            title_parts.append("(with tidal variation)")
-        
-        
-        plt.tight_layout()
-        
-        # Save if requested
-        if save_path:
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            print(f"Plot saved to: {save_path}")
-            
-        
-        # Print summary statistics
-        print(f"\nSetup Summary ({days_to_plot:.1f} days plotted):")
-        print(f"{'Variable':<20} {'Min':<10} {'Max':<10} {'Mean':<10} {'Unit'}")
-        print("-" * 60)
+        for ax in [ax for ax in left + strips + right if ax.get_visible()]:
+            ax.tick_params(axis='both', **tick_kw)
+            if kw.get('spine_width') is not None:
+                for spine in ax.spines.values():
+                    spine.set_linewidth(kw['spine_width'])
+        lettered = [ax for ax in left + strips[:1] + right if ax.get_visible()]
+        for i, ax in enumerate(lettered):
+            plotres.add_subplot_label(ax, i, fontsize=kw.get('subplot_label_fontsize', 8))
+        fig.align_ylabels(left)
+        fig.align_ylabels(strips + right)
 
-        for var_name, data in plot_data.items():
-            values = data['values']
-            unit = data['ylabel'].split('(')[-1].rstrip(')')
+        # Ranges over the period (those quoted in the text).
+        units = {'PAR': 'µmol m-2 s-1', 'T': '°C', 'mu_water': 'mPa s', 'WaterDepth': 'm',
+                 'ShearRate': 's-1', 'BedShearStress': 'Pa', **{n: 'mmol m-3 d-1' for n in loads}}
+        summary = forcings[list(units)].agg(['min', 'mean', 'max']).T
+        summary['unit'] = pd.Series(units)
+        print(f"\nForcings, {start:%Y-%m-%d} to {end:%Y-%m-%d}:")
+        print(summary.to_string(float_format='{:.4g}'.format))
 
-            # Handle multi-line data (e.g., riverine loads)
-            if data.get('multi', False):
-                for nutrient, nutrient_values in values.items():
-                    full_name = f"{var_name} ({nutrient})"
-                    print(f"{full_name:<20} {np.min(nutrient_values):<10.2f} {np.max(nutrient_values):<10.2f} "
-                          f"{np.mean(nutrient_values):<10.2f} {unit}")
-            else:
-                print(f"{var_name:<20} {np.min(values):<10.2f} {np.max(values):<10.2f} "
-                      f"{np.mean(values):<10.2f} {unit}")
+        return fig, np.array(left + strips + right)
 
     def get_physical_state(self) -> Dict[str, Any]:
         """

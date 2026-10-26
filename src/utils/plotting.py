@@ -117,6 +117,45 @@ OBS_STYLES = {
     }
 }
 
+# Observation error bars, default of every figure (obs_spread argument to override):
+# 'pctl': from the bin mean to the 16th and 84th percentiles of the samples, i.e. 68 % of the
+#         values like +/- 1 SD for a normal distribution, and exactly GM x/÷ GSD for a log-normal
+#         one, so the bars stay positive for skewed variables (SPM, Chl a);
+# 'std':  +/- 1 SD.
+OBS_SPREAD = 'pctl'
+OBS_PERCENTILES = (16, 84)   # written as <var>_p16 / <var>_p84 by the observation climatology
+OBS_STAT_SUFFIXES = ('_std',) + tuple(f'_p{p}' for p in OBS_PERCENTILES)
+OBS_SPREAD_LABELS = {'pctl': f'{OBS_PERCENTILES[0]}th-{OBS_PERCENTILES[1]}th percentiles',
+                     'std': '±1 SD'}
+
+
+def is_obs_stat_column(col: str) -> bool:
+    """True for the dispersion columns attached to an observed variable (_std, _p16, _p84)."""
+    return col.endswith(OBS_STAT_SUFFIXES)
+
+
+def obs_yerr(df: pd.DataFrame, var: str, spread: Optional[str] = None,
+             mean_col: Optional[str] = None) -> Optional[np.ndarray]:
+    """Error bars (2, N) = (below, above) of observation `var` around its climatological mean.
+
+    spread: 'pctl' or 'std' (None -> OBS_SPREAD). In 'pctl' mode, variables without percentile
+        columns (derived or prescribed ones, e.g. C:Chl ratios or bacteria) keep +/- 1 SD.
+    mean_col: column holding the mean, e.g. f'{var}_OBS' in a model/obs merge (default: var).
+    Returns None when the variable carries no dispersion column.
+    """
+    spread = OBS_SPREAD if spread is None else spread
+    if spread not in OBS_SPREAD_LABELS:
+        raise ValueError(f"obs spread must be one of {list(OBS_SPREAD_LABELS)}, got {spread!r}")
+    mean = df[mean_col or var]
+    low_col, high_col = (f'{var}_p{p}' for p in OBS_PERCENTILES)
+    if spread == 'pctl' and low_col in df.columns and high_col in df.columns:
+        # clip: with a few extreme samples the mean can fall outside the percentile range
+        return np.vstack([(mean - df[low_col]).clip(lower=0), (df[high_col] - mean).clip(lower=0)])
+    std_col = f'{var}_std'
+    if std_col in df.columns:
+        return np.vstack([df[std_col], df[std_col]])
+    return None
+
 # Styles for multi-window plotting (when mean_window_days is a tuple/list)
 # Order: background (smoothed) -> foreground (detailed)
 # Use None for color to preserve each model's original color
@@ -428,9 +467,13 @@ def plot_variable(
         tick_labelsize: Optional[float] = None,
         tick_length: Optional[float] = None,
         tick_width: Optional[float] = None,
-        spine_width: Optional[float] = None
+        spine_width: Optional[float] = None,
+        obs_spread: Optional[str] = None
 ) -> None:
-    """Plot a single variable with model results and optional observations."""
+    """Plot a single variable with model results and optional observations.
+
+    obs_spread: error bars of the observations, 'pctl' or 'std' (None -> OBS_SPREAD, see obs_yerr).
+    """
     # Default styles
     if model_styles is None:
         model_styles = get_model_styles(len(model_data_list))
@@ -479,39 +522,32 @@ def plot_variable(
         elif not is_calibrated and obs_kwargs_non_calibrated is not None:
             final_obs_style.update(obs_kwargs_non_calibrated)
 
-        # Check if std data is available for error bars
-        std_col = f"{var_name}_std"
-        if std_col in merged_data.columns:
-            # Use errorbar for observations with std
-            # Extract errorbar-specific parameters with defaults
-            elinewidth = final_obs_style.get('elinewidth', 1.5)
-            capsize = final_obs_style.get('capsize', 3.)
-            capthick = final_obs_style.get('capthick', 1.5)
-            solid_capstyle = final_obs_style.get('solid_capstyle', 'round')
+        # Error bars when the observation carries a dispersion (percentiles or std), markers alone
+        # otherwise (errorbar with yerr=None: same styles, whereas scatter rejects markersize & co.)
+        yerr = obs_yerr(merged_data, var_name, obs_spread, mean_col=f'{var_name}_OBS')
 
-            # Filter out errorbar-specific params to avoid duplication
-            errorbar_params = ['marker', 'linestyle', 's', 'elinewidth', 'capsize', 'capthick', 'solid_capstyle']
-            filtered_style = {k: v for k, v in final_obs_style.items() if k not in errorbar_params}
+        # Extract errorbar-specific parameters with defaults
+        elinewidth = final_obs_style.get('elinewidth', 1.5)
+        capsize = final_obs_style.get('capsize', 3.)
+        capthick = final_obs_style.get('capthick', 1.5)
+        solid_capstyle = final_obs_style.get('solid_capstyle', 'round')
 
-            ax.errorbar(
-                merged_data.index,
-                merged_data[f'{var_name}_OBS'],
-                yerr=merged_data[std_col],
-                label='Observations' if add_labels else "_Used observations",
-                fmt=final_obs_style['marker'],
-                elinewidth=elinewidth,
-                capsize=capsize,
-                capthick=capthick,
-                solid_capstyle=solid_capstyle,
-                **filtered_style
-            )
-        else:
-            ax.scatter(
-                merged_data.index,
-                merged_data[f'{var_name}_OBS'],
-                label='Observations' if add_labels else "_Used observations",
-                **{k: v for k, v in final_obs_style.items() if k != 'linestyle'}
-            )
+        # Filter out errorbar-specific params to avoid duplication
+        errorbar_params = ['marker', 'linestyle', 's', 'elinewidth', 'capsize', 'capthick', 'solid_capstyle']
+        filtered_style = {k: v for k, v in final_obs_style.items() if k not in errorbar_params}
+
+        ax.errorbar(
+            merged_data.index,
+            merged_data[f'{var_name}_OBS'],
+            yerr=yerr,
+            label='Observations' if add_labels else "_Used observations",
+            fmt=final_obs_style['marker'],
+            elinewidth=elinewidth,
+            capsize=capsize,
+            capthick=capthick,
+            solid_capstyle=solid_capstyle,
+            **filtered_style
+        )
 
     # Apply ylim if specified and data exceeds bounds
     var_info = varinfos.doutput.get(var_name.lstrip('m'), {})
@@ -2362,6 +2398,22 @@ def plot_optimization_summary(df: pd.DataFrame,
     return fig
 
 
+def _load_processed_optimizations(optimizations: List[Union[Any, str, tuple]]) -> List[Any]:
+    """Optimization objects from names, (name, dir_suffix) tuples or objects, results processed."""
+    from src.utils import optimization as optim
+
+    opts = []
+    for opt in optimizations:
+        if isinstance(opt, str):
+            opt = optim.Optimization.load_existing(opt)
+        elif isinstance(opt, tuple):
+            opt = optim.Optimization.load_existing(opt[0], dir_suffix=opt[1])
+        if not hasattr(opt, 'df') or opt.df is None:
+            opt.process_results()
+        opts.append(opt)
+    return opts
+
+
 def compare_optimizations(
         optimizations: List[Union[Any, str]],
         parameters: Optional[List[str]] = None,
@@ -2390,22 +2442,7 @@ def compare_optimizations(
     Returns:
         Matplotlib figure
     """
-    from src.utils import optimization as optim
-
-    # Load optimizations if given as strings or tuples (name, dir_suffix)
-    opts = []
-    for opt in optimizations:
-        if isinstance(opt, str):
-            opts.append(optim.Optimization.load_existing(opt))
-        elif isinstance(opt, tuple):
-            opts.append(optim.Optimization.load_existing(opt[0], dir_suffix=opt[1]))
-        else:
-            opts.append(opt)
-
-    # Ensure all have processed results
-    for opt in opts:
-        if not hasattr(opt, 'df') or opt.df is None:
-            opt.process_results()
+    opts = _load_processed_optimizations(optimizations)
 
     # Get union of all optimized parameters
     if parameters is None:
@@ -2528,6 +2565,137 @@ def compare_optimizations(
     return fig
 
 
+def compare_optimization_scores(
+        optimizations: List[Union[Any, str, tuple]],
+        models: Optional[Dict[str, Any]] = None,
+        variables: Optional[List[str]] = None,
+        reference: Optional[str] = None,
+        figsize: Optional[tuple] = None,
+        savefig: bool = False,
+        name: str = 'optim_scores'
+) -> plt.Figure:
+    """
+    Compare the best models of several optimizations, observed variable by observed variable.
+
+    Companion of compare_optimizations (same order top to bottom, same colours): that figure
+    shows WHERE in parameter space each optimization sits, this one on WHICH variables it gains
+    or loses. Each bar is the term that variable contributes to the optimization cost
+    (evaluation.calculate_likelihood restricted to it), as a difference to the reference
+    optimization: > 0 = better fit. Differences are comparable across variables (all panels
+    share one x scale), absolute values are not (-0.5 n log SSE depends on units and n).
+
+    Args:
+        optimizations: Optimization objects, names or (name, dir_suffix) tuples
+        models: Optional {optimization name: best model} already in memory (e.g. from
+            get_opt_model); the others come from get_best_model (cached pickle if any)
+        variables: Variables to score (None = union of the calibrated variables). A variable
+            an optimization was not calibrated on is still scored, hatched, and left out of
+            that optimization's total (e.g. TEPC_C for a calibration without TEP)
+        reference: Name of the reference optimization (None = the first one)
+        figsize: Figure size (None = auto-calculated)
+        savefig: Whether to save figure
+        name: Base filename for saving
+
+    Returns:
+        Matplotlib figure
+    """
+    from src.utils import evaluation
+
+    opts = _load_processed_optimizations(optimizations)
+    if any(opt.is_multi_case for opt in opts):
+        raise ValueError("compare_optimization_scores handles single-case optimizations only")
+    models = models or {}
+    if variables is None:
+        variables = list(dict.fromkeys(v for opt in opts for v in opt.calibrated_vars))
+    names = [opt.name for opt in opts]
+    reference = reference or names[0]
+
+    # One likelihood term per variable, exactly as summed into the optimization cost
+    scores = pd.DataFrame(np.nan, index=names, columns=variables)
+    for opt in opts:
+        best_model = models[opt.name] if opt.name in models else opt.get_best_model()
+        for var in variables:
+            if var in best_model.df.columns and var in opt.obs.df.columns:
+                scores.loc[opt.name, var] = evaluation.calculate_likelihood(
+                    best_model, opt.obs, calibrated_vars=[var], verbose=False)
+
+    # Total over each optimization's own calibrated variables. When they are all scored it must
+    # give back the optimization score: a mismatch flags a stale cached best model or a code
+    # change since the run (same 1e-5 tolerance as process_optimization).
+    total = pd.Series({opt.name: scores.loc[opt.name, [v for v in opt.calibrated_vars
+                                                       if v in variables]].sum()
+                       for opt in opts})
+    mismatch = set()
+    for opt in opts:
+        best_score = opt.summary['best_score']
+        if (set(opt.calibrated_vars) <= set(variables)
+                and abs(total[opt.name] - best_score) > 1e-5 * abs(best_score)):
+            mismatch.add(opt.name)
+            print(f"WARNING {opt.name}: rescored total {total[opt.name]:.3f} != "
+                  f"optimization score {best_score:.3f} (stale best model?)")
+
+    table = scores.assign(total=total)
+    print('Log-likelihood per variable (best models):')
+    print(table.round(1).to_string())
+
+    delta = scores - scores.loc[reference]
+    delta_total = total - total[reference]
+    n_opts, ncols = len(opts), len(variables) + 1
+    if figsize is None:
+        figsize = (max(10, 2.2 * ncols), 1.5 + 0.45 * n_opts)
+    fig, axes = plt.subplots(1, ncols, figsize=figsize, squeeze=False, sharey=True)
+    axes = axes[0]
+    colors = DEFAULT_COLORS[:n_opts]
+    y_positions = np.arange(n_opts)
+
+    def _panel(ax, values, title, span, hatched=()):
+        bars = ax.barh(y_positions, np.nan_to_num(values), color=colors, height=0.7,
+                       edgecolor='black', linewidth=0.5)
+        for bar, opt_name, value in zip(bars, names, values):
+            if opt_name in hatched:
+                bar.set_hatch('///')
+                bar.set_alpha(0.5)
+            text = 'n/a' if np.isnan(value) else f'{value:+.1f}'
+            if opt_name in mismatch and ax is axes[-1]:
+                text += ' (!= optim)'
+            ax.text(0.02 * span if np.isnan(value) or value >= 0 else -0.02 * span,
+                    bar.get_y() + bar.get_height() / 2, text, fontsize=7, va='center',
+                    ha='left' if np.isnan(value) or value >= 0 else 'right',
+                    color='red' if opt_name in mismatch and ax is axes[-1] else 'black')
+        ax.axvline(0, color='0.3', linewidth=0.8)
+        ax.set_xlim(-1.3 * span, 1.3 * span)
+        ax.set_title(title, fontsize=9)
+        ax.set_xlabel(r'$\Delta$ lnl', fontsize=8)
+        ax.tick_params(labelsize=7)
+        ax.grid(axis='x', alpha=0.3)
+
+    # One x scale for every variable panel: a gain of 5 must look the same on DIN and on D_F
+    finite = np.abs(delta.values[np.isfinite(delta.values)])
+    span = max(finite.max() if finite.size else 0., 1.)
+    for ax, var in zip(axes[:-1], variables):
+        info = varinfos.doutput.get(var, {})
+        label = fns.cleantext(info.get('cleanname') or var.replace('_', r'\_'))
+        ref_value = scores.loc[reference, var]
+        _panel(ax, delta[var].values, f'{label}\n(ref. {ref_value:.1f})', span,
+               hatched={opt.name for opt in opts if var not in opt.calibrated_vars})
+    _panel(axes[-1], delta_total.values, f'Total calibrated\n(ref. {total[reference]:.1f})',
+           max(np.nanmax(np.abs(delta_total.values)), 1.))
+
+    axes[0].set_yticks(y_positions)
+    axes[0].set_yticklabels(names, fontsize=8)
+    axes[0].invert_yaxis()  # first optimization at the top, as in compare_optimizations
+    note = ' -- hatched: not calibrated on this variable' if any(
+        var not in opt.calibrated_vars for opt in opts for var in variables) else ''
+    fig.suptitle(f'Log-likelihood per variable, difference to {reference} '
+                 f'(> 0 = better fit){note}', fontsize=10)
+    plt.tight_layout()
+
+    if savefig:
+        save_figure(fig, filename=f'{name}.png')
+
+    return fig
+
+
 def compare_optim_values(
         optimizations: List[Union[Any, str, tuple]],
         parameters: Optional[List[str]] = None,
@@ -2561,21 +2729,7 @@ def compare_optim_values(
     Returns:
         Matplotlib figure
     """
-    from src.utils import optimization as optim
-
-    # Load optimizations
-    opts = []
-    for o in optimizations:
-        if isinstance(o, str):
-            opts.append(optim.Optimization.load_existing(o))
-        elif isinstance(o, tuple):
-            opts.append(optim.Optimization.load_existing(o[0], dir_suffix=o[1]))
-        else:
-            opts.append(o)
-
-    for o in opts:
-        if not hasattr(o, 'df') or o.df is None:
-            o.process_results()
+    opts = _load_processed_optimizations(optimizations)
 
     # Get parameters
     if parameters is None:
