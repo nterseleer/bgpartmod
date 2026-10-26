@@ -294,6 +294,8 @@ class Detritus(BaseOrg):
                 if hasattr(product, 'remineralization_rate') and product.remineralization_rate > 0:
                     if product.name == 'NH4' and self.N is not None:
                         self.sink_remineralization.N = product.remineralization_rate * self.N
+                        self.sink_remineralization.C = (product.remin_C_ratio *
+                                                        product.remineralization_rate * self.C)
                     elif product.name == 'DIP' and self.P is not None:
                         self.sink_remineralization.P = product.remineralization_rate * self.P
                     elif product.name == 'DSi' and self.Si is not None:

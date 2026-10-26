@@ -47,6 +47,9 @@ class Phyto(BaseOrg):
                  zeta_resp_prod=.01,  # [-] Production sp. respiration rate (Kerimoglu22)
                  lysrate=0.1,  # [d-1] (Kerimoglu22)
                  mortrate=0.05,  # [d-1] (Kerimoglu22)
+                 temperature_dependent_losses=False,  # Whether basal respiration, basal exudation,
+                                                      # lysis and linear mortality carry limT (as all
+                                                      # rates in Kerimoglu22); False = legacy, T-independent
                  # Implicit copepod grazing closure term
                  A_E_grazing=0.65,  # [-] Activation energy for temperature scaling of grazing
                  T_ref_grazing=283.15,  # [K] Reference temperature for grazing (10°C)
@@ -109,6 +112,7 @@ class Phyto(BaseOrg):
         self.zeta_resp_prod = zeta_resp_prod
         self.lysrate = lysrate
         self.mortrate = mortrate
+        self.temperature_dependent_losses = temperature_dependent_losses
         self.A_E_grazing = A_E_grazing
         self.T_ref_grazing = T_ref_grazing
         self.K_grazing = K_grazing
@@ -140,6 +144,7 @@ class Phyto(BaseOrg):
         self.lim_Si = None
         self.limNUT = None
         self.limT = None
+        self.limT_losses = None
         self.fnut = None
         self.mmNH4 = None
         self.mmNO3 = None
@@ -268,6 +273,7 @@ class Phyto(BaseOrg):
         # Limitation functions
         self.get_limNUT()
         self.limT = self.limT_growth_array[t_idx]
+        self.limT_losses = self.limT if self.temperature_dependent_losses else 1.0
 
         # Calculate fnut from active currencies only
         active_quotas = []
@@ -545,7 +551,7 @@ class Phyto(BaseOrg):
 
     def get_sink_lysis(self):
         flysis = 0.05 + 0.95 * (1. + np.exp(-(self.fnut - 0.2) * 30)) ** (-1)
-        self.sink_lysis.C = self.C * flysis * self.lysrate
+        self.sink_lysis.C = self.C * flysis * self.lysrate * self.limT_losses
         if self.N is not None:
             self.sink_lysis.N = self.sink_lysis.C * self.QN
         self.sink_lysis.Chl = self.sink_lysis.C * self.thetaC
@@ -560,7 +566,7 @@ class Phyto(BaseOrg):
         grazing_loss = (self.grazing_loss_max *
                         self.limT_grazing_array[t_idx] *
                         self.C**n / (self.K_grazing**n + self.C**n))
-        self.sink_mortality.C = self.C * self.mortrate + grazing_loss
+        self.sink_mortality.C = self.C * self.mortrate * self.limT_losses + grazing_loss
         if self.N is not None:
             self.sink_mortality.N = self.sink_mortality.C * self.QN
         self.sink_mortality.Chl = self.sink_mortality.C * self.thetaC
@@ -594,7 +600,8 @@ class Phyto(BaseOrg):
     def get_sink_exudation(self):
         """Calculate exudation for Kerimoglu22 formulation."""
         C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
-        self.sink_exudation.C = self.gamma_C_exud_base * C_safe + self.gamma_C_exud_prod * self.source_PP.C
+        self.sink_exudation.C = (self.gamma_C_exud_base * self.limT_losses * C_safe
+                                 + self.gamma_C_exud_prod * self.source_PP.C)
         self.sink_exudation.Chl = 0.
         xquota = 0.99
         if self.N is not None:
@@ -608,7 +615,8 @@ class Phyto(BaseOrg):
     def get_sink_respiration(self):
         """Calculate respiration for Kerimoglu22 formulation."""
         C_safe = max(self.C, self._C_MIN) if self.apply_numerical_protections else self.C
-        self.sink_respiration.C = self.zeta_resp_base * C_safe + self.zeta_resp_prod * self.source_PP.C
+        self.sink_respiration.C = (self.zeta_resp_base * self.limT_losses * C_safe
+                                   + self.zeta_resp_prod * self.source_PP.C)
         self.sink_respiration.Chl = self.sink_respiration.C * self.thetaC  # Chl degradation
         self.sink_respiration.N = 0.
         self.sink_respiration.P = 0.

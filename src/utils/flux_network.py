@@ -13,7 +13,8 @@ relabelling of the carbon graph. Concretely:
   - lysis      : C -> DOCL, N/P -> DOCS (DON/DOP), Si -> DSi           (three targets!)
   - exudation  : C split DOCS/DOCL, N/P -> DOCS, Si -> DSi
   - DOC->TEP   : C only (TEP carries no N/P/Si)
-  - remineralisation / uptake : nutrients only (no detrital C remin; DIC is external)
+  - remineralisation : N/P/Si, plus C when NH4.remin_C_ratio > 0 (C -> external DIC)
+  - uptake : nutrients only
   - nutrient-only processes: nitrification (NH4->NO3), riverine loads
 `_RULES` below is that table; `flux_links` walks it.
 
@@ -58,7 +59,7 @@ _RULES: List[dict] = [
     dict(proc='agg_tep',     emit='tep',     term='sink_aggregation',      tgt='DetL', cur=('C',)),
     dict(proc='agg_dets',    emit=['DetS'],  term='sink_aggregation',      tgt='DetL', cur=_ALL),
     dict(proc='breakdown',   emit='tep',     term='sink_breakdown',        tgt='DOCL', cur=('C',)),
-    dict(proc='remin',       emit='dom+det', term='sink_remineralization', tgt=_INORG, cur=('N', 'P', 'Si')),
+    dict(proc='remin',       emit='dom+det', term='sink_remineralization', tgt=_INORG, cur=_ALL),
     dict(proc='vloss',       emit='all_org', term='sink_vertical_loss',    tgt='Export', cur=_ALL),
     dict(proc='leak',        emit='all_org', term='sink_leakage_out',      tgt='Leak', cur=_ALL),
 ]

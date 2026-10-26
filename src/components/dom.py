@@ -262,6 +262,8 @@ class DOM(BaseOrg):
             for product in self.coupled_remin_products:
                 if product.name == 'NH4' and self.N is not None:
                     self.sink_remineralization.N = product.remineralization_rate * self.N
+                    self.sink_remineralization.C = (product.remin_C_ratio *
+                                                    product.remineralization_rate * self.C)
                 elif product.name == 'DIP' and self.P is not None:
                     self.sink_remineralization.P = product.remineralization_rate * self.P
 

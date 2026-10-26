@@ -19,6 +19,10 @@ class DIM(BaseStateVar):
                  A_E=0.65,  # [-] Activation energy for temperature scaling (Kerimoglu22)
                  T_ref=283.15,  # [K] Reference temperature (Kerimoglu22)
                  k_remin=0.0, # [d-1] "external" remineralization rate (i.e., not related to simulated processes and state variables)
+                 remin_C_ratio=0.0,  # [-] NH4 only: specific external remineralization rate of organic C
+                                     # relative to that of N. 0 = nutrients only (legacy); 1 = C follows N,
+                                     # i.e. organic matter remineralized at its own C:N, the C being
+                                     # respired out of the system (DIC is not simulated)
                  dt2=False,
                  dtype=np.float64,
                  bound_temp_to_1=True,  # Whether to bound temperature limitation to [0,1]
@@ -46,6 +50,9 @@ class DIM(BaseStateVar):
         self.T_ref = T_ref
 
         self.k_remin = k_remin
+        if remin_C_ratio and name != 'NH4':
+            raise ValueError(f"{name}: remin_C_ratio only applies to NH4 (C follows N)")
+        self.remin_C_ratio = remin_C_ratio
         self.remineralization_rate = 0
 
         self.name = name
