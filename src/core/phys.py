@@ -666,7 +666,7 @@ class Setup:
         I(t) = P pi/2 sin(pi (h - h_rise) / D), 0 at night. Returned in µmol photon m-2 d-1
         like the file option.
         """
-        doy = self.dates.dayofyear.to_numpy().astype(float)
+        doy = self.dates.day_of_year.to_numpy().astype(float)
         hour = (self.dates.hour + self.dates.minute / 60. + self.dates.second / 3600.).to_numpy()
         declination = np.radians(23.45) * np.sin(2 * np.pi * (284 + doy) / 365.)
         cos_h0 = np.clip(-np.tan(np.radians(self.latitude)) * np.tan(declination), -1., 1.)
@@ -739,7 +739,7 @@ class Setup:
     def _create_cosine_temperature(self, plotTEMP: bool) -> pd.DataFrame:
         """Create time-varying temperature using cosine function fitted to observations."""
         # Convert dates to julian days
-        julian_days = self.dates.dayofyear
+        julian_days = self.dates.day_of_year
 
         # Cosine function parameters fitted to observations
         # T_min = 5.5°C at day 37.5, T_max = 21.5°C at day 220 (MOW1 observations)

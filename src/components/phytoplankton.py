@@ -244,7 +244,7 @@ class Phyto(BaseOrg):
                 + self.setup.dates.minute * 60
                 + self.setup.dates.second
             ).to_numpy() / 86400.0
-            doy = self.setup.dates.dayofyear.to_numpy().astype(self.dtype) + intraday_frac.astype(self.dtype)
+            doy = self.setup.dates.day_of_year.to_numpy().astype(self.dtype) + intraday_frac.astype(self.dtype)
 
             seasonal_factor = (1.0 + np.cos(2 * np.pi * (doy - self.biomass_profile_slope_peak_doy) / 365.25)) / 2.0
             self.biomass_profile_slope_array = np.maximum(
