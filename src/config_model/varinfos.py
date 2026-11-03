@@ -306,6 +306,12 @@ ref_values = {
         'units': '--',
         'complete_name': "k_remin_NH4"
     },
+    'NH4+remin_C_ratio': {
+        'reference_value': 0,
+        'symbol': 'f_{C}^{remin}',
+        'units': '--',
+        'complete_name': "C remineralized to external DIC, relative to N (NH4 only)"
+    },
     'DIP+k_remin': {
         'reference_value': 0,
         'symbol': 'K_{remin}^{DIP}',

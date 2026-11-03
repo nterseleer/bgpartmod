@@ -191,8 +191,8 @@ class DIM(BaseStateVar):
 
     def get_source_exudation(self):
         if self.name == 'DSi':
+            # Lysed Si is NOT here: the frustule goes to DetS (Detritus.get_source_lysis)
             self.source_exudation = self.coupled_exud_sources_phyto.sink_exudation.Si
-            self.source_exudation = self.source_exudation + self.coupled_exud_sources_phyto.sink_lysis.Si
         else:
             self.source_exudation = 0.
 

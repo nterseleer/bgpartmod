@@ -138,8 +138,6 @@ class BaseOrg(BaseStateVar):
                 self.Si = self.C * self. QSi_max * Qmaxratio
                 print('Phytoplankton Si initial pool too high compared to QSi_max, changed from {} to {}'.format(Si, self.Si))
                 self.QSi = self.Si / self.C
-        if self.P is not None and self.Si is not None:
-            self.fnut = min(self.QN, self.QP, self.QSi)
         if self.Chl is not None:
             self.thetaC = self.Chl / self.C #
 

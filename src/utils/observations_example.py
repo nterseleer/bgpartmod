@@ -111,7 +111,7 @@ class Obs:
         return df
 
     def compute_climatology(self, df):
-        df = df.assign(julian_day=df.index.dayofyear)
+        df = df.assign(julian_day=df.index.day_of_year)
         df = df.groupby('julian_day').mean()
         return df
 

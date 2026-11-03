@@ -50,6 +50,7 @@ class Detritus(BaseOrg):
         # Source and sink terms
         self.source_aggregation = Elms()
         self.source_mortality = Elms()
+        self.source_lysis = Elms()  # Si of the lysed phytoplankton (frustules), DetS only
         self.source_sloppy_feeding = Elms()
         self.sink_breakdown = Elms()
         self.sink_ingestion = Elms()
@@ -62,6 +63,7 @@ class Detritus(BaseOrg):
         # Coupling links
         self.coupled_aggreg_sources = None
         self.coupled_mortality_sources = None
+        self.coupled_lysis_sources = None
         self.coupled_sloppy_feeding_sources = None
         self.coupled_Phy = None
         self.coupled_TEPC = None
@@ -74,6 +76,7 @@ class Detritus(BaseOrg):
     def set_coupling(self,
                      coupled_aggreg_sources=None,
                      coupled_mortality_sources=None,
+                     coupled_lysis_sources=None,
                      coupled_sloppy_feeding_sources=None,
                      coupled_Phy=None, coupled_TEPC=None, coupled_larger_Det=None, coupled_smaller_Det=None,
                      coupled_consumers=None,
@@ -82,7 +85,16 @@ class Detritus(BaseOrg):
                      ):
         # Coupling links
         self.coupled_aggreg_sources = coupled_aggreg_sources
+        # A configuration saved before lysed Si was routed to DetS (2026-11-03) lacks
+        # coupled_lysis_sources: the lysed frustules would silently vanish from the Si budget.
+        # TypeError, not ValueError: an optimization trial would score a ValueError as badlnl.
+        if (self.name == 'DetS' and self.Si is not None and coupled_lysis_sources is None
+                and any(getattr(c, 'Si', None) is not None for c in (coupled_mortality_sources or []))):
+            raise TypeError("DetS: 'coupled_lysis_sources' is missing (Si of the lysed phytoplankton). "
+                            "Configuration older than 2026-11-03: add 'coupled_lysis_sources': ['Phy'] "
+                            "to the DetS coupling, or replay it from the git tag pre-kerimoglu-audit.")
         self.coupled_mortality_sources = coupled_mortality_sources
+        self.coupled_lysis_sources = coupled_lysis_sources
         self.coupled_sloppy_feeding_sources = coupled_sloppy_feeding_sources
         self.coupled_Phy = coupled_Phy
         self.coupled_TEPC = coupled_TEPC
@@ -109,6 +121,7 @@ class Detritus(BaseOrg):
         # SOURCES
         self.get_source_aggregation()
         self.get_source_mortality()
+        self.get_source_lysis()
         self.get_source_sloppy_feeding()
 
         # SOURCE terms of the state equation
@@ -126,6 +139,7 @@ class Detritus(BaseOrg):
         if self.Si is not None:
             self.Si_sources = (self.source_aggregation.Si +
                                self.source_mortality.Si +
+                               self.source_lysis.Si +
                                self.source_sloppy_feeding.Si)
         return np.array(
             [sources for sources in (self.C_sources, self.N_sources, self.P_sources, self.Si_sources) if
@@ -232,6 +246,19 @@ class Detritus(BaseOrg):
             self.source_mortality.N = 0.
             self.source_mortality.P = 0.
             self.source_mortality.Si = 0.
+
+    def get_source_lysis(self):
+        """Biogenic Si of the lysed phytoplankton: the frustule stays particulate and joins DetS,
+        as in the GPM code (phytoplankton.F90: lysis%Si -> det1Si). The SI of Kerimoglu et al.
+        (2022) routes it nowhere (neither SI-4c nor SI-7e). The C, N and P of lysis go to the
+        DOM (dom.py), hence their zero here."""
+        self.source_lysis.C = 0.
+        self.source_lysis.N = 0.
+        self.source_lysis.P = 0.
+        if self.Si is not None and self.coupled_lysis_sources is not None:
+            self.source_lysis.Si = fns.get_all_contributors(self.coupled_lysis_sources, 'sink_lysis', 'Si')
+        else:
+            self.source_lysis.Si = 0.
 
     def get_source_sloppy_feeding(self):
         self.source_sloppy_feeding.C = 0.

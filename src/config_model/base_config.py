@@ -29,9 +29,9 @@ Kerimoglu2022 = {
                   'eff_N': 1.,  # [-]
                   'eff_P': 1.,  # [-]
                   'mortrate_lin': 0.,  # [d-1]
-                  'mortrate_quad': 0.,  # [d-1]
+                  'mortrate_quad': 0.,  # [m3 mmolC-1 d-1]
                   'lysrate_lin': 0.1,  # [d-1]
-                  'lysrate_quad': 0.1,  # [d-1]  ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
+                  'lysrate_quad': 0.1,  # [m3 mmolC-1 d-1]  ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
                   'f_unass_excr': 0.8,  # [-]
                   'f_unass_Si': 0.9,  # [-]
                   'zeta_resp': 0.05,  # [d-1]
@@ -73,9 +73,9 @@ Kerimoglu2022 = {
                   'eff_N': 1.,  # [-]
                   'eff_P': 1.,  # [-]
                   'mortrate_lin': 0.,  # [d-1]
-                  'mortrate_quad': 0.,  # [d-1]
+                  'mortrate_quad': 0.,  # [m3 mmolC-1 d-1]
                   'lysrate_lin': 0.1,  # [d-1]
-                  'lysrate_quad': 0.1,  # [d-1]  ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
+                  'lysrate_quad': 0.1,  # [m3 mmolC-1 d-1]  ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
                   'f_unass_excr': 0.8,  # [-]
                   'f_unass_Si': 0.9,  # [-]
                   'zeta_resp': 0.05,  # [d-1]
@@ -117,9 +117,9 @@ Kerimoglu2022 = {
                 'eff_N': 1.,  # [-]
                 'eff_P': 1.,  # [-]
                 'mortrate_lin': 0.05,  # [d-1]
-                'mortrate_quad': 0.0,  # [d-1] ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
+                'mortrate_quad': 0.0,  # [m3 mmolC-1 d-1]
                 'lysrate_lin': 0.,  # [d-1]
-                'lysrate_quad': 0.06,  # [d-1]
+                'lysrate_quad': 0.06,  # [m3 mmolC-1 d-1]
                 'f_unass_excr': 1.,  # [-]
                 'f_unass_Si': 0.95,  # [-]
                 'zeta_resp': 0.05,  # [d-1]
@@ -161,9 +161,9 @@ Kerimoglu2022 = {
                  'eff_N': 1.,  # [-]
                  'eff_P': 1.,  # [-]
                  'mortrate_lin': 0.05,  # [d-1]
-                 'mortrate_quad': 0.0,  # [d-1] ! Difference: 0 in the paper, 0.1 in Kerimoglu's code
+                 'mortrate_quad': 0.0,  # [m3 mmolC-1 d-1]
                  'lysrate_lin': 0.,  # [d-1]
-                 'lysrate_quad': 0.02,  # [d-1]
+                 'lysrate_quad': 0.02,  # [m3 mmolC-1 d-1]
                  'f_unass_excr': 1.,  # [-]
                  'f_unass_Si': 0.95,  # [-]
                  'zeta_resp': 0.05,  # [d-1]
@@ -357,6 +357,7 @@ Kerimoglu2022 = {
                   },
              'coupling': {
                  'coupled_mortality_sources': ['Phy'] + heterotrophs_list,
+                 'coupled_lysis_sources': ['Phy'],  # Si of lysed frustules (C, N, P -> DOM)
                  'coupled_consumers': heterotrophs_list,
                  'coupled_sloppy_feeding_sources': heterotrophs_list,
                  'coupled_larger_Det': 'DetL',

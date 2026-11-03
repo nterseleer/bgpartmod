@@ -2309,7 +2309,7 @@ def plot_parameter_vs_cost(
     # Get parameter info for reference and labels
     param_info = varinfos.ref_values.get(param, {})
     ref_value = param_info.get('reference_value')
-    symbol = param_info.get('symbol', param)
+    symbol = param_info.get('symbol')  # sans symbole : nom brut, pas de mathtext
 
     # Add reference line
     if show_reference and ref_value is not None:
@@ -2536,7 +2536,7 @@ def compare_optimizations(
         # Get parameter info for labels and reference
         param_info = varinfos.ref_values.get(param, {})
         ref_value = param_info.get('reference_value')
-        symbol = param_info.get('symbol', param)
+        symbol = param_info.get('symbol')  # sans symbole : nom brut, pas de mathtext
 
         # Add reference line (vertical for horizontal violins)
         if ref_value is not None:
@@ -2785,7 +2785,7 @@ def compare_optim_values(
 
         # Styling
         param_info = varinfos.ref_values.get(param, {})
-        symbol = param_info.get('symbol', param)
+        symbol = param_info.get('symbol')  # sans symbole : nom brut, pas de mathtext
         ax.set_title(fns.cleantext(symbol) if symbol else param, fontsize=10)
         ax.set_yticks(y_positions)
         ax.set_yticklabels([o.name for o in opts] if col == 0 else [], fontsize=8)
