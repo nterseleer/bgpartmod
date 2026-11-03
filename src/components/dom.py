@@ -240,7 +240,10 @@ class DOM(BaseOrg):
             self.source_sloppy_feeding.C = 0
 
     def get_sink_ingestion(self):
-        """Calculate ingestion sinks for Kerimoglu22 formulation."""
+        """Calculate ingestion sinks for Kerimoglu22 formulation.
+
+        The single DON and DOP pools of SI-2c are carried by DOCS (DOCS.N, DOCS.P) and ingested
+        with it. DOCL and TEPC, large C-rich polysaccharides, carry no N or P."""
         self.sink_ingestion.C = sum(c.source_ingestion.C[self.name] for c in self.coupled_consumers)
 
         if self.name == "DOCS":

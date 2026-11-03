@@ -10,7 +10,7 @@ Why a table and not pure config introspection: the receiver-side couplings in th
 (`coupled_<proc>_sources`, `coupled_consumers`, ...) give WHO feeds WHOM, but the *currency
 routing* lives inside the component code (`if self.name == ...` branches), and it is NOT a
 relabelling of the carbon graph. Concretely:
-  - lysis      : C -> DOCL, N/P -> DOCS (DON/DOP), Si -> DSi           (three targets!)
+  - lysis      : C -> DOCL, N/P -> DOCS (DON/DOP), Si -> DetS          (three targets!)
   - exudation  : C split DOCS/DOCL, N/P -> DOCS, Si -> DSi
   - DOC->TEP   : C only (TEP carries no N/P/Si)
   - remineralisation : N/P/Si, plus C when NH4.remin_C_ratio > 0 (C -> external DIC)
@@ -52,7 +52,7 @@ _ALL = ('C', 'N', 'P', 'Si')
 _RULES: List[dict] = [
     dict(proc='respiration', emit='phy',     term='sink_respiration',      tgt=_INORG, cur=('C',)),
     dict(proc='lysis',       emit='phy+het', term='sink_lysis',
-         tgt={'C': 'DOCL', 'N': 'DOCS', 'P': 'DOCS', 'Si': 'DSi'},         cur=_ALL),
+         tgt={'C': 'DOCL', 'N': 'DOCS', 'P': 'DOCS', 'Si': 'DetS'},        cur=_ALL),
     dict(proc='mortality',   emit='phy+het', term='sink_mortality',        tgt='DetS', cur=_ALL),
     dict(proc='agg_phy',     emit='phy',     term='sink_aggregation',      tgt='DetL', cur=_ALL),
     dict(proc='agg_doc',     emit='doc',     term='sink_aggregation',      tgt='TEPC', cur=('C',)),
@@ -161,8 +161,8 @@ def flux_links(sim, currency: str = 'C', period: int = 2023) -> Dict[Tuple[str, 
 
 def _add_exudation(add, A, roles, currency):
     """Phytoplankton exudation. C: split small/large read from DOCS/DOCL source side
-    (the split fraction is internal to Phy); N/P: all to DOCS; Si: to DSi (emit-side, so it
-    does not double-count the lysis-Si already routed to DSi by the lysis rule)."""
+    (the split fraction is internal to Phy); N/P: all to DOCS; Si: to DSi (emit-side; the
+    lysis-Si goes to DetS through the lysis rule)."""
     for phy in roles['phy']:
         if currency == 'C':
             add(phy, 'DOCS', A('DOCS_source_exudation.C'))
@@ -211,10 +211,11 @@ def _add_hetero_outputs(add, A, L, roles, config, currency):
             add(h, 'DetS', intake * f_si)
             add(h, 'DSi', intake * (1.0 - f_si))
         else:
+            # assimilated C includes the respired C (SI-6: growth = assimilated C - R)
             assim = A(f'{h}_source_ing_{currency}_assimilated')
             resp = A(f'{h}_sink_respiration.{currency}') if currency == 'C' else 0.0
             f_dom = p['f_unass_excr']
-            unassim = max(intake - assim - resp, 0.0)
+            unassim = max(intake - assim, 0.0)
             add(h, 'DOCS', unassim * f_dom)
             add(h, _INORG[currency], unassim * (1 - f_dom) + resp)
 

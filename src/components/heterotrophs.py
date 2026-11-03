@@ -16,9 +16,9 @@ class Heterotrophs(BaseOrg):
                  eff_P=1.,  # [-] P assimilation efficiency
                  zeta_resp=0.05,  # [d-1] Basal respiration rate
                  lysrate_lin=0.1,  # [d-1] Linear lysis rate
-                 lysrate_quad=0.,  # [d-1] Quadratic lysis rate
+                 lysrate_quad=0.,  # [m3 mmolC-1 d-1] Quadratic lysis rate
                  mortrate_lin=0.,  # [d-1] Linear mortality rate
-                 mortrate_quad=0.,  # [d-1] Quadratic mortality rate
+                 mortrate_quad=0.,  # [m3 mmolC-1 d-1] Quadratic mortality rate
                  f_unass_excr=0.8,  # [-] Organic fraction of unassimilated excretes
                  f_unass_Si=0.9,  # [-] Detrital fraction of unassimilated silicate
                  A_E=0.65,  # [-] Activation energy for T scaling (Kerimoglu22)
@@ -150,40 +150,30 @@ class Heterotrophs(BaseOrg):
         self.get_sink_lysis()
         self.get_sink_respiration()
 
-        # Correct the eff_X values in order to keep a constant QN and QP (given N, P are diagnostic variables)
-        #       as in Kerimoglu et al. (2020)
-        eff_C = self.eff_C
-        eff_N = self.eff_N
-        eff_P = self.eff_P
-
-        # Respiration.C is removed here as this is the only other term that has no N and P counterpart that would
-        #   be computed from QN and QP. Consequently, it needs to be removed from C_ingestion here to take this
-        #   C loss into account when updating eff_C, eff_N and eff_P to conserve QN and QP
-        self.ing_C = sum(self.source_ingestion.C.values()) - self.sink_respiration.C
-        if self.N is not None:
-            self.ing_N = sum(self.source_ingestion.N.values())
+        # Net growth at constant QN and QP (C-only heterotrophs, SI-6; stoichiometric adjustment of
+        # the assimilation efficiencies as in Kerimoglu et al. 2020). The biomass pays its
+        # respiration with assimilated C (SI-6: eff_C * I - R); N and P are not respired. The
+        # element that limits the net gain sets the assimilation of the others, whose excess
+        # leaves with the unassimilated matter (to DOM and DIM, SI-2 and SI-7):
+        #   growth = min(eff_C * I_C - R, eff_N * I_N / QN, eff_P * I_P / QP)
+        #   assimilated C = growth + R, assimilated N = QN * growth, assimilated P = QP * growth
+        # When R exceeds eff_C * I_C (starvation), growth < 0: the N and P of the catabolised
+        # biomass leave by the same route (negative net assimilation of N and P).
+        self.ing_C = sum(self.source_ingestion.C.values())
+        growth = self.eff_C * self.ing_C - self.sink_respiration.C
         if self.P is not None:
             self.ing_P = sum(self.source_ingestion.P.values())
-
-        if self.P is not None and eff_P * self.ing_P > eff_C * self.ing_C * self.QP:
-            eff_P = eff_C * self.ing_C * self.QP / self.ing_P
-        elif self.P is not None and eff_P * self.ing_P < eff_C * self.ing_C * self.QP:
-            eff_C = eff_P * self.ing_P / (self.ing_C * self.QP)
-
-        if self.N is not None and eff_N * self.ing_N > eff_C * self.ing_C * self.QN:
-            eff_N = eff_C * self.ing_C * self.QN / self.ing_N
-        elif self.N is not None and eff_N * self.ing_N < eff_C * self.ing_C * self.QN:
-            eff_C = eff_N * self.ing_N / (self.ing_C * self.QN)
-
-        if self.P is not None and eff_P * self.ing_P > eff_C * self.ing_C * self.QP:
-            eff_P = eff_C * self.ing_C * self.QP / self.ing_P
+            growth = min(growth, self.eff_P * self.ing_P / self.QP)
+        if self.N is not None:
+            self.ing_N = sum(self.source_ingestion.N.values())
+            growth = min(growth, self.eff_N * self.ing_N / self.QN)
 
         # SOURCE terms of the state equation
-        self.source_ing_C_assimilated = self.ing_C * eff_C
+        self.source_ing_C_assimilated = growth + self.sink_respiration.C
         if self.N is not None:
-            self.source_ing_N_assimilated = self.ing_N * eff_N
+            self.source_ing_N_assimilated = self.QN * growth
         if self.P is not None:
-            self.source_ing_P_assimilated = self.ing_P * eff_P
+            self.source_ing_P_assimilated = self.QP * growth
 
         # Remaining part to be distributed elsewhere
         self.source_ing_C_unassimilated = self.ing_C - self.source_ing_C_assimilated
@@ -215,10 +205,10 @@ class Heterotrophs(BaseOrg):
 
         self.get_sink_vertical_loss()
 
-        # SINK terms of the state equation
-        # sink_respiration.C is NOT summed here: it is already subtracted from the
-        # ingestion in get_sources, so that QN and QP stay constant.
+        # SINK terms of the state equation (SI-6). Respiration has no N or P counterpart: the N
+        # and P matching it are left unassimilated in get_sources, so QN and QP stay constant.
         self.C_sinks = (self.sink_ingestion.C +
+                        self.sink_respiration.C +
                         self.sink_lysis.C +
                         self.sink_mortality.C +
                         self.sink_vertical_loss.C)
