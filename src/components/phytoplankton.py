@@ -20,6 +20,10 @@ _M_EPS = 1e-6  # slope below which the exponential biomass profile is numericall
                # (gamma(s)*gammaincc(s,x) loses precision as s = m/kd -> 0).
 
 class Phyto(BaseOrg):
+    # Class-level default of the parameter added on 2026-11-12: a simulation pickled before it
+    # still resolves the derived kd_contrib_* variables, which read it from the component.
+    spm_surface_ratio = 1.0
+
     def __init__(self,
                  mu_max=5.2,  # [d-1] Max C-specific photosynthesis rate at T_max (Kerimoglu22 from G97:
                               #   P^C_m of T. weissflogii at 291 K, Table 2; plays the P^C_ref role of G98)
@@ -58,6 +62,9 @@ class Phyto(BaseOrg):
                  grazing_loss_max=0.0,  # [mmol C m-3 d-1] Maximum grazing loss rate (default: disabled)
                  grazing_holling_exponent=1.0,  # [-] Holling exponent: 1.0=type II (MM), 2.0=type III (sigmoidal)
                  eps_kd=0.024,  # [m2 mmolC-1] Diffuse attenuation cross section of phytoplankton (Kerimoglu22)
+                 spm_surface_ratio=1.0,  # [-] SPM of the sunlit layer relative to the 0D SPM; scales the mineral
+                                         # term of kd only (1 = homogeneous column). MOW1 water samples:
+                                         # 0.58-0.75 by season (Silori25, Table 1)
                  prescribe_SPM_from_setup=False,  # Whether to use prescribed SPM from Setup (for BGC-only runs)
                  prescribed_SPM_eps_kd=0.066e3,  # [m² kg⁻¹] Light attenuation cross section for prescribed SPM
                  dt2=False,
@@ -119,6 +126,7 @@ class Phyto(BaseOrg):
         self.grazing_loss_max = grazing_loss_max
         self.grazing_holling_exponent = grazing_holling_exponent
         self.eps_kd = eps_kd
+        self.spm_surface_ratio = spm_surface_ratio
         self.prescribe_SPM_from_setup = prescribe_SPM_from_setup
         self.prescribed_SPM_eps_kd = prescribed_SPM_eps_kd
         self.dt2 = dt2
@@ -408,7 +416,10 @@ class Phyto(BaseOrg):
         # Lazy initialization: compute cache on first call (after all set_coupling done)
         if not self._eps_kds_cached:
             self._cached_eps_kds = np.array([x.eps_kd for x in self.coupled_light_attenuators])
-            self._cached_spm_eps_kds = np.array([x.eps_kd for x in self.coupled_SPM]) if self.coupled_SPM else None
+            # Light sees the SPM of the sunlit layer, not the 0D concentration: spm_surface_ratio
+            # is folded into the cached mineral cross sections (1.0 leaves them unchanged).
+            self._cached_spm_eps_kds = (self.spm_surface_ratio * np.array([x.eps_kd for x in self.coupled_SPM])
+                                        if self.coupled_SPM else None)
             self._eps_kds_cached = True
 
         # Compute kd using cached eps_kd values
