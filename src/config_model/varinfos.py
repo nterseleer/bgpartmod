@@ -148,6 +148,12 @@ ref_values = {
         'units': '[-]',
         'complete_name': 'Compound multiplier on realised primary production'
     },
+    'Phy+spm_surface_ratio': {
+        'reference_value': 1.,
+        'symbol': 'r_{SPM}^{surf}',
+        'units': '[-]',
+        'complete_name': 'SPM of the sunlit layer relative to the 0D SPM (light attenuation only)'
+    },
     'Phy+grazing_loss_max': {
         'reference_value': 0.,
         'symbol': 'grazing^{max}_{loss}',
@@ -995,20 +1001,23 @@ doutput = {"Phy_C": {'units': 'mmol C m-3',
 
            "kd_contrib_Flocs": {'units': 'm^{-1}',
                                 'munits': 'm^{-1}',
-                                'oprt': "model.components['Microflocs'].eps_kd * Microflocs_massconcentration "
-                                        "+ model.components['Micro_in_Macro'].eps_kd * Micro_in_Macro_massconcentration",
+                                'oprt': "model.components['Phy'].spm_surface_ratio * ("
+                                        "model.components['Microflocs'].eps_kd * Microflocs_massconcentration "
+                                        "+ model.components['Micro_in_Macro'].eps_kd * Micro_in_Macro_massconcentration)",
                                 'longname': 'Light attenuation from mineral flocs (free microflocs + microflocs-in-macroflocs)',
                                 'cleanname': 'k_d^{Flocs}'},
 
            "kd_contrib_Microflocs": {'units': 'm^{-1}',
                                      'munits': 'm^{-1}',
-                                     'oprt': "model.components['Microflocs'].eps_kd * Microflocs_massconcentration",
+                                     'oprt': "model.components['Phy'].spm_surface_ratio "
+                                             "* model.components['Microflocs'].eps_kd * Microflocs_massconcentration",
                                      'longname': 'Light attenuation from free Microflocs (SPM)',
                                      'cleanname': 'k_d^{Microflocs}'},
 
            "kd_contrib_Micro_in_Macro": {'units': 'm^{-1}',
                                          'munits': 'm^{-1}',
-                                         'oprt': "model.components['Micro_in_Macro'].eps_kd * Micro_in_Macro_massconcentration",
+                                         'oprt': "model.components['Phy'].spm_surface_ratio "
+                                                 "* model.components['Micro_in_Macro'].eps_kd * Micro_in_Macro_massconcentration",
                                          'longname': 'Light attenuation from Microflocs in Macroflocs (SPM)',
                                          'cleanname': 'k_d^{Micro in Macro}'},
 
